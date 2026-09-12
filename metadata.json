@@ -1,0 +1,6 @@
+{
+  "name": "Konichiwa_Mart",
+  "description": "Modern boutique D2C Japanese beauty & cosmetics brand featuring lipsticks, serums, foundations, and skincare, with server-side price validation, Razorpay payments, Shiprocket logistics, and Resend GST invoicing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

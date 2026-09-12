@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-serif: 'Cormorant Garamond', Georgia, serif;
+    --font-display: 'Italiana', 'Cormorant Garamond', serif;
+    --font-editorial: 'Playfair Display', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #FFF0F3;
+    color: #1E293B;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, .font-serif {
+    font-family: var(--font-serif);
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-editorial {
+    font-family: var(--font-editorial);
+  }
+
+  .font-sans {
+    font-family: var(--font-sans);
+  }
+}
+
+/* Light Liquid Glass Skincare Effects */
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 
+    0 12px 36px 0 rgba(244, 114, 182, 0.12),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.95);
+}
+
+.liquid-glass-pink, .liquid-glass-blue {
+  background: linear-gradient(135deg, rgba(254, 242, 248, 0.90) 0%, rgba(255, 241, 242, 0.80) 100%);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(251, 207, 232, 0.9);
+  box-shadow: 
+    0 12px 36px 0 rgba(244, 114, 182, 0.14),
+    inset 0 1px 3px 0 rgba(255, 255, 255, 0.95);
+}
+
+.liquid-glass-rose, .liquid-glass-sakura {
+  background: linear-gradient(135deg, rgba(255, 246, 250, 0.88) 0%, rgba(254, 242, 246, 0.78) 100%);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 
+    0 12px 34px 0 rgba(244, 114, 182, 0.14),
+    inset 0 1px 3px 0 rgba(255, 255, 255, 0.98);
+}
+
+.liquid-glass-card {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-glass-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 
+    0 18px 40px -10px rgba(244, 114, 182, 0.22),
+    inset 0 1px 3px 0 rgba(255, 255, 255, 1);
+  border-color: rgba(255, 255, 255, 1);
+}
+
+/* Custom scrollbar in baby pink / sakura blush */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+::-webkit-scrollbar-track {
+  background: #FFF0F3;
+}
+::-webkit-scrollbar-thumb {
+  background: #FBCFE8;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #F472B6;
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(1deg);
+  }
+}
+
+.animate-float-slow {
+  animation: floatSlow 7s ease-in-out infinite;
+}
+
+@keyframes blossomSway {
+  0%, 100% {
+    transform: rotate(0deg) scale(1);
+    transform-origin: top right;
+  }
+  50% {
+    transform: rotate(1deg) scale(1.008);
+    transform-origin: top right;
+  }
+}
+
+.animate-blossom-sway {
+  animation: blossomSway 9s ease-in-out infinite;
+}
+
