@@ -430,9 +430,10 @@ export default function App() {
   };
 
   // Restore Original Catalog Handler
-  const handleResetDefaultProducts = () => {
-    resetProductsInStore();
-    setProductsList(PRODUCTS);
+  const handleResetDefaultProducts = async () => {
+    await resetProductsInStore();
+    const fresh = await fetchProductsFromStore();
+    setProductsList(fresh);
   };
 
   // Active Promo applied from Cart

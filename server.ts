@@ -638,9 +638,66 @@ function saveCustomProducts(products: Product[]): void {
   } catch {}
 }
 
-function mapSupabaseRowToProduct(row: any): Product {
+// Helper: shade definitions fallback for lipstick and foundations
+const PRODUCT_SHADES_MAP_SERVER: Record<string, any[]> = {
+  'velvet-petal-matte-lipstick': [
+    { id: 'sh-01', name: '01 Tokyo Crimson', hex: '#BE123C', sku: 'LIP-VK-01' },
+    { id: 'sh-02', name: '02 Sakura Bloom', hex: '#E11D48', sku: 'LIP-VK-02' },
+    { id: 'sh-04', name: '04 Dusty Rose', hex: '#BE185D', sku: 'LIP-VK-04' },
+    { id: 'sh-05', name: '05 Kyoto Warm Nude', hex: '#B45309', sku: 'LIP-VK-05' }
+  ],
+  'luminous-silk-serum-foundation': [
+    { id: 'fnd-101', name: '101 Fair Warm Porcelain', hex: '#FDE68A', sku: 'FND-LS-101' },
+    { id: 'fnd-102', name: '102 Light Warm Beige', hex: '#FCD34D', sku: 'FND-LS-102' },
+    { id: 'fnd-201', name: '201 Medium Natural Sand', hex: '#F59E0B', sku: 'FND-LS-201' },
+    { id: 'fnd-301', name: '301 Warm Honey Tan', hex: '#D97706', sku: 'FND-LS-301' }
+  ],
+  'souffle-cream-blush': [
+    { id: 'bl-01', name: 'Peach Yuzu Glow', hex: '#FDBA74', sku: 'BL-SF-01' },
+    { id: 'bl-02', name: 'Sakura Petal Pink', hex: '#FB7185', sku: 'BL-SF-02' },
+    { id: 'bl-03', name: 'Warm Berry Jam', hex: '#E11D48', sku: 'BL-SF-03' }
+  ]
+};
+
+async function getSupabaseInventoryServer(supabase: SupabaseClient): Promise<Record<string, number>> {
+  try {
+    const { data } = await supabase
+      .from('categories')
+      .select('description')
+      .eq('slug', '_app_inventory')
+      .maybeSingle();
+
+    if (data?.description) {
+      return JSON.parse(data.description);
+    }
+  } catch (err) {
+    console.warn('[Server] Supabase inventory fetch warning:', err);
+  }
+  return {};
+}
+
+async function updateSupabaseInventoryServer(supabase: SupabaseClient, productId: string, stock: number): Promise<void> {
+  try {
+    const counts = await getSupabaseInventoryServer(supabase);
+    counts[productId] = stock;
+    await supabase.from('categories').upsert({
+      slug: '_app_inventory',
+      name: 'Store Inventory Metadata',
+      description: JSON.stringify(counts)
+    }, { onConflict: 'slug' });
+  } catch (err) {
+    console.warn('[Server] Supabase inventory update warning:', err);
+  }
+}
+
+function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>): Product {
+  const productId = row.slug || row.id;
+  const stockValue = inventoryMap && (inventoryMap[productId] !== undefined || inventoryMap[row.id] !== undefined)
+    ? (inventoryMap[productId] ?? inventoryMap[row.id])
+    : 50;
+
   return {
-    id: row.slug || row.id,
+    id: productId,
     title: row.title,
     subtitle: row.subtitle || '',
     price: Number(row.base_price || 0),
@@ -666,7 +723,8 @@ function mapSupabaseRowToProduct(row: any): Product {
     description: row.description || '',
     benefits: Array.isArray(row.benefits) ? row.benefits : [],
     usageHowTo: row.usage_how_to || '',
-    stock: 50,
+    stock: stockValue,
+    shades: PRODUCT_SHADES_MAP_SERVER[productId] || undefined,
     isBestSeller: Boolean(row.is_bestseller),
     isNew: Boolean(row.is_new)
   };
@@ -712,16 +770,19 @@ app.get('/api/products', async (_req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: true });
+      const [prodRes, invMap] = await Promise.all([
+        supabase
+          .from('products')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: true }),
+        getSupabaseInventoryServer(supabase)
+      ]);
 
-      if (!error && Array.isArray(data) && data.length > 0) {
-        // Map and filter out any deleted IDs
-        const products = data
-          .map(mapSupabaseRowToProduct)
+      if (!prodRes.error && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
+        // Map with Supabase inventory and filter out any deleted IDs
+        const products = prodRes.data
+          .map(row => mapSupabaseRowToProduct(row, invMap))
           .filter(p => !deletedIds.has(p.id));
 
         return res.json({ success: true, source: 'supabase', products });
@@ -816,10 +877,17 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
       if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
       if (updates.title !== undefined) patch.title = updates.title;
 
-      await supabase
-        .from('products')
-        .update(patch)
-        .or(`id.eq.${id},slug.eq.${id}`);
+      if (Object.keys(patch).length > 0) {
+        await supabase
+          .from('products')
+          .update(patch)
+          .or(`id.eq.${id},slug.eq.${id}`);
+      }
+
+      // Sync stock to Supabase inventory metadata
+      if (updates.stock !== undefined) {
+        await updateSupabaseInventoryServer(supabase, id, updates.stock);
+      }
     } catch (err: any) {
       console.warn('[Server] Supabase update warning:', err?.message || err);
     }
@@ -856,6 +924,10 @@ app.post('/api/products', async (req: Request, res: Response) => {
       await supabase
         .from('products')
         .insert([mapProductToSupabaseRow(newProduct)]);
+
+      if (newProduct.stock !== undefined) {
+        await updateSupabaseInventoryServer(supabase, newProduct.id, newProduct.stock);
+      }
     } catch (err: any) {
       console.warn('[Server] Supabase product insert warning:', err?.message || err);
     }

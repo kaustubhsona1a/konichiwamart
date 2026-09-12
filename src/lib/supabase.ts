@@ -469,9 +469,74 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
 // CATALOG & PRODUCT SYNCHRONIZATION WITH SUPABASE & SERVER
 // ==============================================================================
 
-function mapSupabaseRowToProductClient(row: any): Product {
+// Helper: shade definitions fallback for lipstick and foundations
+const PRODUCT_SHADES_MAP: Record<string, any[]> = {
+  'velvet-petal-matte-lipstick': [
+    { id: 'sh-01', name: '01 Tokyo Crimson', hex: '#BE123C', sku: 'LIP-VK-01' },
+    { id: 'sh-02', name: '02 Sakura Bloom', hex: '#E11D48', sku: 'LIP-VK-02' },
+    { id: 'sh-04', name: '04 Dusty Rose', hex: '#BE185D', sku: 'LIP-VK-04' },
+    { id: 'sh-05', name: '05 Kyoto Warm Nude', hex: '#B45309', sku: 'LIP-VK-05' }
+  ],
+  'luminous-silk-serum-foundation': [
+    { id: 'fnd-101', name: '101 Fair Warm Porcelain', hex: '#FDE68A', sku: 'FND-LS-101' },
+    { id: 'fnd-102', name: '102 Light Warm Beige', hex: '#FCD34D', sku: 'FND-LS-102' },
+    { id: 'fnd-201', name: '201 Medium Natural Sand', hex: '#F59E0B', sku: 'FND-LS-201' },
+    { id: 'fnd-301', name: '301 Warm Honey Tan', hex: '#D97706', sku: 'FND-LS-301' }
+  ],
+  'souffle-cream-blush': [
+    { id: 'bl-01', name: 'Peach Yuzu Glow', hex: '#FDBA74', sku: 'BL-SF-01' },
+    { id: 'bl-02', name: 'Sakura Petal Pink', hex: '#FB7185', sku: 'BL-SF-02' },
+    { id: 'bl-03', name: 'Warm Berry Jam', hex: '#E11D48', sku: 'BL-SF-03' }
+  ]
+};
+
+/**
+ * Reads inventory counts directly from Supabase categories table (_app_inventory row)
+ */
+export async function getSupabaseInventoryCounts(): Promise<Record<string, number>> {
+  const client = getSupabaseClient();
+  if (!client) return {};
+  try {
+    const { data, error } = await client
+      .from('categories')
+      .select('description')
+      .eq('slug', '_app_inventory')
+      .maybeSingle();
+
+    if (!error && data?.description) {
+      return JSON.parse(data.description);
+    }
+  } catch (err) {
+    console.warn('[Supabase Inventory] Read error:', err);
+  }
+  return {};
+}
+
+/**
+ * Saves/updates inventory counts in Supabase categories table (_app_inventory row)
+ */
+export async function saveSupabaseInventoryCounts(counts: Record<string, number>): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) return;
+  try {
+    await client.from('categories').upsert({
+      slug: '_app_inventory',
+      name: 'Store Inventory Metadata',
+      description: JSON.stringify(counts)
+    }, { onConflict: 'slug' });
+  } catch (err) {
+    console.warn('[Supabase Inventory] Save error:', err);
+  }
+}
+
+function mapSupabaseRowToProductClient(row: any, inventoryMap?: Record<string, number>): Product {
+  const productId = row.slug || row.id;
+  const stockValue = inventoryMap && (inventoryMap[productId] !== undefined || inventoryMap[row.id] !== undefined)
+    ? (inventoryMap[productId] ?? inventoryMap[row.id])
+    : 50;
+
   return {
-    id: row.slug || row.id,
+    id: productId,
     title: row.title,
     subtitle: row.subtitle || '',
     price: Number(row.base_price || 0),
@@ -497,7 +562,8 @@ function mapSupabaseRowToProductClient(row: any): Product {
     description: row.description || '',
     benefits: Array.isArray(row.benefits) ? row.benefits : [],
     usageHowTo: row.usage_how_to || '',
-    stock: 50,
+    stock: stockValue,
+    shades: PRODUCT_SHADES_MAP[productId] || undefined,
     isBestSeller: Boolean(row.is_bestseller),
     isNew: Boolean(row.is_new)
   };
@@ -563,19 +629,30 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
     console.warn('[Products Store] Server fetch error, checking direct Supabase:', err);
   }
 
-  // 2. Direct Supabase Client fallback (for client-side or static CDN)
+  // 2. Direct Supabase Client fallback (for Vercel deployment or client-side)
   const client = getSupabaseClient();
   if (client) {
     try {
-      const { data, error } = await client
-        .from('products')
-        .select('*')
-        .eq('is_active', true)
-        .order('created_at', { ascending: true });
+      const [prodRes, invRes] = await Promise.all([
+        client
+          .from('products')
+          .select('*')
+          .eq('is_active', true)
+          .order('created_at', { ascending: true }),
+        client
+          .from('categories')
+          .select('description')
+          .eq('slug', '_app_inventory')
+          .maybeSingle()
+      ]);
 
-      if (!error && Array.isArray(data) && data.length > 0) {
-        const mapped = data
-          .map(mapSupabaseRowToProductClient)
+      const inventoryMap: Record<string, number> = invRes?.data?.description 
+        ? JSON.parse(invRes.data.description) 
+        : {};
+
+      if (!prodRes.error && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
+        const mapped = prodRes.data
+          .map((row) => mapSupabaseRowToProductClient(row, inventoryMap))
           .filter((p) => !localDeletedIds.has(p.id));
 
         localStorage.setItem('km_custom_products', JSON.stringify(mapped));
@@ -654,18 +731,29 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
     }).catch(() => {});
   } catch {}
 
-  // 2. Direct Supabase
+  // 2. Direct Supabase (syncs price and stock directly with Supabase)
   const client = getSupabaseClient();
   if (client) {
-    const patch: any = {};
-    if (updates.price !== undefined) patch.base_price = updates.price;
-    if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
-    Promise.resolve(
-      client
-        .from('products')
-        .update(patch)
-        .or(`id.eq.${productId},slug.eq.${productId}`)
-    ).catch(() => {});
+    // If updating price
+    if (updates.price !== undefined || updates.originalPrice !== undefined) {
+      const patch: any = {};
+      if (updates.price !== undefined) patch.base_price = updates.price;
+      if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
+      Promise.resolve(
+        client
+          .from('products')
+          .update(patch)
+          .or(`id.eq.${productId},slug.eq.${productId}`)
+      ).catch(() => {});
+    }
+
+    // If updating stock
+    if (updates.stock !== undefined) {
+      getSupabaseInventoryCounts().then((counts) => {
+        counts[productId] = updates.stock!;
+        saveSupabaseInventoryCounts(counts);
+      }).catch(() => {});
+    }
   }
 
   return true;
@@ -692,6 +780,14 @@ export const addProductToStore = async (product: Product): Promise<boolean> => {
         .from('products')
         .insert([mapProductToSupabaseRowClient(product)])
     ).catch(() => {});
+
+    // Save initial stock in Supabase inventory
+    if (product.stock !== undefined) {
+      getSupabaseInventoryCounts().then((counts) => {
+        counts[product.id] = product.stock;
+        saveSupabaseInventoryCounts(counts);
+      }).catch(() => {});
+    }
   }
 
   return true;
