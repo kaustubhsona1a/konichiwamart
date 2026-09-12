@@ -14,32 +14,44 @@ interface HeroBannerProps {
 export const HeroBanner: React.FC<HeroBannerProps> = ({
   customBannerUrl
 }) => {
+  // Fallback image sources in order of priority
+  const FALLBACK_BANNERS = [
+    '/products/konichiwalaptopbg.png',
+    '/konichiwalaptopbg.png',
+    'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/products/konichiwalaptopbg.png',
+    '/hero-banner.png'
+  ];
+
   // Stored or served banner image
   const [internalBannerUrl, setInternalBannerUrl] = useState<string>(() => {
-    return localStorage.getItem('km_hero_banner_data') || '/hero-banner.png';
+    return localStorage.getItem('km_hero_banner_data') || FALLBACK_BANNERS[0];
   });
 
+  const [fallbackIndex, setFallbackIndex] = useState<number>(0);
   const bannerUrl = customBannerUrl || internalBannerUrl;
   const setBannerUrl = setInternalBannerUrl;
-  const [imageLoaded, setImageLoaded] = useState<boolean>(() => {
-    return Boolean(localStorage.getItem('km_hero_banner_data'));
-  });
+  const [imageLoaded, setImageLoaded] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Check if /hero-banner.png exists on server
+  // Check if banner exists on server (optional check for dynamic backend deployments)
   useEffect(() => {
     fetch('/api/banner-status')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('Not found');
+        return res.json();
+      })
       .then((data) => {
-        if (data?.exists) {
-          setBannerUrl('/hero-banner.png?v=' + Date.now());
+        if (data?.exists && data?.url) {
+          setBannerUrl(data.url + '?v=' + Date.now());
           setImageLoaded(true);
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Static deployments (e.g. Vercel) won't have /api/banner-status, which is normal.
+      });
   }, []);
 
   const handleShopNowClick = () => {
@@ -111,7 +123,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   return (
     <section 
       id="hero-banner" 
-      className="relative w-full overflow-hidden bg-[#FFF5F7] pt-[56px] sm:pt-[64px]"
+      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b] pt-[56px] sm:pt-[64px]"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -138,18 +150,27 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       {/* FULL-VIEWPORT LAPTOP & DESKTOP HERO BANNER CONTAINER */}
       <div className="relative w-full max-w-[1920px] mx-auto min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] flex flex-col justify-center">
         {/* Banner image representation */}
-        <div className="relative w-full h-full min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] overflow-hidden flex items-center justify-center">
+        <div className="relative w-full h-full min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#FFEBF1] via-[#FFF0F5] to-[#FED7E2] dark:from-[#18181b] dark:via-[#121214] dark:to-[#09090b]">
           <img
             src={bannerUrl}
             alt="Konichiwa Mart - Japanese Beauty, Made for You"
+            loading="eager"
+            fetchPriority="high"
             onLoad={() => setImageLoaded(true)}
             onError={() => {
-              if (bannerUrl !== '/hero-banner.png') {
+              if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
+                const nextIdx = fallbackIndex + 1;
+                setFallbackIndex(nextIdx);
+                setBannerUrl(FALLBACK_BANNERS[nextIdx]);
+              } else {
                 setImageLoaded(false);
               }
             }}
-            className="w-full h-full min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] max-h-[calc(100vh-56px)] sm:max-h-[calc(100vh-64px)] object-cover object-center select-none block"
+            className="w-full h-full min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] max-h-[calc(100vh-56px)] sm:max-h-[calc(100vh-64px)] object-cover object-center select-none block transition-[filter,opacity] duration-500 brightness-[0.94] contrast-[0.98] dark:brightness-[0.70] dark:contrast-[1.05]"
           />
+
+          {/* Ambient Dimmer Scrim Layer for smoother lighting in both light & dark mode */}
+          <div className="absolute inset-0 bg-slate-900/[0.035] dark:bg-black/35 pointer-events-none transition-colors duration-500 z-10" />
 
           {/* EXACT POSITIONED CLICKABLE [SHOP NOW →] BUTTON OVERLAY */}
           {/* Positioned cleanly on the left under the headline/description, leaving Mt. Fuji & products fully visible on right */}
@@ -168,46 +189,13 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
           <div className="absolute bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 z-20 hidden md:flex flex-col items-center">
             <button
               onClick={handleShopNowClick}
-              className="flex flex-col items-center text-slate-700/80 hover:text-pink-700 text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase transition-colors cursor-pointer gap-0.5 bg-white/70 hover:bg-white/95 px-3 py-1 rounded-full backdrop-blur-xs border border-white/60 shadow-xs"
+              className="flex flex-col items-center text-slate-700/80 dark:text-zinc-300 hover:text-pink-700 dark:hover:text-pink-400 text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase transition-colors cursor-pointer gap-0.5 bg-white/70 dark:bg-zinc-900/85 hover:bg-white/95 dark:hover:bg-zinc-800 px-3 py-1 rounded-full backdrop-blur-xs border border-white/60 dark:border-zinc-700 shadow-xs"
             >
               <span>Explore Collection</span>
-              <ChevronDown className="w-3.5 h-3.5 text-pink-600 animate-bounce" />
+              <ChevronDown className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400 animate-bounce" />
             </button>
           </div>
         </div>
-
-        {/* Fallback Banner Prompt if image is not yet in public folder */}
-        {!imageLoaded && (
-          <div className="absolute inset-0 bg-gradient-to-r from-[#FFEBF1] via-[#FFF0F5] to-[#FED7E2] flex flex-col items-center justify-center p-6 text-center space-y-4">
-            <div className="w-16 h-16 rounded-full bg-white/90 border-2 border-pink-300 flex items-center justify-center shadow-md">
-              <ImageIcon className="w-8 h-8 text-pink-600" />
-            </div>
-            <div>
-              <h2 className="font-editorial text-2xl sm:text-3xl font-bold text-[#8B1D3D]">
-                Japanese Beauty, Made for You
-              </h2>
-              <p className="text-xs sm:text-sm text-slate-600 max-w-md mt-1">
-                Drag & drop or select your laptop hero photo to save it directly into the public folder with the interactive Shop Now button.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="px-6 py-2.5 rounded-full bg-gradient-to-r from-[#C52857] to-[#A53460] text-white text-xs font-bold shadow-md hover:scale-105 transition-transform flex items-center gap-2 cursor-pointer"
-              >
-                <Upload className="w-4 h-4" />
-                <span>Upload Photo to /public</span>
-              </button>
-              <button
-                onClick={handleShopNowClick}
-                className="px-6 py-2.5 rounded-full bg-white text-pink-800 text-xs font-bold border border-pink-200 shadow-sm hover:bg-pink-50 transition-colors flex items-center gap-1.5 cursor-pointer"
-              >
-                <span>Browse Products</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </section>
   );

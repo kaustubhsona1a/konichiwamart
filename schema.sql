@@ -266,15 +266,30 @@ CREATE POLICY "Customers can manage their own addresses"
   USING (auth.uid() = customer_id)
   WITH CHECK (auth.uid() = customer_id);
 
--- 10.3 Catalog Public Read
-CREATE POLICY "Categories are readable by everyone"
-  ON public.categories FOR SELECT USING (true);
+-- 10.3 Catalog Public Read & Store Management
+DROP POLICY IF EXISTS "Active products are readable by everyone" ON public.products;
+DROP POLICY IF EXISTS "Allow reading products" ON public.products;
+DROP POLICY IF EXISTS "Allow managing products" ON public.products;
+CREATE POLICY "Allow reading products"
+  ON public.products FOR SELECT USING (true);
+CREATE POLICY "Allow managing products"
+  ON public.products FOR ALL USING (true) WITH CHECK (true);
 
-CREATE POLICY "Active products are readable by everyone"
-  ON public.products FOR SELECT USING (is_active = true);
-
-CREATE POLICY "Product variants are readable by everyone"
+DROP POLICY IF EXISTS "Product variants are readable by everyone" ON public.product_variants;
+DROP POLICY IF EXISTS "Allow reading variants" ON public.product_variants;
+DROP POLICY IF EXISTS "Allow managing variants" ON public.product_variants;
+CREATE POLICY "Allow reading variants"
   ON public.product_variants FOR SELECT USING (true);
+CREATE POLICY "Allow managing variants"
+  ON public.product_variants FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Categories are readable by everyone" ON public.categories;
+DROP POLICY IF EXISTS "Allow reading categories" ON public.categories;
+DROP POLICY IF EXISTS "Allow managing categories" ON public.categories;
+CREATE POLICY "Allow reading categories"
+  ON public.categories FOR SELECT USING (true);
+CREATE POLICY "Allow managing categories"
+  ON public.categories FOR ALL USING (true) WITH CHECK (true);
 
 -- 10.4 Orders & Order Items RLS
 -- Drop existing policies to prevent conflicts

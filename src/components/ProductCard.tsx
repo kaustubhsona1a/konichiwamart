@@ -36,10 +36,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   return (
     <div
       onClick={() => onSelect(product)}
-      className="group liquid-glass rounded-2xl p-3 sm:p-4 border border-white/90 hover:border-pink-300 shadow-md hover:shadow-xl flex flex-col justify-between cursor-pointer relative transition-all duration-300 text-left"
+      className="group liquid-glass rounded-2xl p-3 sm:p-4 border border-white/90 dark:border-zinc-800/80 hover:border-pink-300 dark:hover:border-pink-500/50 shadow-md dark:shadow-none flex flex-col justify-between cursor-pointer relative transition-all duration-300 text-left"
     >
       {/* Product Image Container with floating Wishlist Button */}
-      <div className="relative aspect-[4/3] sm:aspect-square w-full rounded-xl overflow-hidden mb-2.5 sm:mb-3 bg-white/70 border border-slate-200/70 flex items-center justify-center p-2 sm:p-4 group-hover:border-pink-200 transition-colors">
+      <div className="relative aspect-[4/3] sm:aspect-square w-full rounded-xl overflow-hidden mb-2.5 sm:mb-3 bg-white/70 dark:bg-zinc-900/90 border border-slate-200/70 dark:border-zinc-800 flex items-center justify-center p-2 sm:p-4 group-hover:border-pink-200 dark:group-hover:border-pink-500/30 transition-colors">
         <img
           src={product.image}
           alt={product.title}
@@ -53,7 +53,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             e.stopPropagation();
             onToggleWishlist(product.id);
           }}
-          className="absolute top-2 right-2 w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg bg-white/90 hover:bg-white flex items-center justify-center text-slate-500 hover:text-rose-500 border border-slate-200/80 transition-colors cursor-pointer shadow-xs z-10"
+          className="absolute top-2 right-2 w-7.5 h-7.5 sm:w-8 sm:h-8 rounded-lg bg-white/90 dark:bg-zinc-800 hover:bg-white dark:hover:bg-zinc-700 flex items-center justify-center text-slate-500 dark:text-zinc-300 hover:text-rose-500 border border-slate-200/80 dark:border-zinc-700 transition-colors cursor-pointer shadow-xs z-10"
           title="Save to Wishlist"
           aria-label="Save to Wishlist"
         >
@@ -63,18 +63,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
       {/* Product Name */}
       <div className="flex-1 mb-2">
-        <h3 className="font-bold text-xs sm:text-sm text-slate-900 leading-snug group-hover:text-pink-700 transition-colors line-clamp-2">
+        <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-zinc-100 leading-snug group-hover:text-pink-700 dark:group-hover:text-pink-400 transition-colors line-clamp-2">
           {product.title}
         </h3>
       </div>
 
       {/* Price & Stock Status + Add to Cart Button */}
-      <div className="pt-2 border-t border-slate-200/70 space-y-2">
+      <div className="pt-2 border-t border-slate-200/70 dark:border-zinc-800 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm sm:text-base font-bold text-slate-900">
+          <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-zinc-100">
             {formatINR(product.price)}
           </span>
-          <span className={`text-[10px] sm:text-xs font-semibold ${isInStock ? 'text-emerald-700' : 'text-rose-600'}`}>
+          <span className={`text-[10px] sm:text-xs font-semibold ${isInStock ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
             {isInStock ? 'In Stock' : 'Out of Stock'}
           </span>
         </div>
@@ -85,7 +85,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           disabled={!isInStock}
           className={`w-full py-1.5 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
             !isInStock
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed'
               : addedAnimation
                 ? 'bg-emerald-500 text-white'
                 : 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-600/25'

@@ -43,10 +43,22 @@ import { SecurityGuideModal } from './components/SecurityGuideModal';
 import { Footer } from './components/Footer';
 import { InstagramReelFeed } from './components/InstagramReelFeed';
 import { ReviewsSection } from './components/ReviewsSection';
-import { saveOrderToSupabase } from './lib/supabase';
+import { AboutUsModal } from './components/AboutUsModal';
+import { AboutUsPage } from './components/AboutUsPage';
+import { ContactUsModal } from './components/ContactUsModal';
+import { 
+  saveOrderToSupabase, 
+  getStoredOperatorSession, 
+  operatorLogout, 
+  OperatorSession,
+  fetchProductsFromStore,
+  deleteProductFromStore,
+  updateProductInStore,
+  addProductToStore,
+  resetProductsInStore
+} from './lib/supabase';
 import { FallingPetalsBackground } from './components/FallingPetalsBackground';
 import { formatINR } from './data/pincodes';
-import { getStoredOperatorSession, operatorLogout, OperatorSession } from './lib/supabase';
 
 // Initial dummy user with realistic Indian context & past order
 const INITIAL_PROFILE: UserProfile = {
@@ -164,16 +176,22 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Cart & Wishlist State
-  const [cart, setCart] = useState<CartItem[]>([
-    {
-      product: PRODUCTS[0],
-      quantity: 1
-    },
-    {
-      product: PRODUCTS[3],
-      quantity: 1
-    }
-  ]);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const deletedJson = localStorage.getItem('km_deleted_product_ids');
+      const deletedIds = new Set<string>(deletedJson ? JSON.parse(deletedJson) : []);
+      const available = PRODUCTS.filter(p => !deletedIds.has(p.id));
+      if (available.length >= 2) {
+        return [
+          { product: available[0], quantity: 1 },
+          { product: available[1], quantity: 1 }
+        ];
+      } else if (available.length === 1) {
+        return [{ product: available[0], quantity: 1 }];
+      }
+    } catch {}
+    return [];
+  });
   const [userProfile, setUserProfile] = useState<UserProfile>(INITIAL_PROFILE);
 
   // Modals Visibility
@@ -186,6 +204,78 @@ export default function App() {
   const [isSecurityGuideOpen, setIsSecurityGuideOpen] = useState(false);
   const [isRazorpayOpen, setIsRazorpayOpen] = useState(false);
   const [activeInvoiceOrder, setActiveInvoiceOrder] = useState<Order | null>(null);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
+  const [isContactOpen, setIsContactOpen] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const savedTheme = localStorage.getItem('km_theme');
+      if (savedTheme) {
+        return savedTheme === 'dark';
+      }
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    if (isDarkMode) {
+      root.classList.add('dark');
+      body.classList.add('dark');
+      localStorage.setItem('km_theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      body.classList.remove('dark');
+      localStorage.setItem('km_theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const [currentPage, setCurrentPage] = useState<'store' | 'about'>(() => {
+    if (typeof window !== 'undefined' && window.location.hash === '#about') {
+      return 'about';
+    }
+    return 'store';
+  });
+
+  useEffect(() => {
+    const handleHash = () => {
+      if (window.location.hash === '#about') {
+        setCurrentPage('about');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (window.location.hash === '#products' || window.location.hash === '#collection' || !window.location.hash) {
+        setCurrentPage('store');
+      }
+    };
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
+  const handleNavigateToProducts = () => {
+    setCurrentPage('store');
+    setSelectedCategory('All');
+    if (window.location.hash === '#about') {
+      try {
+        history.replaceState(null, '', window.location.pathname);
+      } catch {
+        window.location.hash = '';
+      }
+    }
+    setTimeout(() => {
+      const el = document.getElementById('collection');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }, 50);
+  };
+
+  const handleOpenAboutPage = () => {
+    setCurrentPage('about');
+    window.location.hash = '#about';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Site Settings (Store background, Logo, Flower drift controls)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
@@ -202,7 +292,7 @@ export default function App() {
     return {
       storeName: 'Konichiwa.Mart',
       storeTagline: 'Tokyo Skincare',
-      heroBannerUrl: localStorage.getItem('km_hero_banner_data') || '/hero-banner.png',
+      heroBannerUrl: localStorage.getItem('km_hero_banner_data') || '/products/konichiwalaptopbg.png',
       backgroundHintOpacity: 'balanced',
       flowerDriftEnabled: true,
       flowerDriftSpeed: 'gentle',
@@ -248,8 +338,8 @@ export default function App() {
     fetch('/api/banner-status')
       .then(res => res.json())
       .then(data => {
-        if (data?.exists) {
-          const freshBannerUrl = `/hero-banner.png?v=${Date.now()}`;
+        if (data?.exists && data?.url) {
+          const freshBannerUrl = `${data.url}?v=${Date.now()}`;
           setSiteSettings(prev => ({
             ...prev,
             heroBannerUrl: freshBannerUrl
@@ -258,17 +348,25 @@ export default function App() {
       })
       .catch(() => {});
 
+    // Fetch products from server / Supabase on initial load
+    fetchProductsFromStore().then((freshList) => {
+      if (Array.isArray(freshList) && freshList.length > 0) {
+        setProductsList(freshList);
+      }
+    });
+
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   // Inventory & Stock Controls
   const handleUpdateProductStock = (productId: string, inStock: boolean, stockCount?: number) => {
+    const finalStock = stockCount !== undefined 
+      ? Math.max(0, stockCount) 
+      : (inStock ? 50 : 0);
+
     setProductsList((prev) => {
       const updated = prev.map((p) => {
         if (p.id === productId) {
-          const finalStock = stockCount !== undefined 
-            ? Math.max(0, stockCount) 
-            : (inStock ? (p.stock > 0 ? p.stock : 50) : 0);
           return {
             ...p,
             stock: finalStock
@@ -279,15 +377,18 @@ export default function App() {
       localStorage.setItem('km_custom_products', JSON.stringify(updated));
       return updated;
     });
+
+    updateProductInStore(productId, { stock: finalStock });
   };
 
   const handleUpdateProductPrice = (productId: string, newPrice: number) => {
+    const validPrice = Math.max(1, newPrice);
     setProductsList((prev) => {
       const updated = prev.map((p) => {
         if (p.id === productId) {
           return {
             ...p,
-            price: Math.max(1, newPrice)
+            price: validPrice
           };
         }
         return p;
@@ -295,6 +396,8 @@ export default function App() {
       localStorage.setItem('km_custom_products', JSON.stringify(updated));
       return updated;
     });
+
+    updateProductInStore(productId, { price: validPrice });
   };
 
   // New Product Upload Handler
@@ -304,9 +407,11 @@ export default function App() {
       localStorage.setItem('km_custom_products', JSON.stringify(updated));
       return updated;
     });
+
+    addProductToStore(newProduct);
   };
 
-  // Remove Product Handler
+  // Remove Product Handler (Permanently deletes from Supabase, Server Storage, and Local state)
   const handleRemoveProduct = (productId: string) => {
     setProductsList((prev) => {
       const updated = prev.filter((p) => p.id !== productId);
@@ -314,14 +419,8 @@ export default function App() {
       return updated;
     });
 
-    try {
-      const deletedJson = localStorage.getItem('km_deleted_product_ids');
-      const deletedIds: string[] = deletedJson ? JSON.parse(deletedJson) : [];
-      if (!deletedIds.includes(productId)) {
-        deletedIds.push(productId);
-        localStorage.setItem('km_deleted_product_ids', JSON.stringify(deletedIds));
-      }
-    } catch {}
+    // Sync deletion across Supabase and persistent backend storage
+    deleteProductFromStore(productId);
 
     // Also remove from cart if present
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
@@ -332,8 +431,7 @@ export default function App() {
 
   // Restore Original Catalog Handler
   const handleResetDefaultProducts = () => {
-    localStorage.removeItem('km_deleted_product_ids');
-    localStorage.removeItem('km_custom_products');
+    resetProductsInStore();
     setProductsList(PRODUCTS);
   };
 
@@ -472,32 +570,31 @@ export default function App() {
   const defaultAddress: UserAddress = userProfile.addresses.find(a => a.isDefault) || userProfile.addresses[0];
 
   return (
-    <div className="min-h-screen bg-[#FFF0F3] text-[#1E293B] font-sans selection:bg-pink-200 selection:text-pink-900 relative">
+    <div className="min-h-screen bg-[#FAF0F2] dark:bg-[#09090b] text-[#1E293B] dark:text-[#f4f4f5] font-sans selection:bg-pink-200 dark:selection:bg-pink-900/50 dark:selection:text-pink-100 relative transition-colors duration-300">
       
       {/* PERSISTENT AMBIENT BACKGROUND LAYER (Visible as an artistic hint upon scrolling across the store) */}
       <div 
         className="fixed inset-0 pointer-events-none z-0 overflow-hidden"
         aria-hidden="true"
       >
-        {/* Fixed background image with smooth parallax hint */}
+        {/* Fixed background image with smooth parallax hint - visible & atmospheric in both light and dark mode */}
         <div 
-          className={`absolute inset-0 bg-cover bg-center bg-no-repeat transition-opacity duration-700 ${
+          className={`absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700 brightness-[0.94] contrast-[0.98] ${
             siteSettings.backgroundHintOpacity === 'subtle'
-              ? 'opacity-[0.16]'
+              ? 'opacity-[0.16] dark:opacity-[0.24] dark:brightness-[0.82] dark:contrast-[1.10]'
               : siteSettings.backgroundHintOpacity === 'pronounced'
-              ? 'opacity-[0.35]'
-              : 'opacity-[0.24]'
+              ? 'opacity-[0.35] dark:opacity-[0.48] dark:brightness-[0.88] dark:contrast-[1.12]'
+              : 'opacity-[0.24] dark:opacity-[0.36] dark:brightness-[0.85] dark:contrast-[1.10]'
           }`}
           style={{
-            backgroundImage: `url(${siteSettings.backgroundImageUrl || siteSettings.heroBannerUrl || '/hero-banner.png'})`,
-            backgroundAttachment: 'fixed',
+            backgroundImage: `url(${siteSettings.backgroundImageUrl || siteSettings.heroBannerUrl || '/products/konichiwalaptopbg.png'})`,
           }}
         />
-        {/* Soft Japanese paper warmth / gentle gradient overlay so all text and product cards remain crisp and legible */}
-        <div className="absolute inset-0 bg-gradient-to-b from-[#FFF0F3]/60 via-[#FFF5F7]/75 to-[#FFF0F3]/85" />
+        {/* Soft Japanese paper tone in light mode / subtle velvet black tint in dark mode */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#FAF0F2]/65 via-[#F7ECEF]/78 to-[#FAF0F2]/88 dark:from-[#09090b]/30 dark:via-[#09090b]/48 dark:to-[#09090b]/65 transition-colors duration-500" />
         
         {/* Delicate Sakura Blossom Dot Pattern Texture */}
-        <div className="absolute inset-0 bg-[radial-gradient(#f472b6_0.8px,transparent_0.8px)] [background-size:28px_28px] opacity-15" />
+        <div className="absolute inset-0 bg-[radial-gradient(#f472b6_0.8px,transparent_0.8px)] [background-size:28px_28px] opacity-15 dark:opacity-10" />
       </div>
       
       {/* Floating Header Navigation */}
@@ -507,15 +604,28 @@ export default function App() {
         onOpenCart={() => setIsCartOpen(true)}
         onOpenWishlist={() => setIsAccountOpen(true)}
         onOpenAccount={() => setIsAccountOpen(true)}
+        onOpenAbout={handleOpenAboutPage}
+        onOpenContact={() => setIsContactOpen(true)}
+        onNavigateToProducts={handleNavigateToProducts}
         onOpenAdmin={() => setIsAdminOpen(true)}
         onOpenSecurityGuide={() => setIsSecurityGuideOpen(true)}
         selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
+        onSelectCategory={(cat) => {
+          setSelectedCategory(cat);
+          if (currentPage !== 'store') {
+            setCurrentPage('store');
+          }
+        }}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         storeName={siteSettings.storeName}
         storeTagline={siteSettings.storeTagline}
         logoUrl={siteSettings.logoUrl}
+        instagramUrl="https://www.instagram.com"
+        instagramHandle="@konichiwa.mart"
+        activePage={currentPage}
+        isDarkMode={isDarkMode}
+        onToggleTheme={() => setIsDarkMode(prev => !prev)}
       />
 
       {/* RESTORED SPRING EFFECT: Falling Petals Canvas Controlled from Site Settings */}
@@ -525,104 +635,120 @@ export default function App() {
         density={siteSettings.flowerDriftDensity}
       />
 
-      {/* 1. HERO SECTION: CINEMATIC PANORAMIC JAPANESE BEAUTY BANNER */}
-      <HeroBanner
-        onSelectProduct={setInspectProduct}
-        onAddToCart={handleAddToCart}
-        onToggleWishlist={handleToggleWishlist}
-        isWishlisted={isWishlisted}
-        onApplyCoupon={() => setIsCartOpen(true)}
-        customBannerUrl={siteSettings.heroBannerUrl}
-      />
+      {/* CONTENT CONDITIONAL: DEDICATED ABOUT US PAGE OR STORE CATALOG */}
+      {currentPage === 'about' ? (
+        <AboutUsPage
+          onNavigateToProducts={handleNavigateToProducts}
+          onOpenContact={() => setIsContactOpen(true)}
+        />
+      ) : (
+        <>
+          {/* 1. HERO SECTION: CINEMATIC PANORAMIC JAPANESE BEAUTY BANNER */}
+          <HeroBanner
+            onSelectProduct={setInspectProduct}
+            onAddToCart={handleAddToCart}
+            onToggleWishlist={handleToggleWishlist}
+            isWishlisted={isWishlisted}
+            onApplyCoupon={() => setIsCartOpen(true)}
+            customBannerUrl={siteSettings.heroBannerUrl}
+          />
 
-      {/* 2. MAIN PRODUCT CATALOG */}
-      <main id="collection" className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pt-12 sm:pt-16 md:pt-20 pb-12 sm:pb-20">
-        
-        {/* Simplified Section Header */}
-        <div className="mb-4 sm:mb-6 text-left">
-          <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 tracking-tight">
-            Our Collection
-          </h2>
-        </div>
-
-        {/* Clean Category Pills */}
-        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-2.5 sm:pb-4 mb-3 sm:mb-6 scrollbar-none">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(cat.id as ProductCategory)}
-              className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer border ${
-                selectedCategory === cat.id
-                  ? 'bg-pink-600 hover:bg-pink-500 text-white border-pink-500 shadow-md shadow-pink-600/30 font-semibold'
-                  : 'bg-white hover:bg-pink-50/40 text-slate-700 border-slate-200 font-medium shadow-xs'
-              }`}
-            >
-              {cat.name}
-            </button>
-          ))}
-          {selectedCategory !== 'All' && (
-            <button
-              onClick={() => setSelectedCategory('All')}
-              className="text-xs text-pink-600 hover:underline px-2 cursor-pointer font-medium"
-            >
-              Clear Filter
-            </button>
-          )}
-        </div>
-
-        {/* Product Grid */}
-        {filteredProducts.length === 0 ? (
-          <div className="bg-white border border-pink-100 rounded-2xl p-8 sm:p-12 text-center space-y-3 shadow-md">
-            <div className="w-12 h-12 rounded-full bg-pink-50 mx-auto flex items-center justify-center text-pink-600">
-              <Search className="w-6 h-6" />
+          {/* 2. MAIN PRODUCT CATALOG */}
+          <main id="collection" className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pt-12 sm:pt-16 md:pt-20 pb-12 sm:pb-20">
+            
+            {/* Simplified Section Header */}
+            <div className="mb-4 sm:mb-6 text-left">
+              <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
+                Our Collection
+              </h2>
             </div>
-            <h3 className="text-base sm:text-lg font-bold text-slate-900">No products match this query</h3>
-            <p className="text-xs text-slate-600">
-              Try resetting your category or concern filters to view all products.
-            </p>
-            <button
-              onClick={() => {
-                setSelectedCategory('All');
-                setSelectedConcern('All');
-                setSearchQuery('');
-              }}
-              className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-semibold cursor-pointer shadow-md"
-            >
-              Show All Products
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
-            {filteredProducts.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                onSelect={setInspectProduct}
-                onAddToCart={handleAddToCart}
-                onToggleWishlist={handleToggleWishlist}
-                isWishlisted={isWishlisted(product.id)}
-              />
-            ))}
-          </div>
-        )}
 
-      </main>
+            {/* Clean Category Pills */}
+            <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-2.5 sm:pb-4 mb-3 sm:mb-6 scrollbar-none">
+              {CATEGORIES.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(cat.id as ProductCategory)}
+                  className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer border ${
+                    selectedCategory === cat.id
+                      ? 'bg-pink-600 hover:bg-pink-500 text-white border-pink-500 shadow-md shadow-pink-600/30 font-semibold'
+                      : 'bg-white dark:bg-zinc-900/90 hover:bg-pink-50/40 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 border-slate-200 dark:border-zinc-800 font-medium shadow-xs'
+                  }`}
+                >
+                  {cat.name}
+                </button>
+              ))}
+              {selectedCategory !== 'All' && (
+                <button
+                  onClick={() => setSelectedCategory('All')}
+                  className="text-xs text-pink-600 dark:text-pink-400 hover:underline px-2 cursor-pointer font-medium"
+                >
+                  Clear Filter
+                </button>
+              )}
+            </div>
 
-      {/* 3. CUSTOMER REVIEWS SECTION */}
-      <ReviewsSection
-        onSelectProduct={setInspectProduct}
-      />
+            {/* Product Grid */}
+            {filteredProducts.length === 0 ? (
+              <div className="bg-white dark:bg-zinc-900/90 border border-pink-100 dark:border-zinc-800 rounded-2xl p-8 sm:p-12 text-center space-y-3 shadow-md">
+                <div className="w-12 h-12 rounded-full bg-pink-50 dark:bg-zinc-800 mx-auto flex items-center justify-center text-pink-600 dark:text-pink-400">
+                  <Search className="w-6 h-6" />
+                </div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-zinc-100">No products match this query</h3>
+                <p className="text-xs text-slate-600 dark:text-zinc-400">
+                  Try resetting your category or concern filters to view all products.
+                </p>
+                <button
+                  onClick={() => {
+                    setSelectedCategory('All');
+                    setSelectedConcern('All');
+                    setSearchQuery('');
+                  }}
+                  className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-semibold cursor-pointer shadow-md"
+                >
+                  Show All Products
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
+                {filteredProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onSelect={setInspectProduct}
+                    onAddToCart={handleAddToCart}
+                    onToggleWishlist={handleToggleWishlist}
+                    isWishlisted={isWishlisted(product.id)}
+                  />
+                ))}
+              </div>
+            )}
 
-      {/* 4. INSTAGRAM REEL FEED SECTION: Video reviews & community as social proof */}
-      <InstagramReelFeed
-        onSelectProduct={setInspectProduct}
-        onAddToCart={handleAddToCart}
-      />
+          </main>
+
+          {/* 3. CUSTOMER REVIEWS SECTION */}
+          <ReviewsSection
+            onSelectProduct={setInspectProduct}
+          />
+
+          {/* 4. INSTAGRAM REEL FEED SECTION: Video reviews & community as social proof */}
+          <InstagramReelFeed
+            onSelectProduct={setInspectProduct}
+            onAddToCart={handleAddToCart}
+            products={productsList}
+          />
+        </>
+      )}
 
       {/* FOOTER */}
       <Footer
         onOpenSecurityGuide={() => setIsSecurityGuideOpen(true)}
         onOpenAdmin={handleRequestAdminAccess}
+        onOpenAbout={handleOpenAboutPage}
+        onOpenContact={() => setIsContactOpen(true)}
+        onNavigateToProducts={handleNavigateToProducts}
+        instagramUrl="https://www.instagram.com"
+        instagramHandle="@konichiwa.mart"
       />
 
       {/* MODALS */}
@@ -721,6 +847,21 @@ export default function App() {
       <SecurityGuideModal
         isOpen={isSecurityGuideOpen}
         onClose={() => setIsSecurityGuideOpen(false)}
+      />
+
+      {/* 10. About Us Modal */}
+      <AboutUsModal
+        isOpen={isAboutOpen}
+        onClose={() => setIsAboutOpen(false)}
+        onExploreProducts={handleNavigateToProducts}
+      />
+
+      {/* 11. Contact Us Modal */}
+      <ContactUsModal
+        isOpen={isContactOpen}
+        onClose={() => setIsContactOpen(false)}
+        instagramHandle="@konichiwa.mart"
+        instagramUrl="https://www.instagram.com"
       />
 
     </div>

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
     --font-serif: 'Cormorant Garamond', Georgia, serif;
@@ -10,9 +12,14 @@
 
   body {
     font-family: var(--font-sans);
-    background-color: #FFF0F3;
+    background-color: #FAF0F2;
     color: #1E293B;
     overflow-x: hidden;
+  }
+
+  .dark body, html.dark body, body.dark, html.dark {
+    background-color: #09090b;
+    color: #f4f4f5;
   }
 
   h1, h2, h3, .font-serif {
@@ -34,13 +41,23 @@
 
 /* Light Liquid Glass Skincare Effects */
 .liquid-glass {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 252, 253, 0.82);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  border: 1px solid rgba(255, 238, 243, 0.80);
+  box-shadow: 
+    0 8px 30px 0 rgba(220, 110, 150, 0.08),
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.85);
+}
+
+.dark .liquid-glass {
+  background: rgba(18, 18, 20, 0.88);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: 
-    0 12px 36px 0 rgba(244, 114, 182, 0.12),
-    inset 0 1px 2px 0 rgba(255, 255, 255, 0.95);
+    0 12px 36px 0 rgba(0, 0, 0, 0.75),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.05);
 }
 
 .liquid-glass-pink, .liquid-glass-blue {
@@ -53,6 +70,16 @@
     inset 0 1px 3px 0 rgba(255, 255, 255, 0.95);
 }
 
+.dark .liquid-glass-pink, .dark .liquid-glass-blue {
+  background: linear-gradient(135deg, rgba(24, 20, 22, 0.92) 0%, rgba(18, 16, 17, 0.90) 100%);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(244, 114, 182, 0.22);
+  box-shadow: 
+    0 12px 36px 0 rgba(0, 0, 0, 0.8),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.05);
+}
+
 .liquid-glass-rose, .liquid-glass-sakura {
   background: linear-gradient(135deg, rgba(255, 246, 250, 0.88) 0%, rgba(254, 242, 246, 0.78) 100%);
   backdrop-filter: blur(20px) saturate(180%);
@@ -61,6 +88,16 @@
   box-shadow: 
     0 12px 34px 0 rgba(244, 114, 182, 0.14),
     inset 0 1px 3px 0 rgba(255, 255, 255, 0.98);
+}
+
+.dark .liquid-glass-rose, .dark .liquid-glass-sakura {
+  background: linear-gradient(135deg, rgba(26, 20, 23, 0.92) 0%, rgba(18, 16, 18, 0.88) 100%);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(244, 114, 182, 0.22);
+  box-shadow: 
+    0 12px 34px 0 rgba(0, 0, 0, 0.8),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.05);
 }
 
 .liquid-glass-card {
@@ -75,6 +112,13 @@
   border-color: rgba(255, 255, 255, 1);
 }
 
+.dark .liquid-glass-card:hover {
+  box-shadow: 
+    0 18px 40px -10px rgba(0, 0, 0, 0.85),
+    0 0 25px 0 rgba(244, 114, 182, 0.18);
+  border-color: rgba(244, 114, 182, 0.4);
+}
+
 /* Custom scrollbar in baby pink / sakura blush */
 ::-webkit-scrollbar {
   width: 7px;
@@ -83,12 +127,22 @@
 ::-webkit-scrollbar-track {
   background: #FFF0F3;
 }
+.dark ::-webkit-scrollbar-track {
+  background: #09090b;
+}
 ::-webkit-scrollbar-thumb {
   background: #FBCFE8;
   border-radius: 9999px;
 }
+.dark ::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
 ::-webkit-scrollbar-thumb:hover {
   background: #F472B6;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #ec4899;
 }
 
 @keyframes floatSlow {

@@ -10,6 +10,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServer as createViteServer } from 'vite';
 import { createValidatedOrder, orderStore } from './src/lib/orderService';
 import { processRazorpayWebhook } from './src/lib/webhookHandler';
+import { PRODUCTS } from './src/data/products';
+import { Product } from './src/types';
 
 const app = express();
 const PORT = 3000;
@@ -400,9 +402,67 @@ app.post('/api/upload-banner', (req: Request, res: Response) => {
 });
 
 app.get('/api/banner-status', (_req: Request, res: Response) => {
-  const bannerPath = path.join(process.cwd(), 'public', 'hero-banner.png');
-  const exists = fs.existsSync(bannerPath);
-  res.json({ exists, url: exists ? '/hero-banner.png' : null });
+  const candidates = [
+    { filePath: path.join(process.cwd(), 'public', 'products', 'konichiwalaptopbg.png'), url: '/products/konichiwalaptopbg.png' },
+    { filePath: path.join(process.cwd(), 'public', 'products', 'laptopbg.png'), url: '/products/laptopbg.png' },
+    { filePath: path.join(process.cwd(), 'public', 'konichiwalaptopbg.png'), url: '/konichiwalaptopbg.png' },
+    { filePath: path.join(process.cwd(), 'public', 'laptopbg.png'), url: '/laptopbg.png' },
+    { filePath: path.join(process.cwd(), 'public', 'hero-banner.png'), url: '/hero-banner.png' }
+  ];
+
+  for (const item of candidates) {
+    if (fs.existsSync(item.filePath)) {
+      return res.json({ exists: true, url: item.url, filename: path.basename(item.filePath) });
+    }
+  }
+
+  res.json({ exists: false, url: null });
+});
+
+/**
+ * POST /api/fetch-github-banner
+ * Direct helper to download the image from GitHub into public/products/
+ */
+app.post('/api/fetch-github-banner', async (req: Request, res: Response) => {
+  try {
+    const { rawUrl, token } = req.body;
+    const targetUrl = rawUrl || 'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/products/konichiwalaptopbg.png';
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `token ${token}`;
+    }
+
+    const response = await fetch(targetUrl, { headers });
+    if (!response.ok) {
+      return res.status(response.status).json({ 
+        success: false, 
+        error: `GitHub returned HTTP ${response.status}: ${response.statusText}. If the repository is private, make it public or supply a GitHub Personal Access Token.` 
+      });
+    }
+
+    const buffer = await response.arrayBuffer();
+    const destDir = path.join(process.cwd(), 'public', 'products');
+    if (!fs.existsSync(destDir)) {
+      fs.mkdirSync(destDir, { recursive: true });
+    }
+    const destPath = path.join(destDir, 'konichiwalaptopbg.png');
+    fs.writeFileSync(destPath, Buffer.from(buffer));
+
+    // Also mirror to dist if exists
+    const distProducts = path.join(process.cwd(), 'dist', 'products');
+    if (fs.existsSync(distProducts)) {
+      fs.writeFileSync(path.join(distProducts, 'konichiwalaptopbg.png'), Buffer.from(buffer));
+    }
+
+    return res.json({ 
+      success: true, 
+      url: '/products/konichiwalaptopbg.png', 
+      bytes: buffer.byteLength,
+      message: 'Successfully downloaded laptop background from GitHub!' 
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 /**
@@ -513,6 +573,316 @@ app.post('/api/save-order', async (req: Request, res: Response) => {
     console.error('[Server Save Order Exception]:', err);
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// ==============================================================================
+// PRODUCTS STORE & SUPABASE SYNCHRONIZATION API
+// Prevents deleted products from reappearing across sessions, devices, and reloads
+// ==============================================================================
+
+const DATA_DIR = path.join(process.cwd(), 'data');
+const DELETED_PRODUCTS_FILE = path.join(DATA_DIR, 'deleted_product_ids.json');
+const CUSTOM_PRODUCTS_FILE = path.join(DATA_DIR, 'custom_products.json');
+
+function getDeletedProductIds(): string[] {
+  try {
+    if (fs.existsSync(DELETED_PRODUCTS_FILE)) {
+      const content = fs.readFileSync(DELETED_PRODUCTS_FILE, 'utf-8');
+      return JSON.parse(content) || [];
+    }
+  } catch (err) {
+    console.warn('[Server] Error reading deleted_product_ids.json:', err);
+  }
+  return [];
+}
+
+function saveDeletedProductId(id: string): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    const current = getDeletedProductIds();
+    if (!current.includes(id)) {
+      current.push(id);
+      fs.writeFileSync(DELETED_PRODUCTS_FILE, JSON.stringify(current, null, 2));
+    }
+  } catch (err) {
+    console.warn('[Server] Error saving deleted_product_ids.json:', err);
+  }
+}
+
+function clearDeletedProductIds(): void {
+  try {
+    if (fs.existsSync(DELETED_PRODUCTS_FILE)) {
+      fs.writeFileSync(DELETED_PRODUCTS_FILE, JSON.stringify([], null, 2));
+    }
+  } catch {}
+}
+
+function getCustomProducts(): Product[] {
+  try {
+    if (fs.existsSync(CUSTOM_PRODUCTS_FILE)) {
+      const content = fs.readFileSync(CUSTOM_PRODUCTS_FILE, 'utf-8');
+      return JSON.parse(content) || [];
+    }
+  } catch {}
+  return [];
+}
+
+function saveCustomProducts(products: Product[]): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(CUSTOM_PRODUCTS_FILE, JSON.stringify(products, null, 2));
+  } catch {}
+}
+
+function mapSupabaseRowToProduct(row: any): Product {
+  return {
+    id: row.slug || row.id,
+    title: row.title,
+    subtitle: row.subtitle || '',
+    price: Number(row.base_price || 0),
+    originalPrice: Number(row.compare_at_price || row.base_price || 0),
+    rating: Number(row.rating || 4.9),
+    reviewsCount: Number(row.reviews_count || 120),
+    category: (row.category_name || 'Skincare') as any,
+    skinTypes: row.skin_types || ['All'],
+    skinConcerns: row.skin_concerns || [],
+    routine: (row.routine as any) || 'AM/PM',
+    volume: row.volume_or_weight || '100ml',
+    badges: [
+      row.is_bestseller ? 'Bestseller' : '',
+      row.is_new ? 'New Arrival' : ''
+    ].filter(Boolean),
+    image: row.primary_image_url,
+    secondaryImage: row.secondary_image_url || undefined,
+    images: row.images && row.images.length > 0 ? row.images : [row.primary_image_url],
+    accentColor: row.accent_color || '#E11D48',
+    bgGradient: 'from-rose-50 to-pink-100',
+    keyActives: Array.isArray(row.key_actives) ? row.key_actives : [],
+    fullIngredients: row.full_ingredients || '',
+    description: row.description || '',
+    benefits: Array.isArray(row.benefits) ? row.benefits : [],
+    usageHowTo: row.usage_how_to || '',
+    stock: 50,
+    isBestSeller: Boolean(row.is_bestseller),
+    isNew: Boolean(row.is_new)
+  };
+}
+
+function mapProductToSupabaseRow(p: Product): any {
+  return {
+    slug: p.id,
+    title: p.title,
+    subtitle: p.subtitle || '',
+    category_name: p.category,
+    description: p.description || '',
+    benefits: p.benefits || [],
+    usage_how_to: p.usageHowTo || '',
+    key_actives: p.keyActives || [],
+    full_ingredients: p.fullIngredients || '',
+    hsn_code: '3304',
+    base_price: p.price,
+    compare_at_price: p.originalPrice || p.price,
+    primary_image_url: p.image,
+    secondary_image_url: p.secondaryImage || null,
+    images: p.images || [p.image],
+    volume_or_weight: p.volume,
+    accent_color: p.accentColor || '#E11D48',
+    skin_types: p.skinTypes || ['All'],
+    skin_concerns: p.skinConcerns || [],
+    routine: p.routine || 'AM/PM',
+    is_bestseller: Boolean(p.isBestSeller),
+    is_new: Boolean(p.isNew),
+    is_active: true,
+    rating: p.rating || 4.9,
+    reviews_count: p.reviewsCount || 50
+  };
+}
+
+/**
+ * GET /api/products
+ * Fetches products synced from Supabase (or seeded defaults), with deleted products permanently filtered.
+ */
+app.get('/api/products', async (_req: Request, res: Response) => {
+  const deletedIds = new Set(getDeletedProductIds());
+  const supabase = getSupabaseServerClient();
+
+  if (supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        // Map and filter out any deleted IDs
+        const products = data
+          .map(mapSupabaseRowToProduct)
+          .filter(p => !deletedIds.has(p.id));
+
+        return res.json({ success: true, source: 'supabase', products });
+      }
+    } catch (e: any) {
+      console.warn('[Server] Supabase product query warning:', e?.message || e);
+    }
+  }
+
+  // Fallback / Initial Seed Catalog: base default PRODUCTS + custom operator products
+  const custom = getCustomProducts();
+  const allProducts = [...custom, ...PRODUCTS];
+  const seen = new Set<string>();
+  const activeCatalog: Product[] = [];
+  for (const p of allProducts) {
+    if (!seen.has(p.id) && !deletedIds.has(p.id)) {
+      seen.add(p.id);
+      activeCatalog.push(p);
+    }
+  }
+
+  return res.json({ success: true, source: 'persistent_store', products: activeCatalog });
+});
+
+/**
+ * DELETE /api/products/:id
+ * Permanently removes a product from Supabase and server storage so it never reappears on any device.
+ */
+app.delete('/api/products/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!id) return res.status(400).json({ success: false, error: 'Product ID required' });
+
+  // 1. Permanently persist in deleted IDs file
+  saveDeletedProductId(id);
+
+  // 2. Remove from custom products file
+  const custom = getCustomProducts().filter(p => p.id !== id);
+  saveCustomProducts(custom);
+
+  // 3. Delete or deactivate in Supabase
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from('products')
+        .update({ is_active: false })
+        .or(`id.eq.${id},slug.eq.${id}`);
+      
+      // Also attempt hard delete
+      await supabase
+        .from('products')
+        .delete()
+        .or(`id.eq.${id},slug.eq.${id}`);
+    } catch (err: any) {
+      console.warn('[Server] Supabase delete warning:', err?.message || err);
+    }
+  }
+
+  console.log(`[Server] Product "${id}" permanently deleted from catalog.`);
+  return res.json({ success: true, deletedId: id });
+});
+
+/**
+ * PUT /api/products/:id
+ * Updates product stock or price in Supabase and server store.
+ */
+app.put('/api/products/:id', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const updates = req.body;
+  if (!id) return res.status(400).json({ success: false, error: 'Product ID required' });
+
+  // Update in custom products
+  const custom = getCustomProducts();
+  const existingIdx = custom.findIndex(p => p.id === id);
+  if (existingIdx >= 0) {
+    custom[existingIdx] = { ...custom[existingIdx], ...updates };
+    saveCustomProducts(custom);
+  } else {
+    const base = PRODUCTS.find(p => p.id === id);
+    if (base) {
+      custom.push({ ...base, ...updates });
+      saveCustomProducts(custom);
+    }
+  }
+
+  // Update in Supabase
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      const patch: any = {};
+      if (updates.price !== undefined) patch.base_price = updates.price;
+      if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
+      if (updates.title !== undefined) patch.title = updates.title;
+
+      await supabase
+        .from('products')
+        .update(patch)
+        .or(`id.eq.${id},slug.eq.${id}`);
+    } catch (err: any) {
+      console.warn('[Server] Supabase update warning:', err?.message || err);
+    }
+  }
+
+  return res.json({ success: true, updatedId: id });
+});
+
+/**
+ * POST /api/products
+ * Adds a new product to Supabase and server store.
+ */
+app.post('/api/products', async (req: Request, res: Response) => {
+  const newProduct: Product = req.body;
+  if (!newProduct || !newProduct.id || !newProduct.title) {
+    return res.status(400).json({ success: false, error: 'Valid product required' });
+  }
+
+  // Save to custom products
+  const custom = getCustomProducts().filter(p => p.id !== newProduct.id);
+  custom.unshift(newProduct);
+  saveCustomProducts(custom);
+
+  // If was in deleted list, un-delete
+  const deleted = getDeletedProductIds().filter(d => d !== newProduct.id);
+  try {
+    fs.writeFileSync(DELETED_PRODUCTS_FILE, JSON.stringify(deleted, null, 2));
+  } catch {}
+
+  // Insert to Supabase
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from('products')
+        .insert([mapProductToSupabaseRow(newProduct)]);
+    } catch (err: any) {
+      console.warn('[Server] Supabase product insert warning:', err?.message || err);
+    }
+  }
+
+  return res.json({ success: true, product: newProduct });
+});
+
+/**
+ * POST /api/products/reset
+ * Restores original catalog.
+ */
+app.post('/api/products/reset', async (_req: Request, res: Response) => {
+  clearDeletedProductIds();
+  saveCustomProducts([]);
+
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      await supabase
+        .from('products')
+        .update({ is_active: true })
+        .neq('is_active', true);
+    } catch {}
+  }
+
+  return res.json({ success: true, message: 'Catalog reset' });
 });
 
 /**

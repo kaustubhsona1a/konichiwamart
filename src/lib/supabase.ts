@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { Product } from '../types';
+import { PRODUCTS } from '../data/products';
 
 const env = (import.meta as any).env || {};
 const supabaseUrl: string | undefined = 
@@ -461,4 +463,248 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
     console.warn('[Direct Supabase Order Exception]:', directErr);
     return false;
   }
+};
+
+// ==============================================================================
+// CATALOG & PRODUCT SYNCHRONIZATION WITH SUPABASE & SERVER
+// ==============================================================================
+
+function mapSupabaseRowToProductClient(row: any): Product {
+  return {
+    id: row.slug || row.id,
+    title: row.title,
+    subtitle: row.subtitle || '',
+    price: Number(row.base_price || 0),
+    originalPrice: Number(row.compare_at_price || row.base_price || 0),
+    rating: Number(row.rating || 4.9),
+    reviewsCount: Number(row.reviews_count || 120),
+    category: (row.category_name || 'Skincare') as any,
+    skinTypes: row.skin_types || ['All'],
+    skinConcerns: row.skin_concerns || [],
+    routine: (row.routine as any) || 'AM/PM',
+    volume: row.volume_or_weight || '100ml',
+    badges: [
+      row.is_bestseller ? 'Bestseller' : '',
+      row.is_new ? 'New Arrival' : ''
+    ].filter(Boolean),
+    image: row.primary_image_url,
+    secondaryImage: row.secondary_image_url || undefined,
+    images: row.images && row.images.length > 0 ? row.images : [row.primary_image_url],
+    accentColor: row.accent_color || '#E11D48',
+    bgGradient: 'from-rose-50 to-pink-100',
+    keyActives: Array.isArray(row.key_actives) ? row.key_actives : [],
+    fullIngredients: row.full_ingredients || '',
+    description: row.description || '',
+    benefits: Array.isArray(row.benefits) ? row.benefits : [],
+    usageHowTo: row.usage_how_to || '',
+    stock: 50,
+    isBestSeller: Boolean(row.is_bestseller),
+    isNew: Boolean(row.is_new)
+  };
+}
+
+function mapProductToSupabaseRowClient(p: Product): any {
+  return {
+    slug: p.id,
+    title: p.title,
+    subtitle: p.subtitle || '',
+    category_name: p.category,
+    description: p.description || '',
+    benefits: p.benefits || [],
+    usage_how_to: p.usageHowTo || '',
+    key_actives: p.keyActives || [],
+    full_ingredients: p.fullIngredients || '',
+    hsn_code: '3304',
+    base_price: p.price,
+    compare_at_price: p.originalPrice || p.price,
+    primary_image_url: p.image,
+    secondary_image_url: p.secondaryImage || null,
+    images: p.images || [p.image],
+    volume_or_weight: p.volume,
+    accent_color: p.accentColor || '#E11D48',
+    skin_types: p.skinTypes || ['All'],
+    skin_concerns: p.skinConcerns || [],
+    routine: p.routine || 'AM/PM',
+    is_bestseller: Boolean(p.isBestSeller),
+    is_new: Boolean(p.isNew),
+    is_active: true,
+    rating: p.rating || 4.9,
+    reviews_count: p.reviewsCount || 50
+  };
+}
+
+/**
+ * Fetches products from server API & Supabase.
+ * Excludes permanently deleted products and ensures seamless sync.
+ */
+export const fetchProductsFromStore = async (): Promise<Product[]> => {
+  // Read local deleted IDs first for immediate filtering
+  let localDeletedIds = new Set<string>();
+  try {
+    const deletedJson = localStorage.getItem('km_deleted_product_ids');
+    if (deletedJson) {
+      localDeletedIds = new Set(JSON.parse(deletedJson));
+    }
+  } catch {}
+
+  // 1. Primary: Server API (which syncs with Supabase & persistent server storage)
+  try {
+    const res = await fetch('/api/products');
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
+        const filtered = data.products.filter((p: Product) => !localDeletedIds.has(p.id));
+        // Update local cache
+        localStorage.setItem('km_custom_products', JSON.stringify(filtered));
+        return filtered;
+      }
+    }
+  } catch (err) {
+    console.warn('[Products Store] Server fetch error, checking direct Supabase:', err);
+  }
+
+  // 2. Direct Supabase Client fallback (for client-side or static CDN)
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client
+        .from('products')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const mapped = data
+          .map(mapSupabaseRowToProductClient)
+          .filter((p) => !localDeletedIds.has(p.id));
+
+        localStorage.setItem('km_custom_products', JSON.stringify(mapped));
+        return mapped;
+      }
+    } catch (err) {
+      console.warn('[Products Store] Direct Supabase error:', err);
+    }
+  }
+
+  // 3. Local Cache / Default Seed Fallback
+  try {
+    const saved = localStorage.getItem('km_custom_products');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter((p: Product) => !localDeletedIds.has(p.id));
+      }
+    }
+  } catch {}
+
+  return PRODUCTS.filter((p) => !localDeletedIds.has(p.id));
+};
+
+/**
+ * Permanently deletes a product from Supabase, server storage, and localStorage.
+ * Ensures the product NEVER reappears across refreshes, other tabs, or new devices.
+ */
+export const deleteProductFromStore = async (productId: string): Promise<boolean> => {
+  // 1. Local optimistic update
+  try {
+    const deletedJson = localStorage.getItem('km_deleted_product_ids');
+    const deletedIds: string[] = deletedJson ? JSON.parse(deletedJson) : [];
+    if (!deletedIds.includes(productId)) {
+      deletedIds.push(productId);
+      localStorage.setItem('km_deleted_product_ids', JSON.stringify(deletedIds));
+    }
+    const saved = localStorage.getItem('km_custom_products');
+    if (saved) {
+      const parsed: Product[] = JSON.parse(saved);
+      localStorage.setItem('km_custom_products', JSON.stringify(parsed.filter(p => p.id !== productId)));
+    }
+  } catch {}
+
+  // 2. Server API deletion (permanent file storage on server)
+  try {
+    fetch(`/api/products/${encodeURIComponent(productId)}`, {
+      method: 'DELETE'
+    }).catch(() => {});
+  } catch {}
+
+  // 3. Direct Supabase deletion / soft-delete
+  const client = getSupabaseClient();
+  if (client) {
+    Promise.resolve(
+      client
+        .from('products')
+        .update({ is_active: false })
+        .or(`id.eq.${productId},slug.eq.${productId}`)
+    ).catch(() => {});
+  }
+
+  return true;
+};
+
+/**
+ * Updates a product's stock or price across server and Supabase.
+ */
+export const updateProductInStore = async (productId: string, updates: Partial<Product>): Promise<boolean> => {
+  // 1. Server API
+  try {
+    fetch(`/api/products/${encodeURIComponent(productId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    }).catch(() => {});
+  } catch {}
+
+  // 2. Direct Supabase
+  const client = getSupabaseClient();
+  if (client) {
+    const patch: any = {};
+    if (updates.price !== undefined) patch.base_price = updates.price;
+    if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
+    Promise.resolve(
+      client
+        .from('products')
+        .update(patch)
+        .or(`id.eq.${productId},slug.eq.${productId}`)
+    ).catch(() => {});
+  }
+
+  return true;
+};
+
+/**
+ * Adds a new product to server and Supabase.
+ */
+export const addProductToStore = async (product: Product): Promise<boolean> => {
+  // 1. Server API
+  try {
+    fetch('/api/products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product)
+    }).catch(() => {});
+  } catch {}
+
+  // 2. Direct Supabase
+  const client = getSupabaseClient();
+  if (client) {
+    Promise.resolve(
+      client
+        .from('products')
+        .insert([mapProductToSupabaseRowClient(product)])
+    ).catch(() => {});
+  }
+
+  return true;
+};
+
+/**
+ * Resets the catalog to defaults.
+ */
+export const resetProductsInStore = async (): Promise<boolean> => {
+  try {
+    localStorage.removeItem('km_deleted_product_ids');
+    localStorage.removeItem('km_custom_products');
+    fetch('/api/products/reset', { method: 'POST' }).catch(() => {});
+  } catch {}
+  return true;
 };

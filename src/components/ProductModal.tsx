@@ -73,13 +73,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({
       
       {/* Modal Container */}
       <div 
-        className="relative w-full max-w-4xl bg-white rounded-3xl border border-slate-200 shadow-2xl p-5 md:p-8 max-h-[92vh] overflow-y-auto text-left"
+        className="relative w-full max-w-4xl bg-white dark:bg-zinc-900 rounded-3xl border border-slate-200 dark:border-zinc-800 shadow-2xl p-5 md:p-8 max-h-[92vh] overflow-y-auto text-left"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-900 transition-colors cursor-pointer z-20 border border-slate-200 shadow-xs"
+          className="absolute top-5 right-5 w-10 h-10 rounded-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 flex items-center justify-center text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors cursor-pointer z-20 border border-slate-200 dark:border-zinc-700 shadow-xs"
         >
           <X className="w-5 h-5" />
         </button>
@@ -88,7 +88,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           
           {/* Left: Product Images Stage */}
           <div className="md:col-span-5 space-y-3">
-            <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-50 p-6 border border-slate-200 flex items-center justify-center shadow-inner">
+            <div className="relative aspect-square rounded-2xl overflow-hidden bg-slate-50 dark:bg-zinc-950 p-6 border border-slate-200 dark:border-zinc-800 flex items-center justify-center shadow-inner">
               <img
                 src={galleryImages[selectedImageIndex] || product.image}
                 alt={product.title}
@@ -96,13 +96,13 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 referrerPolicy="no-referrer"
               />
               
-              <div className="absolute top-4 left-4 px-2.5 py-1 rounded-md bg-pink-100 text-pink-800 text-xs font-semibold border border-pink-200 shadow-xs">
+              <div className="absolute top-4 left-4 px-2.5 py-1 rounded-md bg-pink-100 dark:bg-pink-950/80 text-pink-800 dark:text-pink-300 text-xs font-semibold border border-pink-200 dark:border-pink-800/60 shadow-xs">
                 {product.routine} Routine
               </div>
 
               <button
                 onClick={() => onToggleWishlist(product.id)}
-                className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white border border-slate-200 shadow-xs flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
+                className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs flex items-center justify-center text-slate-400 hover:text-rose-500 transition-colors cursor-pointer"
               >
                 <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-rose-500 text-rose-500' : ''}`} />
               </button>
@@ -116,10 +116,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     key={idx}
                     type="button"
                     onClick={() => setSelectedImageIndex(idx)}
-                    className={`relative w-14 h-14 rounded-xl border-2 overflow-hidden flex-shrink-0 bg-white p-1 transition-all cursor-pointer ${
+                    className={`relative w-14 h-14 rounded-xl border-2 overflow-hidden flex-shrink-0 bg-white dark:bg-slate-800 p-1 transition-all cursor-pointer ${
                       selectedImageIndex === idx
-                        ? 'border-pink-600 ring-2 ring-pink-100 scale-102'
-                        : 'border-slate-200 hover:border-slate-300 opacity-70 hover:opacity-100'
+                        ? 'border-pink-600 ring-2 ring-pink-100 dark:ring-pink-950/60 scale-102'
+                        : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 opacity-70 hover:opacity-100'
                     }`}
                     title={`View photo ${idx + 1}`}
                   >
@@ -138,11 +138,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             )}
 
             {/* Badges */}
-            <div className="grid grid-cols-2 gap-2 text-center text-xs font-medium text-slate-600">
-              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+            <div className="grid grid-cols-2 gap-2 text-center text-xs font-medium text-slate-600 dark:text-slate-300">
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
                 🇯🇵 100% Japan Import
               </div>
-              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200">
+              <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
                 ✨ Tested Safe
               </div>
             </div>
@@ -154,27 +154,27 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             {/* Header info */}
             <div>
               <div className="flex items-center gap-2 mb-1.5">
-                <span className="px-2.5 py-0.5 rounded-md bg-pink-100 border border-pink-200 text-pink-800 text-xs font-semibold">
+                <span className="px-2.5 py-0.5 rounded-md bg-pink-100 dark:bg-pink-950/80 border border-pink-200 dark:border-pink-800/60 text-pink-800 dark:text-pink-300 text-xs font-semibold">
                   {product.category}
                 </span>
                 <div className="flex items-center text-xs text-amber-500 gap-1">
                   <Star className="w-3.5 h-3.5 fill-current" />
-                  <span className="font-bold text-slate-900">{product.rating}</span>
-                  <span className="text-slate-500">({product.reviewsCount} reviews)</span>
+                  <span className="font-bold text-slate-900 dark:text-white">{product.rating}</span>
+                  <span className="text-slate-500 dark:text-slate-400">({product.reviewsCount} reviews)</span>
                 </div>
               </div>
 
-              <h2 className="text-2xl sm:text-3xl text-slate-900 font-bold leading-snug">
+              <h2 className="text-2xl sm:text-3xl text-slate-900 dark:text-white font-bold leading-snug">
                 {product.title}
               </h2>
-              <p className="text-sm sm:text-base text-pink-700 font-medium mt-1">
+              <p className="text-sm sm:text-base text-pink-700 dark:text-pink-400 font-medium mt-1">
                 {product.subtitle}
               </p>
             </div>
 
             {/* Price section */}
-            <div className="flex items-baseline gap-3 pb-3 border-b border-slate-200">
-              <span className="text-3xl font-bold text-slate-900">
+            <div className="flex items-baseline gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+              <span className="text-3xl font-bold text-slate-900 dark:text-white">
                 {formatINR(product.price)}
               </span>
               {product.originalPrice > product.price && (
@@ -186,10 +186,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
             {/* Shade Selection (for cosmetics, lipsticks, foundations, blushes) */}
             {product.shades && product.shades.length > 0 && (
-              <div className="p-3.5 rounded-xl bg-pink-50/50 border border-pink-100 space-y-2.5">
+              <div className="p-3.5 rounded-xl bg-pink-50/50 dark:bg-pink-950/20 border border-pink-100 dark:border-pink-950/40 space-y-2.5">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-slate-800">
-                    Select Shade: <span className="text-pink-600 font-bold">{selectedShade?.name || 'Default'}</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    Select Shade: <span className="text-pink-600 dark:text-pink-400 font-bold">{selectedShade?.name || 'Default'}</span>
                   </span>
                   {selectedShade?.sku && (
                     <span className="text-[10px] font-mono text-slate-400">SKU: {selectedShade.sku}</span>
@@ -206,8 +206,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                         onClick={() => setSelectedShade(shade)}
                         className={`group relative flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
                           isSelected
-                            ? 'bg-white border-pink-500 shadow-xs ring-2 ring-pink-500/20 text-slate-900'
-                            : 'bg-white/70 border-slate-200 hover:border-pink-300 text-slate-700'
+                            ? 'bg-white dark:bg-slate-800 border-pink-500 shadow-xs ring-2 ring-pink-500/20 text-slate-900 dark:text-white'
+                            : 'bg-white/70 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700 hover:border-pink-300 text-slate-700 dark:text-slate-300'
                         }`}
                       >
                         <span
@@ -226,9 +226,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             )}
 
             {/* Pincode & Availability Checker */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
                   <Truck className="w-3.5 h-3.5 text-pink-500" />
                   <span>Check Pincode Serviceability</span>
                 </span>
@@ -243,7 +243,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     placeholder="Enter 6-digit Pincode (e.g. 400050)"
                     value={pincodeInput}
                     onChange={(e) => setPincodeInput(e.target.value.replace(/\D/g, ''))}
-                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-mono text-slate-900 outline-none focus:border-pink-500"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-pink-500"
                   />
                 </div>
                 <button
@@ -255,14 +255,14 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               </form>
 
               {pincodeResult.isServiceable ? (
-                <div className="text-[11px] text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                <div className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800">
                   <div className="font-medium flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
                     <span>Deliverable to <strong>{pincodeResult.city}, {pincodeResult.state}</strong></span>
                   </div>
                 </div>
               ) : (
-                <div className="text-[11px] text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-200">
+                <div className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-lg border border-rose-200 dark:border-rose-800">
                   Please enter a valid 6-digit Indian pincode.
                 </div>
               )}
@@ -270,7 +270,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
             {/* Tabs for Details */}
             <div className="space-y-2 pt-1">
-              <div className="flex border-b border-slate-200 gap-4 text-xs">
+              <div className="flex border-b border-slate-200 dark:border-slate-800 gap-4 text-xs">
                 {(['benefits', 'ingredients', 'howTo', 'reviews'] as const).map((tab) => (
                   <button
                     key={tab}
@@ -278,7 +278,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                     className={`pb-2 transition-all cursor-pointer font-semibold capitalize ${
                       activeTab === tab
                         ? 'text-pink-600 border-b-2 border-pink-600'
-                        : 'text-slate-500 hover:text-slate-800'
+                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
                     }`}
                   >
                     {tab === 'howTo' ? 'How to Use' : tab}
@@ -286,7 +286,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 ))}
               </div>
 
-              <div className="text-xs text-slate-600 leading-relaxed min-h-[90px] pt-1">
+              <div className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed min-h-[90px] pt-1">
                 {activeTab === 'benefits' && (
                   <ul className="space-y-1.5">
                     {product.benefits.map((b, idx) => (
@@ -302,24 +302,24 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   <div className="space-y-2">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                       {product.keyActives.map((act, i) => (
-                        <div key={i} className="p-2 rounded-lg bg-slate-50 border border-slate-200">
-                          <span className="font-semibold text-slate-900">{act.name}</span>
-                          <p className="text-[11px] text-slate-600 mt-0.5">{act.purpose}</p>
+                        <div key={i} className="p-2 rounded-lg bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
+                          <span className="font-semibold text-slate-900 dark:text-white">{act.name}</span>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 mt-0.5">{act.purpose}</p>
                         </div>
                       ))}
                     </div>
-                    <p className="text-[10px] text-slate-500 font-mono leading-tight bg-slate-50 p-2 rounded-lg border border-slate-200">
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono leading-tight bg-slate-50 dark:bg-[#111524] p-2 rounded-lg border border-slate-200 dark:border-slate-800">
                       Full Ingredients: {product.fullIngredients}
                     </p>
                   </div>
                 )}
 
                 {activeTab === 'howTo' && (
-                  <div className="space-y-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                    <div className="text-xs font-semibold text-slate-900">
+                  <div className="space-y-2 p-3 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
+                    <div className="text-xs font-semibold text-slate-900 dark:text-white">
                       Recommended Application:
                     </div>
-                    <p className="text-xs text-slate-600 leading-relaxed">
+                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
                       {product.usageHowTo}
                     </p>
                   </div>
@@ -327,21 +327,21 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
                 {activeTab === 'reviews' && (
                   <div className="space-y-2">
-                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-900">Ananya S. — Mumbai</span>
-                        <span className="text-[10px] text-emerald-700 font-medium">✓ Verified Buyer</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">Ananya S. — Mumbai</span>
+                        <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">✓ Verified Buyer</span>
                       </div>
                       <div className="flex text-amber-500 text-xs my-0.5">★★★★★</div>
-                      <p className="text-[11px] text-slate-600">"Authentic Japanese skincare delivered safely. Skin feels clean and fresh without any tightness. Fast shipping."</p>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300">"Authentic Japanese skincare delivered safely. Skin feels clean and fresh without any tightness. Fast shipping."</p>
                     </div>
-                    <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                    <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-900">Rhea K. — Bangalore</span>
-                        <span className="text-[10px] text-emerald-700 font-medium">✓ Verified Buyer</span>
+                        <span className="font-semibold text-slate-900 dark:text-white">Rhea K. — Bangalore</span>
+                        <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">✓ Verified Buyer</span>
                       </div>
                       <div className="flex text-amber-500 text-xs my-0.5">★★★★★</div>
-                      <p className="text-[11px] text-slate-600">"Super gentle and effective. Happy that Konichiwa_Mart stocks real Japanese formulas in India."</p>
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300">"Super gentle and effective. Happy that Konichiwa_Mart stocks real Japanese formulas in India."</p>
                     </div>
                   </div>
                 )}
@@ -349,21 +349,21 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             </div>
 
             {/* Bottom Add to Cart with Quantity */}
-            <div className="pt-4 border-t border-slate-200 flex items-center gap-3">
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center gap-3">
               {/* Quantity selector */}
-              <div className="flex items-center rounded-xl bg-slate-50 border border-slate-200 px-2 py-1">
+              <div className="flex items-center rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="w-7 h-7 rounded-lg hover:bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-sm cursor-pointer"
+                  className="w-7 h-7 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer"
                 >
                   -
                 </button>
-                <span className="w-8 text-center text-xs font-bold text-slate-900">
+                <span className="w-8 text-center text-xs font-bold text-slate-900 dark:text-white">
                   {quantity}
                 </span>
                 <button
                   onClick={() => setQuantity(quantity + 1)}
-                  className="w-7 h-7 rounded-lg hover:bg-slate-200 flex items-center justify-center text-slate-600 font-bold text-sm cursor-pointer"
+                  className="w-7 h-7 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer"
                 >
                   +
                 </button>
