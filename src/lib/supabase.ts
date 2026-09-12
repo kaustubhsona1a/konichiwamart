@@ -704,14 +704,14 @@ export const deleteProductFromStore = async (productId: string): Promise<boolean
     }).catch(() => {});
   } catch {}
 
-  // 3. Direct Supabase deletion / soft-delete
+  // 3. Direct Supabase deletion
   const client = getSupabaseClient();
   if (client) {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
     Promise.resolve(
-      client
-        .from('products')
-        .update({ is_active: false })
-        .or(`id.eq.${productId},slug.eq.${productId}`)
+      isUuid
+        ? client.from('products').delete().eq('id', productId)
+        : client.from('products').delete().eq('slug', productId)
     ).catch(() => {});
   }
 
@@ -739,11 +739,11 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
       const patch: any = {};
       if (updates.price !== undefined) patch.base_price = updates.price;
       if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
       Promise.resolve(
-        client
-          .from('products')
-          .update(patch)
-          .or(`id.eq.${productId},slug.eq.${productId}`)
+        isUuid
+          ? client.from('products').update(patch).eq('id', productId)
+          : client.from('products').update(patch).eq('slug', productId)
       ).catch(() => {});
     }
 

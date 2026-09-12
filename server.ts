@@ -822,20 +822,16 @@ app.delete('/api/products/:id', async (req: Request, res: Response) => {
   const custom = getCustomProducts().filter(p => p.id !== id);
   saveCustomProducts(custom);
 
-  // 3. Delete or deactivate in Supabase
+  // 3. Delete from Supabase
   const supabase = getSupabaseServerClient();
   if (supabase) {
     try {
-      await supabase
-        .from('products')
-        .update({ is_active: false })
-        .or(`id.eq.${id},slug.eq.${id}`);
-      
-      // Also attempt hard delete
-      await supabase
-        .from('products')
-        .delete()
-        .or(`id.eq.${id},slug.eq.${id}`);
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      if (isUuid) {
+        await supabase.from('products').delete().eq('id', id);
+      } else {
+        await supabase.from('products').delete().eq('slug', id);
+      }
     } catch (err: any) {
       console.warn('[Server] Supabase delete warning:', err?.message || err);
     }
@@ -878,10 +874,12 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
       if (updates.title !== undefined) patch.title = updates.title;
 
       if (Object.keys(patch).length > 0) {
-        await supabase
-          .from('products')
-          .update(patch)
-          .or(`id.eq.${id},slug.eq.${id}`);
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+        if (isUuid) {
+          await supabase.from('products').update(patch).eq('id', id);
+        } else {
+          await supabase.from('products').update(patch).eq('slug', id);
+        }
       }
 
       // Sync stock to Supabase inventory metadata
