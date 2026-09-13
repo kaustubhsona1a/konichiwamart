@@ -279,13 +279,19 @@ export default function App() {
 
   // Site Settings (Store background, Logo, Flower drift controls)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
+    // Check if user has explicitly turned on flower drift in their settings
+    const explicitlyTurnedOn = localStorage.getItem('km_flower_drift_user_enabled') === 'true';
     try {
       const saved = localStorage.getItem('km_site_settings');
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
           backgroundHintOpacity: 'balanced',
-          ...parsed
+          flowerDriftSpeed: 'gentle',
+          flowerDriftDensity: 'medium',
+          ...parsed,
+          // By default keep drift OFF unless explicitly turned on by the user
+          flowerDriftEnabled: explicitlyTurnedOn ? Boolean(parsed.flowerDriftEnabled) : false
         };
       }
     } catch {}
@@ -293,8 +299,11 @@ export default function App() {
       storeName: 'Konichiwa.Mart',
       storeTagline: 'Tokyo Skincare',
       heroBannerUrl: localStorage.getItem('km_hero_banner_data') || '/products/konichiwalaptopbg.png',
+      mobileHeroBannerUrl: localStorage.getItem('km_hero_mobile_banner_data') || '/products/konichiwamobilebg.png',
+      backgroundImageUrl: '/products/konichiwalaptopbg.png',
+      mobileBackgroundImageUrl: '/products/konichiwamobilebg.png',
       backgroundHintOpacity: 'balanced',
-      flowerDriftEnabled: true,
+      flowerDriftEnabled: explicitlyTurnedOn,
       flowerDriftSpeed: 'gentle',
       flowerDriftDensity: 'medium'
     };
@@ -303,6 +312,13 @@ export default function App() {
   const handleUpdateSiteSettings = (newSettings: Partial<SiteSettings>) => {
     setSiteSettings((prev) => {
       const updated = { ...prev, ...newSettings };
+      if (newSettings.flowerDriftEnabled !== undefined) {
+        if (newSettings.flowerDriftEnabled) {
+          localStorage.setItem('km_flower_drift_user_enabled', 'true');
+        } else {
+          localStorage.setItem('km_flower_drift_user_enabled', 'false');
+        }
+      }
       localStorage.setItem('km_site_settings', JSON.stringify(updated));
       return updated;
     });
@@ -579,8 +595,9 @@ export default function App() {
         aria-hidden="true"
       >
         {/* Fixed background image with smooth parallax hint - visible & atmospheric in both light and dark mode */}
+        {/* Desktop / Laptop Background */}
         <div 
-          className={`absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700 brightness-[0.94] contrast-[0.98] ${
+          className={`hidden sm:block absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700 brightness-[0.94] contrast-[0.98] ${
             siteSettings.backgroundHintOpacity === 'subtle'
               ? 'opacity-[0.16] dark:opacity-[0.24] dark:brightness-[0.82] dark:contrast-[1.10]'
               : siteSettings.backgroundHintOpacity === 'pronounced'
@@ -589,6 +606,19 @@ export default function App() {
           }`}
           style={{
             backgroundImage: `url(${siteSettings.backgroundImageUrl || siteSettings.heroBannerUrl || '/products/konichiwalaptopbg.png'})`,
+          }}
+        />
+        {/* Mobile Background Layout */}
+        <div 
+          className={`block sm:hidden absolute inset-0 bg-cover bg-center bg-no-repeat transition-all duration-700 brightness-[0.94] contrast-[0.98] ${
+            siteSettings.backgroundHintOpacity === 'subtle'
+              ? 'opacity-[0.16] dark:opacity-[0.24] dark:brightness-[0.82] dark:contrast-[1.10]'
+              : siteSettings.backgroundHintOpacity === 'pronounced'
+              ? 'opacity-[0.35] dark:opacity-[0.48] dark:brightness-[0.88] dark:contrast-[1.12]'
+              : 'opacity-[0.24] dark:opacity-[0.36] dark:brightness-[0.85] dark:contrast-[1.10]'
+          }`}
+          style={{
+            backgroundImage: `url(${siteSettings.mobileBackgroundImageUrl || siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'})`,
           }}
         />
         {/* Soft Japanese paper tone in light mode / subtle velvet black tint in dark mode */}
@@ -652,6 +682,7 @@ export default function App() {
             isWishlisted={isWishlisted}
             onApplyCoupon={() => setIsCartOpen(true)}
             customBannerUrl={siteSettings.heroBannerUrl}
+            customMobileBannerUrl={siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'}
           />
 
           {/* 2. MAIN PRODUCT CATALOG */}

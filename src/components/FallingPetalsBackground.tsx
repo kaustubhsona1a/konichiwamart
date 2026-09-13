@@ -27,7 +27,7 @@ interface FallingPetalsBackgroundProps {
 }
 
 export const FallingPetalsBackground: React.FC<FallingPetalsBackgroundProps> = ({
-  initialActive = true,
+  initialActive = false,
   isActive: propIsActive,
   breezeMode: propBreezeMode,
   density = 'medium'
@@ -89,6 +89,14 @@ export const FallingPetalsBackground: React.FC<FallingPetalsBackgroundProps> = (
   };
 
   useEffect(() => {
+    if (!active) {
+      if (animFrameIdRef.current) {
+        cancelAnimationFrame(animFrameIdRef.current);
+        animFrameIdRef.current = null;
+      }
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d', { alpha: true });
@@ -291,14 +299,15 @@ export const FallingPetalsBackground: React.FC<FallingPetalsBackgroundProps> = (
     };
   }, [active, currentBreeze, density]);
 
+  if (!active) {
+    return null;
+  }
+
   return (
-    <>
-      {/* Permanent Fullscreen Falling Blossoms Canvas Layer */}
-      <canvas
-        ref={canvasRef}
-        className="fixed inset-0 pointer-events-none z-25 w-full h-full"
-        style={{ mixBlendMode: 'normal' }}
-      />
-    </>
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 pointer-events-none z-25 w-full h-full"
+      style={{ mixBlendMode: 'normal' }}
+    />
   );
 };

@@ -27,6 +27,7 @@ export interface CheckoutOptions {
   amountInPaise: number;
   currency?: string;
   receipt?: string;
+  orderId?: string;
   customerName: string;
   customerEmail: string;
   customerContact: string;
@@ -159,21 +160,30 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
       return;
     }
 
-    // Call backend to create Razorpay Order
-    const orderData = await createBackendOrder(
-      options.amountInPaise,
-      options.currency || 'INR',
-      options.receipt
-    );
+    // Use provided order ID if available, or create via backend
+    let orderId = options.orderId;
+    let orderAmount = options.amountInPaise;
+    let orderCurrency = options.currency || 'INR';
+
+    if (!orderId) {
+      const orderData = await createBackendOrder(
+        options.amountInPaise,
+        options.currency || 'INR',
+        options.receipt
+      );
+      orderId = orderData.order_id;
+      orderAmount = orderData.amount;
+      orderCurrency = orderData.currency;
+    }
 
     const rzpOptions = {
       key: keyId,
-      amount: orderData.amount,
-      currency: orderData.currency,
+      amount: orderAmount,
+      currency: orderCurrency,
       name: 'Konichiwa_Mart',
       description: 'Authentic Japanese Skincare Dispensary',
       image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=200&q=80',
-      order_id: orderData.order_id,
+      order_id: orderId,
       handler: async function (response: RazorpayPaymentSuccessPayload) {
         try {
           // Verify on backend
@@ -208,7 +218,12 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
       options.onError?.(errorMsg);
     });
 
-    rzp.open();
+    try {
+      rzp.open();
+    } catch (openErr: any) {
+      console.warn('Razorpay open failed, might be blocked or test key constraint:', openErr);
+      options.onError?.('Could not open Razorpay checkout window. Please allow popups or use Sandbox mode.');
+    }
   } catch (err: any) {
     options.onError?.(err.message || 'Failed to initiate checkout.');
   }

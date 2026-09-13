@@ -126,7 +126,9 @@ export interface SiteSettings {
   storeName: string;
   storeTagline: string;
   heroBannerUrl: string;
+  mobileHeroBannerUrl?: string;
   backgroundImageUrl?: string;
+  mobileBackgroundImageUrl?: string;
   backgroundHintOpacity?: 'subtle' | 'balanced' | 'pronounced';
   flowerDriftEnabled: boolean;
   flowerDriftSpeed: 'still' | 'gentle' | 'fresh' | 'vibrant';

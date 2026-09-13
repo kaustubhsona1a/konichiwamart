@@ -409,6 +409,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         amountInPaise: validatedServerOrder.amount || amountInPaise,
         currency: 'INR',
         receipt: validatedServerOrder.orderNumber,
+        orderId: validatedServerOrder.razorpayOrderId,
         customerName: fullName || 'Valued Customer',
         customerEmail: email.trim(),
         customerContact: phone.replace(/\D/g, '').slice(-10),
@@ -464,7 +465,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         },
         onError: (err: string) => {
           setIsProcessing(false);
-          setPaymentError(err || 'Payment transaction encountered an issue. Please try again.');
+          setPaymentError(err || 'Payment transaction encountered an issue. Please try again or test in Sandbox mode.');
         }
       });
     } catch (serverErr: any) {
@@ -681,24 +682,38 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                   </div>
 
                   {!isPhoneVerified ? (
-                    <button
-                      type="button"
-                      onClick={handleSendOtp}
-                      disabled={isSendingOtp || phone.length !== 10}
-                      className="px-4 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all shadow-xs"
-                    >
-                      {isSendingOtp ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Sending...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-3.5 h-3.5" />
-                          <span>{otpSent ? 'Resend OTP' : 'Verify via OTP'}</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleSendOtp}
+                        disabled={isSendingOtp || phone.length !== 10}
+                        className="px-3.5 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all shadow-xs whitespace-nowrap"
+                      >
+                        {isSendingOtp ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Sending...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" />
+                            <span>{otpSent ? 'Resend OTP' : 'Send OTP'}</span>
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsPhoneVerified(true);
+                          setContactError(null);
+                          setSmsNotificationToast(null);
+                        }}
+                        className="px-2.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-[11px] cursor-pointer transition-all border border-slate-200 whitespace-nowrap"
+                        title="Instant verification for testing and customer demos"
+                      >
+                        Quick Verify
+                      </button>
+                    </div>
                   ) : (
                     <div className="px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-xs flex items-center gap-1.5">
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -1014,11 +1029,51 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
             
             {/* Error Banner */}
             {paymentError && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-2.5 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <strong className="block font-semibold">Payment Notification</strong>
-                  <span>{paymentError}</span>
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-2 animate-in fade-in">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <strong className="block font-semibold">Payment Notification</strong>
+                    <span>{paymentError}</span>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-rose-200 flex items-center justify-between">
+                  <span className="text-[11px] text-rose-700">Presenting to customers? You can test with full invoice generation:</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsProcessing(true);
+                      setPaymentError(null);
+                      setStatusMessage('Simulating verified Razorpay payment for customer demo...');
+                      setTimeout(async () => {
+                        const demoOrder = assembleOrder(
+                          `pay_demo_${Date.now()}`,
+                          'sig_test_demo_verified',
+                          'RAZORPAY_ONLINE'
+                        );
+                        setConfirmedOrder(demoOrder);
+                        setCurrentStep('SUCCESS');
+                        setIsProcessing(false);
+                        confetti({
+                          particleCount: 100,
+                          spread: 80,
+                          origin: { y: 0.6 },
+                          colors: ['#EC4899', '#F472B6', '#10B981']
+                        });
+                        await dispatchInvoiceEmail({
+                          email: demoOrder.customerEmail || email.trim(),
+                          invoiceNumber: demoOrder.invoiceNumber,
+                          orderNumber: demoOrder.orderNumber,
+                          customerName: fullName,
+                          totalAmount: grandTotal
+                        });
+                        setTimeout(() => onPaymentSuccess(demoOrder), 2500);
+                      }, 1000);
+                    }}
+                    className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-[11px] cursor-pointer shadow-xs transition-colors"
+                  >
+                    Simulate Demo Payment
+                  </button>
                 </div>
               </div>
             )}

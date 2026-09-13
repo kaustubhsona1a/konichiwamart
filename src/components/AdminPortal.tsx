@@ -20,7 +20,8 @@ import {
   Image as ImageIcon, 
   RotateCcw,
   Store,
-  Trash2
+  Trash2,
+  Menu
 } from 'lucide-react';
 import { Order, Product, ProductCategory, SiteSettings } from '../types';
 import { formatINR } from '../data/pincodes';
@@ -106,6 +107,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onUpdateSiteSettings
 }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'settings'>('dashboard');
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [savedFeedbackMap, setSavedFeedbackMap] = useState<Record<string, boolean>>({});
@@ -136,8 +138,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Banner & logo file upload ref
   const bannerInputRef = useRef<HTMLInputElement>(null);
+  const mobileBannerInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const [isUploadingMobileBanner, setIsUploadingMobileBanner] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   if (!isOpen) return null;
@@ -160,7 +164,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     handleStockChange(productId, currentStock + delta);
   };
 
-  // Banner Upload File Handler
+  // Banner Upload File Handler (Desktop / Laptop)
   const handleBannerFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -170,15 +174,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     reader.onload = async () => {
       const base64 = reader.result as string;
       try {
-        // 1. Upload to server to persist permanently into public/hero-banner.png and dist/hero-banner.png
-        const uploadRes = await fetch('/api/upload-banner', {
+        // 1. Upload to server to persist permanently into public/products/konichiwalaptopbg.png
+        await fetch('/api/upload-banner', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64 })
+          body: JSON.stringify({ imageBase64: base64, target: 'desktop' })
         });
         
         const timestamp = Date.now();
-        const permanentUrl = `/hero-banner.png?v=${timestamp}`;
+        const permanentUrl = `/products/konichiwalaptopbg.png?v=${timestamp}`;
 
         // 2. Clean up any heavy base64 strings from localStorage to prevent quota overflow
         try {
@@ -186,14 +190,53 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         } catch {}
 
         // 3. Update application state with permanent file path
-        onUpdateSiteSettings({ heroBannerUrl: permanentUrl });
+        onUpdateSiteSettings({ heroBannerUrl: permanentUrl, backgroundImageUrl: permanentUrl });
 
-        setSettingsSuccessMsg('Store background updated & saved to build successfully!');
+        setSettingsSuccessMsg('Laptop & desktop background updated successfully!');
         setTimeout(() => setSettingsSuccessMsg(null), 3500);
       } catch (err) {
         console.error('Error uploading banner:', err);
       } finally {
         setIsUploadingBanner(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Mobile Layout Banner Upload File Handler
+  const handleMobileBannerFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingMobileBanner(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      try {
+        // 1. Upload to server to persist permanently into public/products/konichiwamobilebg.png
+        await fetch('/api/upload-banner', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64, target: 'mobile' })
+        });
+        
+        const timestamp = Date.now();
+        const permanentUrl = `/products/konichiwamobilebg.png?v=${timestamp}`;
+
+        // 2. Clean up any heavy base64 strings from localStorage to prevent quota overflow
+        try {
+          localStorage.removeItem('km_hero_mobile_banner_data');
+        } catch {}
+
+        // 3. Update application state with permanent file path
+        onUpdateSiteSettings({ mobileHeroBannerUrl: permanentUrl, mobileBackgroundImageUrl: permanentUrl });
+
+        setSettingsSuccessMsg('Mobile layout background updated successfully!');
+        setTimeout(() => setSettingsSuccessMsg(null), 3500);
+      } catch (err) {
+        console.error('Error uploading mobile banner:', err);
+      } finally {
+        setIsUploadingMobileBanner(false);
       }
     };
     reader.readAsDataURL(file);
@@ -335,9 +378,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     <div className="fixed inset-0 z-50 flex bg-[#FAF7F2] text-slate-800 overflow-hidden font-sans select-none animate-in fade-in duration-200">
       
       {/* ========================================================================= */}
-      {/* 1. LEFT SIDEBAR NAVIGATION (Website theme aligned: light, crisp, pink accents) */}
+      {/* 1. LEFT SIDEBAR NAVIGATION - DESKTOP */}
       {/* ========================================================================= */}
-      <aside className="w-64 sm:w-72 bg-white/95 border-r border-pink-100 flex flex-col justify-between flex-shrink-0 shadow-xs">
+      <aside className="hidden md:flex md:w-64 lg:w-72 bg-white/95 border-r border-pink-100 flex-col justify-between flex-shrink-0 shadow-xs">
         <div>
           {/* Top Brand Header */}
           <div className="p-6 flex items-center gap-3 border-b border-pink-100">
@@ -386,27 +429,37 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               {/* INVENTORY TAB */}
               <button
                 onClick={() => setActiveTab('inventory')}
-                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all cursor-pointer text-left font-medium ${
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl transition-all cursor-pointer text-left font-medium ${
                   activeTab === 'inventory'
                     ? 'bg-pink-50 text-pink-700 shadow-xs font-bold border-l-4 border-pink-600'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-stone-50'
                 }`}
               >
-                <Package className={`w-4 h-4 ${activeTab === 'inventory' ? 'text-pink-600' : 'text-slate-400'}`} />
-                <span className="tracking-wide">INVENTORY</span>
+                <div className="flex items-center gap-3">
+                  <Package className={`w-4 h-4 ${activeTab === 'inventory' ? 'text-pink-600' : 'text-slate-400'}`} />
+                  <span className="tracking-wide">INVENTORY</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                  {products.length}
+                </span>
               </button>
 
               {/* ORDERS TAB */}
               <button
                 onClick={() => setActiveTab('orders')}
-                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-xl transition-all cursor-pointer text-left font-medium ${
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl transition-all cursor-pointer text-left font-medium ${
                   activeTab === 'orders'
                     ? 'bg-pink-50 text-pink-700 shadow-xs font-bold border-l-4 border-pink-600'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-stone-50'
                 }`}
               >
-                <Truck className={`w-4 h-4 ${activeTab === 'orders' ? 'text-pink-600' : 'text-slate-400'}`} />
-                <span className="tracking-wide">ORDERS & LEADS</span>
+                <div className="flex items-center gap-3">
+                  <Truck className={`w-4 h-4 ${activeTab === 'orders' ? 'text-pink-600' : 'text-slate-400'}`} />
+                  <span className="tracking-wide">ORDERS & LEADS</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                  {orders.length}
+                </span>
               </button>
 
               {/* SITE SETTINGS TAB */}
@@ -443,29 +496,170 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       </aside>
 
       {/* ========================================================================= */}
+      {/* MOBILE SLIDE-OUT DRAWER OVERLAY */}
+      {/* ========================================================================= */}
+      {mobileDrawerOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex animate-in fade-in duration-150">
+          <div 
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs" 
+            onClick={() => setMobileDrawerOpen(false)} 
+          />
+          <aside className="relative w-4/5 max-w-xs bg-white h-full flex flex-col justify-between shadow-2xl z-10 border-r border-pink-100 animate-in slide-in-from-left duration-200">
+            <div>
+              {/* Header */}
+              <div className="p-4 sm:p-5 flex items-center justify-between border-b border-pink-100 bg-pink-50/40">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-white border border-pink-200 flex items-center justify-center p-1 shadow-2xs">
+                    {siteSettings.logoUrl ? (
+                      <img src={siteSettings.logoUrl} alt="Store Logo" className="w-full h-full object-contain" referrerPolicy="no-referrer" />
+                    ) : (
+                      <Store className="w-5 h-5 text-pink-600" />
+                    )}
+                  </div>
+                  <div>
+                    <h1 className="font-bold text-xs tracking-wider uppercase text-slate-900 truncate">
+                      {siteSettings.storeName || 'KONICHIWA MART'}
+                    </h1>
+                    <span className="text-[9px] tracking-widest uppercase font-bold text-pink-600 block">
+                      OPERATOR PORTAL
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setMobileDrawerOpen(false)}
+                  className="w-8 h-8 rounded-lg bg-white hover:bg-stone-100 flex items-center justify-center text-slate-500 border border-stone-200 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Menu Navigation */}
+              <div className="p-4 space-y-1">
+                <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-3 mb-2">
+                  PORTAL NAVIGATION
+                </div>
+
+                <button
+                  onClick={() => { setActiveTab('dashboard'); setMobileDrawerOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                    activeTab === 'dashboard'
+                      ? 'bg-pink-50 text-pink-700 border-l-4 border-pink-600 shadow-2xs'
+                      : 'text-slate-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <LayoutDashboard className={`w-4 h-4 ${activeTab === 'dashboard' ? 'text-pink-600' : 'text-slate-400'}`} />
+                    <span>Dashboard Overview</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('inventory'); setMobileDrawerOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                    activeTab === 'inventory'
+                      ? 'bg-pink-50 text-pink-700 border-l-4 border-pink-600 shadow-2xs'
+                      : 'text-slate-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Package className={`w-4 h-4 ${activeTab === 'inventory' ? 'text-pink-600' : 'text-slate-400'}`} />
+                    <span>Product Catalog</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                    {products.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('orders'); setMobileDrawerOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                    activeTab === 'orders'
+                      ? 'bg-pink-50 text-pink-700 border-l-4 border-pink-600 shadow-2xs'
+                      : 'text-slate-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Truck className={`w-4 h-4 ${activeTab === 'orders' ? 'text-pink-600' : 'text-slate-400'}`} />
+                    <span>Orders & Leads</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                    {orders.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('settings'); setMobileDrawerOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                    activeTab === 'settings'
+                      ? 'bg-pink-50 text-pink-700 border-l-4 border-pink-600 shadow-2xs'
+                      : 'text-slate-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Settings className={`w-4 h-4 ${activeTab === 'settings' ? 'text-pink-600' : 'text-slate-400'}`} />
+                    <span>Store Settings</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom Operator Status in Drawer */}
+            <div className="p-4 border-t border-pink-100 bg-stone-50/80">
+              <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">Signed in as</div>
+              <div className="text-xs text-slate-800 font-bold truncate mt-0.5">{operatorEmail}</div>
+              <button
+                onClick={() => {
+                  onLogout();
+                  onClose();
+                }}
+                className="w-full mt-3 py-2 px-3 rounded-xl bg-white hover:bg-rose-50 text-rose-600 text-xs font-semibold flex items-center justify-center gap-2 border border-rose-200 shadow-2xs"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* 2. MAIN CONTENT VIEWPORT */}
       {/* ========================================================================= */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#FAF7F2]">
         
-        {/* TOP APP BAR (Search + Website link + Close) */}
-        <header className="h-16 border-b border-pink-100 px-6 flex items-center justify-between flex-shrink-0 bg-white/90 backdrop-blur-md">
+        {/* TOP APP BAR (Search + Website link + Close + Mobile Drawer Toggle) */}
+        <header className="h-14 sm:h-16 border-b border-pink-100 px-3 sm:px-6 flex items-center justify-between flex-shrink-0 bg-white/95 backdrop-blur-md gap-2">
+          {/* Left: Mobile hamburger or brand indicator */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMobileDrawerOpen(true)}
+              className="md:hidden w-9 h-9 rounded-xl bg-pink-50 hover:bg-pink-100 border border-pink-200 text-pink-700 flex items-center justify-center cursor-pointer transition-colors"
+              aria-label="Open portal menu"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+            <span className="md:hidden text-xs font-bold text-slate-800 uppercase tracking-wider">
+              {activeTab === 'dashboard' ? 'Dashboard' : activeTab === 'inventory' ? 'Inventory' : activeTab === 'orders' ? 'Orders' : 'Settings'}
+            </span>
+          </div>
+
           {/* Search bar */}
-          <div className="relative w-72 sm:w-96">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <div className="relative flex-1 max-w-xs sm:max-w-md">
+            <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search products, orders, categories..."
+              placeholder="Search products, orders..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl bg-stone-50 border border-stone-200 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-pink-500 focus:ring-2 focus:ring-pink-500/20 transition-all"
+              className="w-full pl-9 sm:pl-10 pr-3 py-1.5 sm:py-2 rounded-xl bg-stone-50 border border-stone-200 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:border-pink-500 focus:ring-2 focus:ring-pink-500/20 transition-all"
             />
           </div>
 
           {/* Right Action: Website button & Close */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 rounded-xl border border-stone-200 hover:border-pink-300 bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 text-xs font-bold tracking-wider uppercase flex items-center gap-2 cursor-pointer transition-all shadow-xs"
+              className="hidden sm:inline-flex px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl border border-stone-200 hover:border-pink-300 bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 text-xs font-bold tracking-wider uppercase items-center gap-2 cursor-pointer transition-all shadow-xs"
             >
               <span>WEBSITE</span>
               <ExternalLink className="w-3.5 h-3.5 text-pink-600" />
@@ -473,8 +667,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <button
               onClick={onClose}
-              className="w-9 h-9 rounded-xl bg-white hover:bg-rose-50 border border-stone-200 hover:border-rose-200 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer shadow-xs"
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white hover:bg-rose-50 border border-stone-200 hover:border-rose-200 text-slate-500 hover:text-rose-600 flex items-center justify-center transition-colors cursor-pointer shadow-xs"
               title="Close Portal"
+              aria-label="Close Portal"
             >
               <X className="w-4 h-4" />
             </button>
@@ -482,7 +677,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </header>
 
         {/* VIEW BODY SCROLLABLE CONTAINER */}
-        <div className="flex-1 overflow-y-auto p-6 sm:p-8 md:p-10 space-y-8">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-8 pb-24 md:pb-10">
           
           {/* ========================================================================= */}
           {/* TAB: DASHBOARD */}
@@ -657,47 +852,72 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     No orders placed yet. Customer orders will appear here automatically.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="text-[10px] font-semibold text-slate-500 uppercase border-b border-stone-200 bg-stone-50/80">
-                        <tr>
-                          <th className="py-2.5 px-3">Order ID</th>
-                          <th className="py-2.5 px-3">Customer</th>
-                          <th className="py-2.5 px-3">Destination</th>
-                          <th className="py-2.5 px-3">Amount</th>
-                          <th className="py-2.5 px-3">Courier / AWB</th>
-                          <th className="py-2.5 px-3 text-right">Invoice</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-stone-100">
-                        {orders.slice(0, 4).map((o) => (
-                          <tr key={o.id} className="text-slate-700 hover:bg-pink-50/30 transition-colors">
-                            <td className="py-3 px-3 font-mono font-bold text-slate-900">{o.orderNumber}</td>
-                            <td className="py-3 px-3">
-                              <div className="font-semibold text-slate-900">{o.customerName}</div>
-                              <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
-                            </td>
-                            <td className="py-3 px-3 text-slate-600">
-                              {o.shippingAddress.city}, {o.shippingAddress.state}
-                            </td>
-                            <td className="py-3 px-3 font-bold text-slate-900">{formatINR(o.totalAmount)}</td>
-                            <td className="py-3 px-3">
-                              <div className="font-semibold text-slate-800">{o.courierPartner || 'Blue Dart'}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">AWB: {o.awbNumber || '88492019482'}</div>
-                            </td>
-                            <td className="py-3 px-3 text-right">
-                              <button
-                                onClick={() => onViewInvoice(o)}
-                                className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 text-[11px] font-semibold cursor-pointer shadow-2xs transition-colors"
-                              >
-                                View GST Invoice
-                              </button>
-                            </td>
+                  <>
+                    {/* Mobile recent orders cards */}
+                    <div className="block md:hidden space-y-2.5">
+                      {orders.slice(0, 4).map((o) => (
+                        <div key={o.id} className="p-3 bg-stone-50/80 rounded-xl border border-stone-200/80 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-bold text-slate-900 text-xs">{o.orderNumber}</span>
+                            <span className="font-bold text-slate-900 text-xs">{formatINR(o.totalAmount)}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-600">
+                            <span>{o.customerName} ({o.shippingAddress.city})</span>
+                            <span className="text-[10px] font-mono text-slate-400">AWB: {o.awbNumber || '88492019482'}</span>
+                          </div>
+                          <button
+                            onClick={() => onViewInvoice(o)}
+                            className="w-full py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 font-semibold text-xs border border-pink-200 shadow-2xs"
+                          >
+                            View Invoice
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Desktop recent orders table */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="text-[10px] font-semibold text-slate-500 uppercase border-b border-stone-200 bg-stone-50/80">
+                          <tr>
+                            <th className="py-2.5 px-3">Order ID</th>
+                            <th className="py-2.5 px-3">Customer</th>
+                            <th className="py-2.5 px-3">Destination</th>
+                            <th className="py-2.5 px-3">Amount</th>
+                            <th className="py-2.5 px-3">Courier / AWB</th>
+                            <th className="py-2.5 px-3 text-right">Invoice</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100">
+                          {orders.slice(0, 4).map((o) => (
+                            <tr key={o.id} className="text-slate-700 hover:bg-pink-50/30 transition-colors">
+                              <td className="py-3 px-3 font-mono font-bold text-slate-900">{o.orderNumber}</td>
+                              <td className="py-3 px-3">
+                                <div className="font-semibold text-slate-900">{o.customerName}</div>
+                                <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
+                              </td>
+                              <td className="py-3 px-3 text-slate-600">
+                                {o.shippingAddress.city}, {o.shippingAddress.state}
+                              </td>
+                              <td className="py-3 px-3 font-bold text-slate-900">{formatINR(o.totalAmount)}</td>
+                              <td className="py-3 px-3">
+                                <div className="font-semibold text-slate-800">{o.courierPartner || 'Blue Dart'}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">AWB: {o.awbNumber || '88492019482'}</div>
+                              </td>
+                              <td className="py-3 px-3 text-right">
+                                <button
+                                  onClick={() => onViewInvoice(o)}
+                                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 text-[11px] font-semibold cursor-pointer shadow-2xs transition-colors"
+                                >
+                                  View GST Invoice
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             </div>
@@ -777,8 +997,196 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 ))}
               </div>
 
-              {/* Table */}
-              <div className="bg-white border border-pink-100 rounded-2xl overflow-hidden shadow-xs">
+              {/* ================================================================= */}
+              {/* MOBILE INVENTORY PRODUCT CARDS (Optimized for small screens)      */}
+              {/* ================================================================= */}
+              <div className="block md:hidden space-y-3">
+                {filteredProducts.map((p) => {
+                  const currentStock = p.stock ?? 0;
+                  const isSaved = savedFeedbackMap[p.id];
+
+                  return (
+                    <div key={p.id} className="bg-white border border-pink-100 rounded-2xl p-4 shadow-xs space-y-3">
+                      {/* Top: Product image, titles, category, and delete button */}
+                      <div className="flex items-start gap-3">
+                        <div className="w-16 h-16 rounded-xl bg-stone-50 border border-stone-200 overflow-hidden flex-shrink-0 flex items-center justify-center p-1.5 shadow-2xs">
+                          <img 
+                            src={p.image} 
+                            alt={p.title} 
+                            className="w-full h-full object-contain"
+                            referrerPolicy="no-referrer" 
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="px-2 py-0.5 rounded-md bg-stone-100 text-slate-700 text-[10px] font-bold border border-stone-200">
+                              {p.category}
+                            </span>
+                            <button
+                              onClick={() => setProductToDelete(p)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+                              title={`Delete ${p.title}`}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                          <h4 className="font-bold text-slate-900 text-xs mt-1 leading-snug line-clamp-2">
+                            {p.title}
+                          </h4>
+                          <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                            {p.volume || 'Standard'} • SKU: {p.id.slice(-6)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Middle: Selling Price + Stock Status */}
+                      <div className="flex items-center justify-between bg-stone-50/90 p-2.5 rounded-xl border border-stone-200/80">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-semibold text-slate-500 uppercase">Price:</span>
+                          <div className="flex items-center font-bold text-slate-900 text-sm">
+                            <span>₹</span>
+                            <input
+                              type="number"
+                              min="1"
+                              defaultValue={p.price}
+                              onBlur={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                if (val && onUpdateProductPrice) {
+                                  onUpdateProductPrice(p.id, val);
+                                }
+                              }}
+                              className="w-20 bg-white border border-stone-300 focus:border-pink-500 rounded-lg px-2 py-1 text-xs text-slate-900 font-bold ml-1 shadow-2xs"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Stock status badge */}
+                        <div>
+                          {currentStock > 10 ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full font-bold border border-emerald-200 text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              In Stock ({currentStock})
+                            </span>
+                          ) : currentStock > 0 ? (
+                            <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full font-bold border border-amber-200 text-[10px]">
+                              <AlertTriangle className="w-3 h-3 text-amber-500" />
+                              Low ({currentStock})
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full font-bold border border-rose-200 text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                              Out of Stock
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Bottom: Stock Stepper & Quick Restock */}
+                      <div className="space-y-2 pt-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-semibold text-slate-600">Stock Inventory Units:</span>
+                          {isSaved && (
+                            <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-0.5 animate-in fade-in">
+                              <Check className="w-3 h-3" />
+                              Updated
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {/* Stepper */}
+                          <div className="flex items-center border border-stone-300 bg-white rounded-xl overflow-hidden shadow-2xs">
+                            <button
+                              onClick={() => handleStockIncrement(p.id, currentStock, -1)}
+                              disabled={currentStock <= 0}
+                              className="w-9 h-9 flex items-center justify-center text-slate-600 hover:bg-stone-100 disabled:opacity-30 active:bg-stone-200 cursor-pointer"
+                              title="Minus 1"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <input
+                              type="number"
+                              min="0"
+                              value={currentStock}
+                              onChange={(e) => handleStockChange(p.id, parseInt(e.target.value, 10) || 0)}
+                              className="w-14 text-center font-extrabold text-slate-900 text-xs py-1.5 border-x border-stone-200 focus:outline-none"
+                            />
+                            <button
+                              onClick={() => handleStockIncrement(p.id, currentStock, 1)}
+                              className="w-9 h-9 flex items-center justify-center text-slate-600 hover:bg-stone-100 active:bg-stone-200 cursor-pointer"
+                              title="Plus 1"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          {/* Quick Pills */}
+                          <div className="flex items-center gap-1.5 flex-1 justify-end">
+                            <button
+                              onClick={() => handleStockIncrement(p.id, currentStock, 10)}
+                              className="px-2.5 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 font-bold text-xs border border-stone-200 active:scale-95 cursor-pointer"
+                            >
+                              +10
+                            </button>
+                            <button
+                              onClick={() => handleStockChange(p.id, currentStock + 25)}
+                              className="px-2.5 py-2 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-700 font-bold text-xs border border-pink-200 active:scale-95 cursor-pointer"
+                            >
+                              +25
+                            </button>
+                            {currentStock > 0 ? (
+                              <button
+                                onClick={() => handleStockChange(p.id, 0)}
+                                className="px-2 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs border border-rose-200 active:scale-95 cursor-pointer"
+                                title="Set Out of Stock"
+                              >
+                                Zero
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleStockChange(p.id, 50)}
+                                className="px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xs active:scale-95 cursor-pointer"
+                              >
+                                +50
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {filteredProducts.length === 0 && (
+                  <div className="text-center py-10 px-4 bg-white rounded-2xl border border-pink-100 shadow-xs">
+                    <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="font-semibold text-slate-700 text-xs">No products found</p>
+                    <p className="text-[11px] text-slate-400 mt-1 max-w-sm mx-auto">
+                      {searchQuery || categoryFilter !== 'All' 
+                        ? 'No products match your current search or category filter.' 
+                        : 'All catalog products have been removed.'}
+                    </p>
+                    {onResetDefaultProducts && (
+                      <button
+                        onClick={() => {
+                          onResetDefaultProducts();
+                          setRemoveToastMessage('Restored all default catalog products.');
+                          setTimeout(() => setRemoveToastMessage(null), 3000);
+                        }}
+                        className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-pink-200 bg-pink-50 hover:bg-pink-100 text-pink-700 text-xs font-semibold cursor-pointer transition-colors"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>Restore Original Catalog</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* ================================================================= */}
+              {/* DESKTOP INVENTORY TABLE                                           */}
+              {/* ================================================================= */}
+              <div className="hidden md:block bg-white border border-pink-100 rounded-2xl overflow-hidden shadow-xs">
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead className="bg-stone-50/90 text-slate-600 font-semibold uppercase tracking-wider text-[10px] border-b border-stone-200">
@@ -998,55 +1406,117 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </p>
                 </div>
               ) : (
-                <div className="bg-white border border-pink-100 rounded-2xl overflow-hidden shadow-xs">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-stone-50/90 text-slate-600 font-semibold uppercase tracking-wider text-[10px] border-b border-stone-200">
-                        <tr>
-                          <th className="p-3.5">Order ID</th>
-                          <th className="p-3.5">Customer</th>
-                          <th className="p-3.5">Shipping Address</th>
-                          <th className="p-3.5">Amount</th>
-                          <th className="p-3.5">Payment</th>
-                          <th className="p-3.5">Courier / AWB</th>
-                          <th className="p-3.5 text-right">Tax Invoice</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-stone-100">
-                        {orders.map((o) => (
-                          <tr key={o.id} className="text-slate-700 hover:bg-pink-50/30 transition-colors">
-                            <td className="p-3.5 font-mono font-bold text-slate-900">{o.orderNumber}</td>
-                            <td className="p-3.5">
-                              <div className="font-semibold text-slate-900">{o.customerName}</div>
-                              <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
-                            </td>
-                            <td className="p-3.5 text-slate-600">
-                              {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})
-                            </td>
-                            <td className="p-3.5 font-bold text-slate-900">{formatINR(o.totalAmount)}</td>
-                            <td className="p-3.5">
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                PAID ({o.paymentMethod})
-                              </span>
-                            </td>
-                            <td className="p-3.5">
-                              <div className="font-semibold text-slate-800">{o.courierPartner || 'Blue Dart Express'}</div>
-                              <div className="text-[10px] text-slate-400 font-mono">AWB: {o.awbNumber || '88492019482'}</div>
-                            </td>
-                            <td className="p-3.5 text-right">
-                              <button
-                                onClick={() => onViewInvoice(o)}
-                                className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 font-semibold text-xs cursor-pointer shadow-2xs transition-colors"
-                              >
-                                View GST Invoice
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                <>
+                  {/* ================================================================= */}
+                  {/* MOBILE ORDERS LIST (Optimized touch cards for mobile)            */}
+                  {/* ================================================================= */}
+                  <div className="block md:hidden space-y-3">
+                    {orders.map((o) => (
+                      <div key={o.id} className="bg-white border border-pink-100 rounded-2xl p-4 shadow-xs space-y-3">
+                        {/* Header: Order ID & Amount */}
+                        <div className="flex items-center justify-between border-b border-stone-100 pb-2.5">
+                          <div>
+                            <span className="font-mono font-bold text-slate-900 text-xs">{o.orderNumber}</span>
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              {new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-extrabold text-slate-900 text-sm">{formatINR(o.totalAmount)}</div>
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 mt-0.5">
+                              PAID ({o.paymentMethod})
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Customer & Address Details */}
+                        <div className="text-xs space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800">{o.customerName}</span>
+                            <span className="text-[11px] text-slate-500">{o.customerPhone}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 leading-snug">
+                            {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})
+                          </p>
+                        </div>
+
+                        {/* Courier Partner & AWB */}
+                        <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-200/80 flex items-center justify-between text-xs">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Courier</span>
+                            <span className="font-semibold text-slate-800 text-[11px]">{o.courierPartner || 'Blue Dart Express'}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">AWB Tracking</span>
+                            <span className="font-mono font-bold text-slate-700 text-[11px]">{o.awbNumber || '88492019482'}</span>
+                          </div>
+                        </div>
+
+                        {/* Tax Invoice Action Button */}
+                        <button
+                          onClick={() => onViewInvoice(o)}
+                          className="w-full py-2.5 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                        >
+                          <span>View Official GST Tax Invoice</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                </div>
+
+                  {/* ================================================================= */}
+                  {/* DESKTOP ORDERS TABLE                                              */}
+                  {/* ================================================================= */}
+                  <div className="hidden md:block bg-white border border-pink-100 rounded-2xl overflow-hidden shadow-xs">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-stone-50/90 text-slate-600 font-semibold uppercase tracking-wider text-[10px] border-b border-stone-200">
+                          <tr>
+                            <th className="p-3.5">Order ID</th>
+                            <th className="p-3.5">Customer</th>
+                            <th className="p-3.5">Shipping Address</th>
+                            <th className="p-3.5">Amount</th>
+                            <th className="p-3.5">Payment</th>
+                            <th className="p-3.5">Courier / AWB</th>
+                            <th className="p-3.5 text-right">Tax Invoice</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100">
+                          {orders.map((o) => (
+                            <tr key={o.id} className="text-slate-700 hover:bg-pink-50/30 transition-colors">
+                              <td className="p-3.5 font-mono font-bold text-slate-900">{o.orderNumber}</td>
+                              <td className="p-3.5">
+                                <div className="font-semibold text-slate-900">{o.customerName}</div>
+                                <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
+                              </td>
+                              <td className="p-3.5 text-slate-600">
+                                {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})
+                              </td>
+                              <td className="p-3.5 font-bold text-slate-900">{formatINR(o.totalAmount)}</td>
+                              <td className="p-3.5">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  PAID ({o.paymentMethod})
+                                </span>
+                              </td>
+                              <td className="p-3.5">
+                                <div className="font-semibold text-slate-800">{o.courierPartner || 'Blue Dart Express'}</div>
+                                <div className="text-[10px] text-slate-400 font-mono">AWB: {o.awbNumber || '88492019482'}</div>
+                              </td>
+                              <td className="p-3.5 text-right">
+                                <button
+                                  onClick={() => onViewInvoice(o)}
+                                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 font-semibold text-xs cursor-pointer shadow-2xs transition-colors"
+                                >
+                                  View GST Invoice
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -1072,7 +1542,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               )}
 
-              {/* MODULE 1: STORE BACKGROUND & HERO BANNER */}
+              {/* MODULE 1: STORE BACKGROUND & HERO BANNER (RESPONSIVE DESKTOP + MOBILE) */}
               <div className="bg-white border border-pink-100 rounded-2xl p-6 space-y-5 shadow-xs">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -1081,34 +1551,97 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
                     <div>
                       <h3 className="font-bold text-sm tracking-wider uppercase text-slate-900">
-                        STORE BACKGROUND / HERO BANNER
+                        STORE BACKGROUND / HERO BANNER (DESKTOP & MOBILE)
                       </h3>
                       <p className="text-xs text-slate-500">
-                        Upload or replace the widescreen panoramic background. It stays visible as an ambient hint while scrolling through the site!
+                        Customize separate art-directed backgrounds for desktop/laptops and mobile screens. Both remain subtly visible when scrolling!
                       </p>
                     </div>
                   </div>
                 </div>
 
-                {/* Banner Thumbnail Preview */}
-                <div className="relative w-full h-44 rounded-xl overflow-hidden border border-pink-100 bg-stone-50 group shadow-2xs">
-                  <img
-                    src={siteSettings.heroBannerUrl}
-                    alt="Current Store Banner"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                    <button
-                      onClick={() => bannerInputRef.current?.click()}
-                      disabled={isUploadingBanner}
-                      className="px-4 py-2 rounded-xl bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow-lg hover:bg-pink-50 transition-all"
-                    >
-                      {isUploadingBanner ? 'Uploading...' : 'Replace Banner Image'}
-                    </button>
+                {/* Dual Layout Grid: Desktop/Laptop vs Mobile Banner */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Laptop / Desktop Background Card */}
+                  <div className="p-3.5 rounded-xl border border-stone-200 bg-stone-50/50 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        💻 Laptop & Desktop Layout
+                      </span>
+                      <span className="text-[10px] text-slate-400 font-medium">16:9 / 21:9 Widescreen</span>
+                    </div>
+
+                    <div className="relative w-full h-36 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 group shadow-2xs">
+                      <img
+                        src={siteSettings.heroBannerUrl || '/products/konichiwalaptopbg.png'}
+                        alt="Current Laptop Banner"
+                        className="w-full h-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <button
+                          onClick={() => bannerInputRef.current?.click()}
+                          disabled={isUploadingBanner}
+                          className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                        >
+                          {isUploadingBanner ? 'Uploading...' : 'Replace Laptop Image'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => bannerInputRef.current?.click()}
+                        disabled={isUploadingBanner}
+                        className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 text-slate-700 border border-stone-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-slate-500" />
+                        <span>{isUploadingBanner ? 'Uploading...' : 'Upload Laptop BG'}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mobile Background Card */}
+                  <div className="p-3.5 rounded-xl border border-pink-200 bg-pink-50/30 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-pink-900">
+                        📱 Mobile Layout Image
+                      </span>
+                      <span className="text-[10px] text-pink-600/80 font-medium">Vertical / 9:16 Portrait</span>
+                    </div>
+
+                    <div className="relative w-full h-36 rounded-lg overflow-hidden border border-pink-200 bg-pink-50 group shadow-2xs">
+                      <img
+                        src={siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'}
+                        alt="Current Mobile Banner"
+                        className="w-full h-full object-contain bg-slate-900/5"
+                      />
+                      <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <button
+                          onClick={() => mobileBannerInputRef.current?.click()}
+                          disabled={isUploadingMobileBanner}
+                          className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                        >
+                          {isUploadingMobileBanner ? 'Uploading...' : 'Replace Mobile Image'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        onClick={() => mobileBannerInputRef.current?.click()}
+                        disabled={isUploadingMobileBanner}
+                        className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 border border-pink-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-pink-500" />
+                        <span>{isUploadingMobileBanner ? 'Uploading...' : 'Upload Mobile BG'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* Hidden File Input */}
+                {/* Hidden File Inputs */}
                 <input
                   type="file"
                   ref={bannerInputRef}
@@ -1116,22 +1649,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   accept="image/*"
                   className="hidden"
                 />
-
-                <div className="flex flex-col sm:flex-row gap-3 items-center justify-between pt-2">
-                  <div className="text-xs text-slate-500">
-                    Supports 16:9 or 21:9 ultra-widescreen PNG, JPG, or WebP format.
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => bannerInputRef.current?.click()}
-                    disabled={isUploadingBanner}
-                    className="w-full sm:w-auto px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 border border-stone-200 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer transition-colors"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-slate-500" />
-                    <span>Upload from Computer</span>
-                  </button>
-                </div>
+                <input
+                  type="file"
+                  ref={mobileBannerInputRef}
+                  onChange={handleMobileBannerFileChange}
+                  accept="image/*"
+                  className="hidden"
+                />
 
                 {/* Ambient Scroll Hint Intensity */}
                 <div className="pt-3 border-t border-stone-100">
@@ -1378,8 +1902,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* ADD PRODUCT MODAL */}
       {/* ========================================================================= */}
       {showAddProductModal && (
-        <div className="fixed inset-0 z-60 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-pink-100 rounded-3xl w-full max-w-xl p-6 sm:p-7 shadow-2xl text-left space-y-5">
+        <div className="fixed inset-0 z-60 bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white border border-pink-100 rounded-2xl sm:rounded-3xl w-full max-w-xl p-4 sm:p-7 shadow-2xl text-left space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-stone-100 pb-4">
               <div>
                 <h3 className="text-base font-bold text-slate-900 uppercase tracking-wider">
@@ -1723,6 +2247,67 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* MOBILE BOTTOM TAB BAR (Quick touch navigation for operators)             */}
+      {/* ========================================================================= */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-lg border-t border-pink-100 flex items-center justify-around px-2 py-1.5 shadow-lg">
+        {/* Dashboard */}
+        <button
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex flex-col items-center py-1 px-3 rounded-xl transition-colors cursor-pointer min-w-[64px] ${
+            activeTab === 'dashboard' ? 'text-pink-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <LayoutDashboard className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Overview</span>
+        </button>
+
+        {/* Inventory */}
+        <button
+          onClick={() => setActiveTab('inventory')}
+          className={`relative flex flex-col items-center py-1 px-3 rounded-xl transition-colors cursor-pointer min-w-[64px] ${
+            activeTab === 'inventory' ? 'text-pink-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <div className="relative">
+            <Package className="w-5 h-5 mb-0.5" />
+            <span className="absolute -top-1 -right-2 text-[9px] bg-pink-100 text-pink-700 font-extrabold px-1 rounded-full border border-pink-200">
+              {products.length}
+            </span>
+          </div>
+          <span className="text-[10px] tracking-tight">Catalog</span>
+        </button>
+
+        {/* Orders */}
+        <button
+          onClick={() => setActiveTab('orders')}
+          className={`relative flex flex-col items-center py-1 px-3 rounded-xl transition-colors cursor-pointer min-w-[64px] ${
+            activeTab === 'orders' ? 'text-pink-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <div className="relative">
+            <Truck className="w-5 h-5 mb-0.5" />
+            {orders.length > 0 && (
+              <span className="absolute -top-1 -right-2 text-[9px] bg-pink-600 text-white font-extrabold px-1 rounded-full">
+                {orders.length}
+              </span>
+            )}
+          </div>
+          <span className="text-[10px] tracking-tight">Orders</span>
+        </button>
+
+        {/* Settings */}
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`flex flex-col items-center py-1 px-3 rounded-xl transition-colors cursor-pointer min-w-[64px] ${
+            activeTab === 'settings' ? 'text-pink-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <Settings className="w-5 h-5 mb-0.5" />
+          <span className="text-[10px] tracking-tight">Settings</span>
+        </button>
+      </nav>
 
     </div>
   );

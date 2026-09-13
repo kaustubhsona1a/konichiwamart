@@ -9,12 +9,14 @@ interface HeroBannerProps {
   isWishlisted: (productId: string) => boolean;
   onApplyCoupon?: (code: string) => void;
   customBannerUrl?: string;
+  customMobileBannerUrl?: string;
 }
 
 export const HeroBanner: React.FC<HeroBannerProps> = ({
-  customBannerUrl
+  customBannerUrl,
+  customMobileBannerUrl
 }) => {
-  // Fallback image sources in order of priority
+  // Desktop Fallback image sources in order of priority
   const FALLBACK_BANNERS = [
     '/products/konichiwalaptopbg.png',
     '/konichiwalaptopbg.png',
@@ -22,13 +24,26 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     '/hero-banner.png'
   ];
 
+  // Mobile Fallback image sources in order of priority
+  const FALLBACK_MOBILE_BANNERS = [
+    '/products/konichiwamobilebg.png',
+    '/konichiwamobilebg.png',
+    'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwamobilebg.png',
+    '/products/konichiwalaptopbg.png'
+  ];
+
   // Stored or served banner image
   const [internalBannerUrl, setInternalBannerUrl] = useState<string>(() => {
     return localStorage.getItem('km_hero_banner_data') || FALLBACK_BANNERS[0];
   });
 
+  const [internalMobileBannerUrl, setInternalMobileBannerUrl] = useState<string>(() => {
+    return localStorage.getItem('km_hero_mobile_banner_data') || FALLBACK_MOBILE_BANNERS[0];
+  });
+
   const [fallbackIndex, setFallbackIndex] = useState<number>(0);
   const bannerUrl = customBannerUrl || internalBannerUrl;
+  const mobileBannerUrl = customMobileBannerUrl || internalMobileBannerUrl;
   const setBannerUrl = setInternalBannerUrl;
   const [imageLoaded, setImageLoaded] = useState<boolean>(true);
   const [isUploading, setIsUploading] = useState<boolean>(false);
@@ -48,9 +63,12 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
           setBannerUrl(data.url + '?v=' + Date.now());
           setImageLoaded(true);
         }
+        if (data?.mobileUrl) {
+          setInternalMobileBannerUrl(data.mobileUrl + '?v=' + Date.now());
+        }
       })
       .catch(() => {
-        // Static deployments (e.g. Vercel) won't have /api/banner-status, which is normal.
+        // Static deployments won't have /api/banner-status, which is normal.
       });
   }, []);
 
@@ -148,37 +166,43 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       )}
 
       {/* FULL-VIEWPORT LAPTOP & DESKTOP HERO BANNER CONTAINER */}
-      <div className="relative w-full max-w-[1920px] mx-auto min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] flex flex-col justify-center">
-        {/* Banner image representation */}
-        <div className="relative w-full h-full min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#FFEBF1] via-[#FFF0F5] to-[#FED7E2] dark:from-[#18181b] dark:via-[#121214] dark:to-[#09090b]">
-          <img
-            src={bannerUrl}
-            alt="Konichiwa Mart - Japanese Beauty, Made for You"
-            loading="eager"
-            fetchPriority="high"
-            onLoad={() => setImageLoaded(true)}
-            onError={() => {
-              if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
-                const nextIdx = fallbackIndex + 1;
-                setFallbackIndex(nextIdx);
-                setBannerUrl(FALLBACK_BANNERS[nextIdx]);
-              } else {
-                setImageLoaded(false);
-              }
-            }}
-            className="w-full h-full min-h-[calc(100vh-56px)] sm:min-h-[calc(100vh-64px)] max-h-[calc(100vh-56px)] sm:max-h-[calc(100vh-64px)] object-cover object-center select-none block transition-[filter,opacity] duration-500 brightness-[0.94] contrast-[0.98] dark:brightness-[0.70] dark:contrast-[1.05]"
-          />
+      <div className="relative w-full max-w-[1920px] mx-auto min-h-[62vh] sm:min-h-[calc(100vh-64px)] flex flex-col justify-center">
+        {/* Banner image representation with responsive Mobile & Laptop art-direction */}
+        <div className="relative w-full h-full min-h-[62vh] sm:min-h-[calc(100vh-64px)] overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#FFEBF1] via-[#FFF0F5] to-[#FED7E2] dark:from-[#18181b] dark:via-[#121214] dark:to-[#09090b]">
+          <picture className="w-full h-full flex items-center justify-center">
+            {/* Desktop / Laptop Layout: show laptop background */}
+            <source media="(min-width: 640px)" srcSet={bannerUrl} />
+            {/* Mobile Layout: show mobile layout background */}
+            <source media="(max-width: 639px)" srcSet={mobileBannerUrl} />
+            <img
+              src={mobileBannerUrl}
+              alt="Konichiwa Mart - Japanese Beauty, Made for You"
+              loading="eager"
+              fetchPriority="high"
+              onLoad={() => setImageLoaded(true)}
+              onError={() => {
+                if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
+                  const nextIdx = fallbackIndex + 1;
+                  setFallbackIndex(nextIdx);
+                  setBannerUrl(FALLBACK_BANNERS[nextIdx]);
+                } else {
+                  setImageLoaded(false);
+                }
+              }}
+              className="w-full h-full min-h-[62vh] sm:min-h-[calc(100vh-64px)] max-h-[85vh] sm:max-h-[calc(100vh-64px)] object-cover object-center select-none block transition-[filter,opacity] duration-500 brightness-[0.95] contrast-[0.98] dark:brightness-[0.70] dark:contrast-[1.05]"
+            />
+          </picture>
 
           {/* Ambient Dimmer Scrim Layer for smoother lighting in both light & dark mode */}
-          <div className="absolute inset-0 bg-slate-900/[0.035] dark:bg-black/35 pointer-events-none transition-colors duration-500 z-10" />
+          <div className="absolute inset-0 bg-slate-900/[0.04] dark:bg-black/35 pointer-events-none transition-colors duration-500 z-10" />
 
           {/* EXACT POSITIONED CLICKABLE [SHOP NOW →] BUTTON OVERLAY */}
-          {/* Positioned cleanly on the left under the headline/description, leaving Mt. Fuji & products fully visible on right */}
-          <div className="absolute left-[5%] sm:left-[8%] md:left-[10%] bottom-[12%] sm:bottom-[15%] md:bottom-[18%] z-20">
+          {/* Centered on mobile for maximum visibility, docked left on tablet/desktop */}
+          <div className="absolute left-1/2 -translate-x-1/2 sm:left-[8%] sm:translate-x-0 md:left-[10%] bottom-[8%] sm:bottom-[15%] md:bottom-[18%] z-20 w-auto text-center">
             <button
               id="hero-shop-now-button"
               onClick={handleShopNowClick}
-              className="group relative inline-flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-9 py-3 sm:py-4 rounded-full bg-gradient-to-r from-[#C52857] via-[#B8224E] to-[#912B52] hover:from-[#A81E46] hover:to-[#7E2245] text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-xl shadow-pink-950/30 hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/40 ring-2 ring-pink-500/20"
+              className="group relative inline-flex items-center justify-center gap-2 sm:gap-3 px-7 sm:px-9 py-3 sm:py-4 rounded-full bg-gradient-to-r from-[#C52857] via-[#B8224E] to-[#912B52] hover:from-[#A81E46] hover:to-[#7E2245] text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-xl shadow-pink-950/35 hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/50 ring-2 ring-pink-500/25 whitespace-nowrap"
             >
               <span>SHOP NOW</span>
               <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1.5 transition-transform duration-200" />
