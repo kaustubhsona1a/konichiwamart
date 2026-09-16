@@ -1,3 +1,4 @@
+import { createShiprocketOrder } from './src/lib/shiprocketServer';
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
 
@@ -1141,10 +1142,23 @@ app.post('/api/save-order', async (req: Request, res: Response) => {
     }
 
     // 3. Prepare Shiprocket logistics details
-    const awbNumber = order.awbNumber || `SR${Math.floor(100000 + Math.random() * 900000)}IN`;
-    const courierPartner = order.courierPartner || 'Blue Dart Air Express';
-    const shiprocketOrderId = order.shiprocketOrderId || `SR-ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-    const shiprocketShipmentId = order.shiprocketShipmentId || `SR-SHP-${Math.floor(100000 + Math.random() * 900000)}`;
+    let awbNumber = order.awbNumber || `SR${Math.floor(100000 + Math.random() * 900000)}IN`;
+    let courierPartner = order.courierPartner || 'Blue Dart Air Express';
+    let shiprocketOrderId = order.shiprocketOrderId || `SR-ORD-${Math.floor(100000 + Math.random() * 900000)}`;
+    let shiprocketShipmentId = order.shiprocketShipmentId || `SR-SHP-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    try {
+      const srResult = await createShiprocketOrder(order);
+      if (srResult) {
+        shiprocketOrderId = String(srResult.order_id);
+        if (srResult.shipment_id) shiprocketShipmentId = String(srResult.shipment_id);
+        if (srResult.awb_code) awbNumber = srResult.awb_code;
+        if (srResult.courier_name) courierPartner = srResult.courier_name;
+        console.log(`[Shiprocket] Successfully pushed order ${order.orderNumber} to Shiprocket. Order ID: ${shiprocketOrderId}`);
+      }
+    } catch (e) {
+      console.error('[Shiprocket API Error]:', e);
+    }
 
     // Ensure valid ISO YYYY-MM-DD date for Postgres DATE column
     let deliveryDateFormatted: string | null = null;
@@ -2363,7 +2377,13 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
       if (updates.price !== undefined) patch.base_price = updates.price;
       if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
       if (updates.title !== undefined) patch.title = updates.title;
-
+      if (updates.subtitle !== undefined) patch.subtitle = updates.subtitle;
+      if (updates.category !== undefined) patch.category_name = updates.category;
+      if (updates.image !== undefined) patch.primary_image_url = updates.image;
+      if (updates.secondaryImage !== undefined) patch.secondary_image_url = updates.secondaryImage;
+      if (updates.images !== undefined) patch.images = updates.images;
+      if (updates.volume !== undefined) patch.volume_or_weight = updates.volume;
+      
       if (Object.keys(patch).length > 0) {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
         if (isUuid) {

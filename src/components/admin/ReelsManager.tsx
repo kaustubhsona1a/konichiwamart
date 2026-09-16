@@ -360,7 +360,8 @@ export const ReelsManager: React.FC<ReelsManagerProps> = ({
                       className="px-3 py-1.5 rounded-xl bg-stone-50 hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
                     >
                       <Edit3 className="w-3.5 h-3.5" />
-                      <span>Edit Full Details</span>
+                      <span className="hidden sm:inline">Edit Full Details</span>
+                      <span className="inline sm:hidden">Edit</span>
                     </button>
 
                     <button

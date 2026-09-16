@@ -979,11 +979,19 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
   // 2. Direct Supabase (syncs price and stock directly with Supabase)
   const client = getSupabaseClient();
   if (client) {
-    // If updating price
-    if (updates.price !== undefined || updates.originalPrice !== undefined) {
-      const patch: any = {};
-      if (updates.price !== undefined) patch.base_price = updates.price;
-      if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
+    // If updating fields
+    const patch: any = {};
+    if (updates.price !== undefined) patch.base_price = updates.price;
+    if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
+    if (updates.title !== undefined) patch.title = updates.title;
+    if (updates.subtitle !== undefined) patch.subtitle = updates.subtitle;
+    if (updates.category !== undefined) patch.category_name = updates.category;
+    if (updates.image !== undefined) patch.primary_image_url = updates.image;
+    if (updates.secondaryImage !== undefined) patch.secondary_image_url = updates.secondaryImage;
+    if (updates.images !== undefined) patch.images = updates.images;
+    if (updates.volume !== undefined) patch.volume_or_weight = updates.volume;
+
+    if (Object.keys(patch).length > 0) {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
       Promise.resolve(
         isUuid
