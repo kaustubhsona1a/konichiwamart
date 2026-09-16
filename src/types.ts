@@ -85,6 +85,8 @@ export interface Order {
   orderNumber: string;
   invoiceNumber: string;
   date: string;
+  createdAt?: string;
+  customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
   items: OrderItem[];
@@ -98,7 +100,7 @@ export interface Order {
   paymentMethod: 'UPI' | 'CARD' | 'NETBANKING' | 'COD' | 'RAZORPAY_ONLINE';
   paymentId: string;
   signature: string;
-  status: 'CONFIRMED' | 'DISPATCHED' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED';
+  status: 'CONFIRMED' | 'DISPATCHED' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
   shippingAddress: UserAddress;
   awbNumber: string;
   courierPartner: string;

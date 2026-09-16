@@ -543,19 +543,14 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       signature,
       status: 'CONFIRMED',
       shippingAddress: targetAddress,
-      awbNumber: awb,
-      courierPartner: "Manual Delivery",
+      awbNumber: '',
+      courierPartner: "Pending Dispatch",
       estimatedDeliveryDate: '3-5 business days for delivery',
       trackingHistory: [
         {
           time: 'Just Now',
           location: 'Konichiwa_Mart Central Fulfillment, Mumbai (MH)',
           activity: `Payment Verified (${paymentId}). Order Confirmed. GST Invoice queued for ${email}.`
-        },
-        {
-          time: 'Pending Logistics Handover',
-          location: 'Shiprocket Logistics Express Bay',
-          activity: `Air Waybill Assigned (${awb}) via Blue Dart Express`
         }
       ]
     };

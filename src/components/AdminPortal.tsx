@@ -1743,15 +1743,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </p>
                         </div>
 
-                        {/* Courier Partner & AWB */}
+                        {/* Order Status & Courier Partner */}
                         <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-200/80 flex items-center justify-between text-xs">
                           <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Courier</span>
-                            <span className="font-semibold text-slate-800 text-[11px]">{o.courierPartner || 'Blue Dart Express'}</span>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Edit Order Status</span>
+                            <select
+                              value={o.status || 'CONFIRMED'}
+                              onChange={(e) => onUpdateOrderStatus(o.id, e.target.value as Order['status'])}
+                              className="bg-white border border-stone-300 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-800 focus:border-pink-500 focus:outline-none cursor-pointer"
+                            >
+                              <option value="CONFIRMED">CONFIRMED</option>
+                              <option value="DISPATCHED">DISPATCHED</option>
+                              <option value="IN_TRANSIT">IN TRANSIT</option>
+                              <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
+                              <option value="DELIVERED">DELIVERED</option>
+                              <option value="CANCELLED">CANCELLED</option>
+                            </select>
                           </div>
                           <div className="text-right">
-                            <span className="text-[10px] uppercase font-bold text-slate-400 block">AWB Tracking</span>
-                            <span className="font-mono font-bold text-slate-700 text-[11px]">{o.awbNumber || '88492019482'}</span>
+                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Courier / AWB</span>
+                            <span className="font-semibold text-slate-800 text-[11px]">{o.courierPartner || 'Pending Dispatch'}</span>
+                            {o.awbNumber && <div className="font-mono font-bold text-slate-600 text-[10px]">{o.awbNumber}</div>}
                           </div>
                         </div>
 
@@ -1802,6 +1814,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 </span>
                               </td>
                               <td className="p-3.5">
+                                <select
+                                  value={o.status || 'CONFIRMED'}
+                                  onChange={(e) => onUpdateOrderStatus(o.id, e.target.value as Order['status'])}
+                                  className="bg-white border border-stone-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:border-pink-500 focus:outline-none cursor-pointer"
+                                >
+                                  <option value="CONFIRMED">CONFIRMED</option>
+                                  <option value="DISPATCHED">DISPATCHED</option>
+                                  <option value="IN_TRANSIT">IN TRANSIT</option>
+                                  <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
+                                  <option value="DELIVERED">DELIVERED</option>
+                                  <option value="CANCELLED">CANCELLED</option>
+                                </select>
                               </td>
                               <td className="p-3.5 text-right">
                                 <button

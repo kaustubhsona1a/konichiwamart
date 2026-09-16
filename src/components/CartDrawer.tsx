@@ -72,7 +72,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
         setPromoError(`Minimum order amount of ${formatINR(PROMO_CODES[code].minAmount)} required for ${code}.`);
       }
     } else {
-      setPromoError('Invalid coupon code. Try GLOW15 or FIRSTLUXE.');
+      setPromoError('No active discount codes are available at this time.');
     }
   };
 

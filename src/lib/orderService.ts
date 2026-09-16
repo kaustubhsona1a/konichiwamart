@@ -96,11 +96,8 @@ export const orderStore = new Map<string, ValidatedOrder>();
  * Lazy helper for Razorpay instance with env check and fallback
  */
 function getRazorpayClient(): Razorpay {
-  let key_id = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY || 'rzp_live_Tcn0IIOcwCPgU3').replace(/['\"\s]/g, '').trim();
-  let key_secret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_SECRET_KEY || process.env.RAZORPAY_SECRET || process.env.RAZORPAY_KEY_SECRE || 'WjsuQXaoCGqxMo0HKTzc7tCl').replace(/['\"\s]/g, '').trim();
-
-  if (!key_id) key_id = 'rzp_live_Tcn0IIOcwCPgU3';
-  if (!key_secret) key_secret = 'WjsuQXaoCGqxMo0HKTzc7tCl';
+  let key_id = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY || '').replace(/['\"\s]/g, '').trim();
+  let key_secret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_SECRET_KEY || process.env.RAZORPAY_SECRET || process.env.RAZORPAY_KEY_SECRE || '').replace(/['\"\s]/g, '').trim();
 
   return new Razorpay({ key_id, key_secret });
 }
@@ -219,8 +216,8 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
   let razorpayOrderId: string | undefined;
   let isRazorpayConfigured = false;
   try {
-    const key_id = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY || 'rzp_live_Tcn0IIOcwCPgU3').replace(/['\"\s]/g, '').trim();
-    const key_secret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_SECRET_KEY || process.env.RAZORPAY_SECRET || process.env.RAZORPAY_KEY_SECRE || 'WjsuQXaoCGqxMo0HKTzc7tCl').replace(/['\"\s]/g, '').trim();
+    const key_id = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY || '').replace(/['\"\s]/g, '').trim();
+    const key_secret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_SECRET_KEY || process.env.RAZORPAY_SECRET || process.env.RAZORPAY_KEY_SECRE || '').replace(/['\"\s]/g, '').trim();
 
     if (key_id) {
       isRazorpayConfigured = true;

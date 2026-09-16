@@ -104,21 +104,21 @@ export const getRazorpayKeyId = async (): Promise<string> => {
     console.warn('Could not fetch razorpay key from /api/razorpay-key:', err);
   }
 
-  return import.meta.env.VITE_RAZORPAY_KEY_ID || import.meta.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_Tcn0IIOcwCPgU3';
+  return import.meta.env.VITE_RAZORPAY_KEY_ID || import.meta.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '';
 };
 
 /**
  * Checks whether Razorpay credentials are actively configured on the server
  */
 export const checkRazorpayConfig = async (): Promise<{ isConfigured: boolean; keyId: string }> => {
-  const fallbackKey = import.meta.env.VITE_RAZORPAY_KEY_ID || import.meta.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_live_Tcn0IIOcwCPgU3';
+  const fallbackKey = import.meta.env.VITE_RAZORPAY_KEY_ID || import.meta.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '';
   try {
     const res = await fetch('/api/razorpay-key');
     if (res.ok) {
       const data = await safeParseJson(res);
       const k = data?.key_id || fallbackKey;
       return {
-        isConfigured: true,
+        isConfigured: Boolean(k),
         keyId: k
       };
     }
@@ -126,7 +126,7 @@ export const checkRazorpayConfig = async (): Promise<{ isConfigured: boolean; ke
     console.warn('Could not check razorpay config status:', err);
   }
 
-  return { isConfigured: true, keyId: fallbackKey };
+  return { isConfigured: Boolean(fallbackKey), keyId: fallbackKey };
 };
 
 /**

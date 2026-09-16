@@ -343,14 +343,7 @@ export const PRODUCTS: Product[] = [
   }
 ];
 
-export const PROMO_CODES: Record<string, { discountPercent: number; minAmount: number; discount: number; type: 'PERCENTAGE' | 'FIXED'; minOrderValue?: number }> = {
-  'GLOW15': { discountPercent: 15, minAmount: 500, discount: 15, type: 'PERCENTAGE', minOrderValue: 500 },
-  'FIRSTLUXE': { discountPercent: 20, minAmount: 1000, discount: 20, type: 'PERCENTAGE', minOrderValue: 1000 },
-  'WELCOME10': { discountPercent: 10, minAmount: 0, discount: 10, type: 'PERCENTAGE', minOrderValue: 0 },
-  'KONICHIWA200': { discountPercent: 15, minAmount: 999, discount: 200, type: 'FIXED', minOrderValue: 999 },
-  'JAPANGLOW': { discountPercent: 15, minAmount: 500, discount: 15, type: 'PERCENTAGE', minOrderValue: 500 },
-  'FREESHIP': { discountPercent: 10, minAmount: 0, discount: 100, type: 'PERCENTAGE', minOrderValue: 0 } 
-};
+export const PROMO_CODES: Record<string, { discountPercent: number; minAmount: number; discount: number; type: 'PERCENTAGE' | 'FIXED'; minOrderValue?: number }> = {};
 
 export const CATEGORIES = [
   { id: 'cat-all', name: 'All', slug: 'all' },

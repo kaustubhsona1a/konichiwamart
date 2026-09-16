@@ -70,6 +70,8 @@ import {
   customerSignOut,
   fetchCustomerAddressesFromSupabase,
   fetchCustomerOrdersFromSupabase,
+  fetchAllOrdersFromSupabase,
+  updateOrderStatusInSupabase,
   saveAddressToSupabase
 } from './lib/supabase';
 import { FallingPetalsBackground } from './components/FallingPetalsBackground';
@@ -136,6 +138,18 @@ export default function App() {
     } catch {}
     return [];
   });
+
+  // Hydrate store orders from Supabase on load
+  useEffect(() => {
+    fetchAllOrdersFromSupabase().then(fetched => {
+      if (Array.isArray(fetched) && fetched.length > 0) {
+        setStoreOrders(fetched);
+        try {
+          localStorage.setItem('km_store_orders', JSON.stringify(fetched));
+        } catch {}
+      }
+    });
+  }, []);
 
   // Customer Profile (isolated strictly to active customer session)
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
@@ -1012,7 +1026,7 @@ export default function App() {
   };
 
   // Update order status in admin portal
-  const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
+  const handleUpdateOrderStatus = async (orderId: string, status: Order['status']) => {
     setStoreOrders(prev => {
       const updated = prev.map(o => o.id === orderId ? { ...o, status } : o);
       try {
@@ -1033,6 +1047,12 @@ export default function App() {
         orders: updatedOrders
       };
     });
+
+    try {
+      await updateOrderStatusInSupabase(orderId, status);
+    } catch (err) {
+      console.warn('[Update Status Error]:', err);
+    }
   };
 
   const handleDeleteOrder = (orderId: string) => {

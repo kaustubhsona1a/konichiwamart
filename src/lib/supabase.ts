@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Product } from '../types';
+import { Product, Order } from '../types';
 import { PRODUCTS } from '../data/products';
 
 const env = (import.meta as any).env || {};
@@ -567,6 +567,152 @@ export const setDefaultAddressInSupabase = async (id: string, customerId?: strin
 /**
  * Fetch Customer Orders from Supabase (Server endpoint first, direct fallback)
  */
+export function mapSupabaseRowToOrder(row: any): Order {
+  const items = Array.isArray(row.order_items)
+    ? row.order_items.map((item: any) => ({
+        product: {
+          id: item.sku || 'prod-1',
+          title: item.title || 'Japanese Skincare Product',
+          price: Number(item.unit_price || 0),
+          image: item.image_url || 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=800&q=80',
+          volume: '150ml',
+          description: '',
+          category: 'Skincare',
+          rating: 5,
+          reviewCount: 1,
+          isBestSeller: false,
+          stock: 100
+        },
+        quantity: Number(item.quantity || 1),
+        selectedShade: item.shade_name ? { id: item.sku || 'sh-1', name: item.shade_name, hex: '#000000', sku: item.sku } : undefined
+      }))
+    : [];
+
+  const rawStatus = (row.status || 'CONFIRMED').toString().toUpperCase();
+  let mappedStatus: Order['status'] = 'CONFIRMED';
+  if (['CONFIRMED', 'PAID', 'PENDING', 'PROCESSING', 'NEW'].includes(rawStatus)) {
+    mappedStatus = 'CONFIRMED';
+  } else if (['DISPATCHED', 'SHIPPED', 'IN_TRANSIT'].includes(rawStatus)) {
+    mappedStatus = 'DISPATCHED';
+  } else if (['OUT_FOR_DELIVERY'].includes(rawStatus)) {
+    mappedStatus = 'OUT_FOR_DELIVERY';
+  } else if (['DELIVERED'].includes(rawStatus)) {
+    mappedStatus = 'DELIVERED';
+  } else if (['CANCELLED'].includes(rawStatus)) {
+    mappedStatus = 'CANCELLED';
+  }
+
+  return {
+    id: row.id || row.order_number,
+    orderNumber: row.order_number || row.id,
+    invoiceNumber: row.invoice_number || `KM-INV-${row.order_number}`,
+    date: row.created_at ? new Date(row.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-IN'),
+    createdAt: row.created_at || new Date().toISOString(),
+    customerEmail: row.customer_email || '',
+    customerPhone: row.customer_phone || '',
+    customerName: row.customer_name || 'Valued Customer',
+    items,
+    subtotal: Number(row.subtotal || 0),
+    cgst: Number(row.cgst || 0),
+    sgst: Number(row.sgst || 0),
+    shippingFee: Number(row.shipping_fee || 0),
+    discountAmount: Number(row.discount_amount || 0),
+    discountCode: row.discount_code || undefined,
+    totalAmount: Number(row.total_amount || 0),
+    paymentMethod: (row.payment_method || 'RAZORPAY').toUpperCase() as any,
+    paymentId: row.razorpay_payment_id || 'pay_verified',
+    signature: row.razorpay_signature || 'sig_verified',
+    status: mappedStatus,
+    shippingAddress: {
+      id: row.id ? `addr_${row.id}` : 'addr_default',
+      tag: 'Home',
+      fullName: row.customer_name || 'Valued Customer',
+      phone: row.customer_phone || '',
+      addressLine1: row.shipping_address_line1 || '',
+      addressLine2: row.shipping_address_line2 || '',
+      city: row.city || '',
+      state: row.state || '',
+      pincode: row.pincode || '',
+      isDefault: true
+    },
+    awbNumber: row.awb_number || '',
+    courierPartner: row.courier_partner || 'Pending Dispatch',
+    estimatedDeliveryDate: row.estimated_delivery_date || '3-5 business days',
+    trackingHistory: [
+      {
+        time: row.created_at ? new Date(row.created_at).toLocaleDateString() : 'Just Now',
+        location: 'Konichiwa_Mart Central Fulfillment',
+        activity: `Order Confirmed (${mappedStatus})`
+      }
+    ]
+  };
+}
+
+export const fetchAllOrdersFromSupabase = async (): Promise<Order[]> => {
+  try {
+    const res = await fetch('/api/admin/orders');
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.orders)) {
+        return data.orders;
+      }
+    }
+  } catch {}
+
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('orders')
+      .select('*, order_items(*)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('[Supabase] Error fetching all orders:', error.message);
+      return [];
+    }
+
+    return (data || []).map(mapSupabaseRowToOrder);
+  } catch (err) {
+    console.warn('[Supabase] Exception fetching all orders:', err);
+    return [];
+  }
+};
+
+export const updateOrderStatusInSupabase = async (orderId: string, status: string): Promise<boolean> => {
+  try {
+    const res = await fetch('/api/admin/update-order-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId, status })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) return true;
+    }
+  } catch {}
+
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client
+      .from('orders')
+      .update({ status: status.toLowerCase() })
+      .or(`id.eq.${orderId},order_number.eq.${orderId}`);
+
+    if (error) {
+      console.warn('[Supabase] Error updating order status:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception updating order status:', err);
+    return false;
+  }
+};
+
 export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email?: string) => {
   try {
     const params = new URLSearchParams();
@@ -585,7 +731,7 @@ export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email
   }
 
   const client = getSupabaseClient();
-  if (!client || (!customerId && !email)) return [];
+  if (!client) return fetchAllOrdersFromSupabase();
 
   try {
     let query = client
@@ -606,7 +752,7 @@ export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email
       console.warn('[Supabase] Failed to fetch customer orders:', error.message);
       return [];
     }
-    return data || [];
+    return (data || []).map(mapSupabaseRowToOrder);
   } catch (err) {
     console.warn('[Supabase] Error querying orders:', err);
     return [];
