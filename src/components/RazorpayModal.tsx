@@ -623,7 +623,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         }
         return false;
       });
-    }, 25000);
+    }, 45000);
 
     try {
       // 1. Authoritative Server-Side Price & Inventory Validation
@@ -735,7 +735,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       if (msg.toLowerCase().includes('auth') || msg.toLowerCase().includes('bad_request')) {
         setPaymentError('Razorpay Notice: Authentication failed with your Razorpay Key ID & Secret. You can complete this order right away with "Test Mode Checkout" below.');
       } else {
-        setPaymentError(msg || 'Server-side price verification failed.');
+        setPaymentError("Vercel Server Timeout or Backend Error: " + (msg || 'API Failed'));
       }
     }
   };
@@ -1511,21 +1511,6 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
               </button>
 
 
-              {/* Cancel / Reset Button if user gets stuck */}
-              {isProcessing && (
-                <div className="text-center pt-1 animate-in fade-in">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsProcessing(false);
-                      setStatusMessage('');
-                    }}
-                    className="text-[11px] text-rose-600 dark:text-rose-400 hover:underline font-medium cursor-pointer"
-                  >
-                    Taking longer than expected? Click here to cancel and retry
-                  </button>
-                </div>
-              )}
 
               <div className="flex justify-between items-center pt-2">
                 <button

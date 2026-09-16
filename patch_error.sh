@@ -1,0 +1,1 @@
+sed -i 's/setPaymentError(msg || '\''Server-side price verification failed.'\'');/setPaymentError("Vercel Server Timeout or Backend Error: " + (msg || '\''API Failed'\''));/g' src/components/RazorpayModal.tsx
