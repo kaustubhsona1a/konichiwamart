@@ -1510,16 +1510,6 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                 )}
               </button>
 
-              {/* Instant Test Mode Checkout fallback button */}
-              <button
-                type="button"
-                onClick={handleSimulatePayment}
-                disabled={isProcessing}
-                className="w-full py-2.5 px-4 rounded-xl border border-pink-200 dark:border-pink-900/60 bg-pink-50/50 dark:bg-pink-950/30 hover:bg-pink-100/60 dark:hover:bg-pink-900/40 text-pink-800 dark:text-pink-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400" />
-                <span>Test Mode Checkout (Instant Order & Supabase Sync)</span>
-              </button>
 
               {/* Cancel / Reset Button if user gets stuck */}
               {isProcessing && (

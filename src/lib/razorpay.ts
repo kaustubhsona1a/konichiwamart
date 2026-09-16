@@ -225,8 +225,6 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
         name: options.customerName,
         email: options.customerEmail,
         contact: options.customerContact,
-        method: options.preferredMethod || 'upi',
-        ...(options.vpa ? { vpa: options.vpa } : {})
       },
       notes: {
         address: options.address || 'Standard Delivery',
