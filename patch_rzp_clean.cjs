@@ -1,4 +1,6 @@
-/**
+const fs = require('fs');
+
+const content = `/**
  * Razorpay Standard Web Checkout Client Integration
  * Handles order creation, modal invocation, dismissal, error handling, and signature verification.
  */
@@ -48,7 +50,7 @@ async function safeParseJson(res: Response): Promise<any> {
   const text = await res.text();
   if (!text || text.trim().length === 0) {
     if (!res.ok) {
-      throw new Error(`Server returned HTTP ${res.status}`);
+      throw new Error(\`Server returned HTTP \${res.status}\`);
     }
     return {};
   }
@@ -56,7 +58,7 @@ async function safeParseJson(res: Response): Promise<any> {
     return JSON.parse(text);
   } catch (e) {
     const preview = text.replace(/<[^>]*>/g, '').trim().slice(0, 120);
-    throw new Error(preview || `Server returned HTTP ${res.status}`);
+    throw new Error(preview || \`Server returned HTTP \${res.status}\`);
   }
 }
 
@@ -151,7 +153,7 @@ export const createBackendOrder = async (
   const data = await safeParseJson(res);
 
   if (!res.ok) {
-    throw new Error(data.error || `Failed to create order (HTTP ${res.status})`);
+    throw new Error(data.error || \`Failed to create order (HTTP \${res.status})\`);
   }
 
   return data;
@@ -343,7 +345,7 @@ export const dispatchInvoiceEmail = async (params: {
     return data;
   } catch (err: any) {
     console.warn('Invoice email dispatch notification:', err);
-    return { success: true, message: `Invoice queued for ${params.email}` };
+    return { success: true, message: \`Invoice queued for \${params.email}\` };
   }
 };
 
@@ -368,3 +370,7 @@ export const createValidatedCheckoutOrder = async (payload: {
   }
   return data;
 };
+`;
+
+fs.writeFileSync('src/lib/razorpay.ts', content);
+console.log('src/lib/razorpay.ts updated with safeParseJson!');

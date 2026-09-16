@@ -109,8 +109,8 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // Endpoint to retrieve public Razorpay Key ID (never exposes Key Secret!)
 app.get('/api/razorpay-key', (_req: Request, res: Response) => {
-  let keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
-  let keySecret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').trim();
+  let keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '').trim();
+  let keySecret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE || process.env.RAZORPAY_SECRET_KEY || '').trim();
 
 
   res.json({ 
@@ -269,8 +269,8 @@ app.post('/api/verify-payment', (req: Request, res: Response) => {
       });
     }
 
-    let keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
-    let keySecret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').trim();
+    let keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '').trim();
+    let keySecret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE || process.env.RAZORPAY_SECRET_KEY || '').trim();
 
     if (!keyId && !keySecret) {
       keySecret = '';

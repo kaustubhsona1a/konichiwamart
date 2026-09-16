@@ -426,8 +426,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           });
 
         if (error) {
-          console.error('Supabase upload error:', error);
-          throw error;
+          console.warn('Supabase storage upload error, falling back to optimized base64 encoding:', error);
+          const base64 = await resizeAndOptimizeImage(file);
+          processedUrls.push(base64);
+          continue;
         }
 
         const { data: publicUrlData } = supabase.storage
