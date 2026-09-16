@@ -47,6 +47,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData): Promise<EmailDis
 
     const response = await client.emails.send({
       from: fromAddress,
+      replyTo: 'support@konichiwamart.com',
       to: [data.customerEmail],
       subject: `Order Confirmed: #${data.orderNumber} - Your Tax Invoice from Konichiwa Mart`,
       html: `

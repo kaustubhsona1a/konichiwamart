@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { 
-  X, 
+import { X, 
   Package, 
   Truck, 
   Plus, 
@@ -25,11 +24,11 @@ import {
   Video,
   FolderPlus,
   Loader2,
-  Mail
-} from 'lucide-react';
+  Mail, Edit3 } from 'lucide-react';
 import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
+import { getSupabaseClient } from '../lib/supabase';
 import { ReelsManager } from './admin/ReelsManager';
 
 // Client-side image optimizer to compress direct photos into fast-loading web images
@@ -82,11 +81,14 @@ interface AdminPortalProps {
   onClose: () => void;
   orders: Order[];
   onUpdateOrderStatus: (orderId: string, status: Order['status']) => void;
+  onDeleteOrder?: (orderId: string) => void;
+  onModifyOrder?: (orderId: string, updates: Partial<Order>) => void;
   onViewInvoice: (order: Order) => void;
   products: Product[];
   onUpdateProductStock: (productId: string, inStock: boolean, stockCount?: number) => void;
   onUpdateProductPrice?: (productId: string, newPrice: number) => void;
   onAddProduct: (product: Product) => void;
+  onEditProduct?: (product: Product) => void;
   onRemoveProduct?: (productId: string) => void;
   onResetDefaultProducts?: () => void;
   onLogout: () => void;
@@ -102,11 +104,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   isOpen,
   onClose,
   orders,
+  onUpdateOrderStatus,
+  onDeleteOrder,
+  onModifyOrder,
   onViewInvoice,
   products,
   onUpdateProductStock,
   onUpdateProductPrice,
   onAddProduct,
+  onEditProduct,
   onRemoveProduct,
   onResetDefaultProducts,
   onLogout,
@@ -166,9 +172,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Add Product Modal / State inside Portal
   const [showAddProductModal, setShowAddProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [newTitle, setNewTitle] = useState('');
   const [newSubtitle, setNewSubtitle] = useState('');
   const [newCategory, setNewCategory] = useState<ProductCategory>('Face Wash');
+  
+  const resetProductForm = () => {
+    setEditingProduct(null);
+    setNewTitle('');
+    setNewSubtitle('');
+    setNewCategory('Face Wash');
+    setNewPrice('750');
+    setNewOriginalPrice('950');
+    setNewStock('50');
+    setNewVolume('150ml');
+    setNewPhotos([]);
+    setPhotoUploadError(null);
+    setProductFormMsg(null);
+  };
   const [categoriesList, setCategoriesList] = useState<string[]>([
     'Face Wash', 'Face Mask', 'Toner', 'Sunscreen', 'Lips', 'Serum', 'Cleansing Oil', 'Moisturizer', 'Skincare'
   ]);
@@ -381,13 +402,45 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       }
 
       const filesToProcess: File[] = (Array.from(files) as File[]).slice(0, remainingSlots);
-      const optimizedPromises = filesToProcess.map((f: File) => resizeAndOptimizeImage(f));
-      const processed = await Promise.all(optimizedPromises);
+      const supabase = getSupabaseClient();
+      
+      const processedUrls: string[] = [];
 
-      setNewPhotos((prev) => [...prev, ...processed].slice(0, 5));
+      for (const file of filesToProcess) {
+        // Fallback to base64 if Supabase client isn't available
+        if (!supabase) {
+           const base64 = await resizeAndOptimizeImage(file);
+           processedUrls.push(base64);
+           continue;
+        }
+
+        // Generate unique filename
+        const ext = file.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${ext}`;
+
+        const { data, error } = await supabase.storage
+          .from('product-images')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (error) {
+          console.error('Supabase upload error:', error);
+          throw error;
+        }
+
+        const { data: publicUrlData } = supabase.storage
+          .from('product-images')
+          .getPublicUrl(fileName);
+          
+        processedUrls.push(publicUrlData.publicUrl);
+      }
+
+      setNewPhotos((prev) => [...prev, ...processedUrls].slice(0, 5));
     } catch (err) {
       console.error('Failed to process photos:', err);
-      setPhotoUploadError('Failed to process one or more images. Please try valid PNG/JPG/WebP files.');
+      setPhotoUploadError('Failed to upload one or more images. Please check your connection or try again.');
     } finally {
       setIsProcessingPhotos(false);
       if (e.target) e.target.value = '';
@@ -425,50 +478,77 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const mainCover = newPhotos[0];
     const secondary = newPhotos[1] || undefined;
 
-    const newProduct: Product = {
-      id: `km-${Date.now()}`,
-      title: newTitle.trim(),
-      subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
-      price: parsedPrice,
-      originalPrice: parsedOriginal,
-      rating: 4.9,
-      reviewsCount: 1,
-      category: newCategory,
-      skinTypes: ['All'],
-      skinConcerns: ['Hydration', 'Glow & Dullness'],
-      routine: 'AM/PM',
-      volume: newVolume || '100ml',
-      badges: ['Japan Arrival', 'Authentic Import'],
-      image: mainCover,
-      secondaryImage: secondary,
-      images: newPhotos,
-      accentColor: '#C52857',
-      bgGradient: 'from-pink-50 to-rose-100',
-      stock: parsedStock,
-      keyActives: [
-        { name: 'Japanese Botanical Extract', purpose: 'Restores skin barrier & luminosity' }
-      ],
-      fullIngredients: 'Water, Glycerin, Butylene Glycol, Sodium Hyaluronate.',
-      description: 'Official direct imported Japanese skincare formulation.',
-      benefits: ['Deep hydration', 'Authentic import', 'Skin gentle'],
-      usageHowTo: 'Apply onto cleansed skin. Gently pat with palms until absorbed.'
-    };
+    if (editingProduct) {
+      const updatedProduct: Product = {
+        ...editingProduct,
+        title: newTitle.trim(),
+        subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
+        price: parsedPrice,
+        originalPrice: parsedOriginal,
+        category: newCategory,
+        volume: newVolume || '100ml',
+        image: mainCover,
+        secondaryImage: secondary,
+        images: newPhotos,
+        stock: parsedStock
+      };
 
-    onAddProduct(newProduct);
-    setProductFormMsg(`Product "${newTitle}" added with ${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''}!`);
-    setNewTitle('');
-    setNewSubtitle('');
-    setNewPrice('750');
-    setNewOriginalPrice('950');
-    setNewStock('50');
-    setNewPhotos([]);
-    setPhotoUploadError(null);
+      if (onEditProduct) {
+        onEditProduct(updatedProduct);
+      }
+      setProductFormMsg(`Product "${newTitle}" updated successfully!`);
+    } else {
+      const newProduct: Product = {
+        id: `km-${Date.now()}`,
+        title: newTitle.trim(),
+        subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
+        price: parsedPrice,
+        originalPrice: parsedOriginal,
+        rating: 4.9,
+        reviewsCount: 1,
+        category: newCategory,
+        skinTypes: ['All'],
+        skinConcerns: ['Hydration', 'Glow & Dullness'],
+        routine: 'AM/PM',
+        volume: newVolume || '100ml',
+        badges: ['Japan Arrival', 'Authentic Import'],
+        image: mainCover,
+        secondaryImage: secondary,
+        images: newPhotos,
+        accentColor: '#C52857',
+        bgGradient: 'from-pink-50 to-rose-100',
+        stock: parsedStock,
+        keyActives: [
+          { name: 'Japanese Botanical Extract', purpose: 'Restores skin barrier & luminosity' }
+        ],
+        fullIngredients: 'Water, Glycerin, Butylene Glycol, Sodium Hyaluronate.',
+        description: 'Official direct imported Japanese skincare formulation.',
+        benefits: ['Deep hydration', 'Authentic import', 'Skin gentle'],
+        usageHowTo: 'Apply onto cleansed skin. Gently pat with palms until absorbed.'
+      };
+
+      onAddProduct(newProduct);
+      setProductFormMsg(`Product "${newTitle}" added with ${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''}!`);
+    }
 
     setTimeout(() => {
-      setProductFormMsg(null);
+      resetProductForm();
       setShowAddProductModal(false);
       setActiveTab('inventory');
     }, 1200);
+  };
+
+  const handleOpenEditProduct = (product: Product) => {
+    setEditingProduct(product);
+    setNewTitle(product.title);
+    setNewSubtitle(product.subtitle || '');
+    setNewCategory(product.category);
+    setNewPrice(product.price.toString());
+    setNewOriginalPrice(product.originalPrice?.toString() || product.price.toString());
+    setNewStock(product.stock.toString());
+    setNewVolume(product.volume || '150ml');
+    setNewPhotos(product.images || (product.image ? [product.image] : []));
+    setShowAddProductModal(true);
   };
 
   // Filtered Products for Inventory Table
@@ -856,7 +936,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
 
                     <button
-                      onClick={() => setShowAddProductModal(true)}
+                      onClick={() => {
+                        resetProductForm();
+                        setShowAddProductModal(true);
+                      }}
                       className="mt-6 pt-4 border-t border-stone-100 flex items-center gap-2 text-xs font-bold text-slate-700 hover:text-pink-600 uppercase tracking-wider cursor-pointer group"
                     >
                       <span>ADD PRODUCT</span>
@@ -1046,6 +1129,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               </td>
                               <td className="py-3 px-3 text-right">
                                 <button
+                                  onClick={() => {
+                                    const newName = prompt('Enter new customer name:', o.customerName);
+                                    if (newName) {
+                                      onModifyOrder?.(o.id, { customerName: newName });
+                                    }
+                                  }}
+                                  className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center transition-colors shadow-xs"
+                                  title="Edit Order"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    if (confirm('Delete this order?')) onDeleteOrder?.(o.id);
+                                  }}
+                                  className="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-colors shadow-xs"
+                                  title="Delete Order"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                                <button
                                   onClick={() => onViewInvoice(o)}
                                   className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 text-[11px] font-semibold cursor-pointer shadow-2xs transition-colors"
                                 >
@@ -1095,7 +1199,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   )}
 
                   <button
-                    onClick={() => setShowAddProductModal(true)}
+                    onClick={() => {
+                      resetProductForm();
+                      setShowAddProductModal(true);
+                    }}
                     className="px-4 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-2 cursor-pointer shadow-md shadow-pink-600/20 transition-all"
                   >
                     <Plus className="w-4 h-4" />
@@ -1162,6 +1269,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <span className="px-2 py-0.5 rounded-md bg-stone-100 text-slate-700 text-[10px] font-bold border border-stone-200">
                               {p.category}
                             </span>
+                            <button
+                              onClick={() => handleOpenEditProduct(p)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-pink-600 hover:bg-pink-50 border border-transparent hover:border-pink-200 transition-colors mr-1"
+                              title={`Edit ${p.title}`}
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() => setProductToDelete(p)}
                               className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
@@ -1476,7 +1590,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             </td>
 
                             {/* Actions: Remove Product */}
-                            <td className="p-3.5 text-right">
+                            <td className="p-3.5 text-right whitespace-nowrap">
+                              <button
+                                onClick={() => handleOpenEditProduct(p)}
+                                className="p-2 rounded-lg bg-white hover:bg-pink-50 text-slate-400 hover:text-pink-600 border border-stone-200 hover:border-pink-200 transition-all cursor-pointer shadow-2xs group inline-flex items-center justify-center mr-2"
+                                title={`Edit "${p.title}"`}
+                                aria-label={`Edit ${p.title}`}
+                              >
+                                <Edit3 className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                              </button>
                               <button
                                 onClick={() => setProductToDelete(p)}
                                 className="p-2 rounded-lg bg-white hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-stone-200 hover:border-rose-200 transition-all cursor-pointer shadow-2xs group inline-flex items-center justify-center"
@@ -1713,7 +1835,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                     <div className="relative w-full h-36 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 group shadow-2xs">
                       <img
-                        src={siteSettings.heroBannerUrl || '/products/konichiwalaptopbg.png'}
+                        src={siteSettings.heroBannerUrl || '/konichiwalaptopbackground.png'}
                         alt="Current Laptop Banner"
                         className="w-full h-full object-cover"
                       />
@@ -2146,14 +2268,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             <div className="flex items-center justify-between border-b border-stone-100 pb-4">
               <div>
                 <h3 className="text-base font-bold text-slate-900 uppercase tracking-wider">
-                  Add New Product to Store
+                  {editingProduct ? 'Edit Product' : 'Add New Product to Store'}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Listing will appear instantly in the customer storefront.
+                  {editingProduct ? 'Update product details and photos.' : 'Listing will appear instantly in the customer storefront.'}
                 </p>
               </div>
               <button
-                onClick={() => setShowAddProductModal(false)}
+                onClick={() => {
+                  resetProductForm();
+                  setShowAddProductModal(false);
+                }}
                 className="w-8 h-8 rounded-full bg-stone-100 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer transition-colors"
               >
                 <X className="w-4 h-4" />
@@ -2461,7 +2586,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <div className="pt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddProductModal(false)}
+                  onClick={() => {
+                    resetProductForm();
+                    setShowAddProductModal(false);
+                  }}
                   className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 font-semibold cursor-pointer transition-colors"
                 >
                   Cancel
@@ -2470,7 +2598,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-md shadow-pink-600/20"
                 >
-                  Publish Item
+                  {editingProduct ? 'Save Changes' : 'Publish Item'}
                 </button>
               </div>
             </form>

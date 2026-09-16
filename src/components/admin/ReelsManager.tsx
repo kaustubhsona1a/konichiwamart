@@ -293,12 +293,16 @@ export const ReelsManager: React.FC<ReelsManagerProps> = ({
                   <div className="flex items-start gap-3.5 min-w-0">
                     {/* Vertical 9:16 Thumbnail */}
                     <div className="relative w-16 sm:w-20 aspect-[9/14] rounded-xl overflow-hidden bg-slate-950 flex-shrink-0 border border-stone-200 shadow-2xs group">
-                      <img 
-                        src={reel.videoThumb} 
-                        alt={reel.title}
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                      />
+                      {reel.videoUrl && !reel.videoUrl.includes('instagram.com') ? (
+                        <video src={reel.videoUrl} className="w-full h-full object-cover" autoPlay muted loop playsInline />
+                      ) : (
+                        <img 
+                          src={reel.videoThumb} 
+                          alt={reel.title}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
                       <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
                         <Play className="w-4 h-4 text-white fill-white opacity-80" />
                       </div>
@@ -517,7 +521,7 @@ export const ReelsManager: React.FC<ReelsManagerProps> = ({
             <form onSubmit={handleSaveModalEdit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
               
               {/* Row 1: Title & Tagged Product */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold uppercase tracking-wider text-slate-700">
                     Reel Title *
@@ -619,12 +623,16 @@ export const ReelsManager: React.FC<ReelsManagerProps> = ({
 
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-20 rounded-xl overflow-hidden bg-slate-900 border border-stone-300 flex-shrink-0 relative">
-                    <img
-                      src={editingReel.videoThumb}
-                      alt="Thumbnail preview"
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                    />
+                    {editingReel.videoUrl && !editingReel.videoUrl.includes('instagram.com') ? (
+                      <video src={editingReel.videoUrl} className="w-full h-full object-cover" autoPlay muted loop playsInline />
+                    ) : (
+                      <img
+                        src={editingReel.videoThumb}
+                        alt="Thumbnail preview"
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
                   </div>
 
                   <div className="flex-1 space-y-1.5">

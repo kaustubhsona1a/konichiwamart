@@ -183,12 +183,23 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
               }`}
             >
               {/* Background Thumbnail Image with subtle hover zoom */}
-              <img
-                src={reel.videoThumb}
-                alt={reel.title}
-                className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 pointer-events-none"
-                referrerPolicy="no-referrer"
-              />
+              {reel.videoUrl && !isInstagramUrl(reel.videoUrl) ? (
+                <video
+                  src={reel.videoUrl}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 pointer-events-none"
+                />
+              ) : (
+                <img
+                  src={reel.videoThumb}
+                  alt={reel.title}
+                  className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105 pointer-events-none"
+                  referrerPolicy="no-referrer"
+                />
+              )}
 
               {/* Gradient Scrim for text readability */}
               <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/80 pointer-events-none" />

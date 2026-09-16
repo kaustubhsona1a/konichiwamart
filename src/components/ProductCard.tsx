@@ -46,6 +46,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           className="w-full h-full object-contain filter drop-shadow-[0_4px_12px_rgba(15,23,42,0.10)] transition-transform duration-300 group-hover:scale-105"
           referrerPolicy="no-referrer"
           loading="lazy"
+          onError={(e) => {
+            const target = e.currentTarget;
+            if (target.src !== '/products/keana-rice-mask.png') {
+              target.src = '/products/keana-rice-mask.png';
+            }
+          }}
         />
 
         {/* Wishlist Button - Touch optimized */}

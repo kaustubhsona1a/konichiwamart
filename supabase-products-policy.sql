@@ -1,93 +1,75 @@
--- ==============================================================================
--- KONICHIWA MART: GRANT PUBLIC & ANON FULL ACCESS TO PRODUCTS
--- Run this block in Supabase SQL Editor:
--- https://supabase.com/dashboard/project/nhcgwxvfuupkflhixxmj/sql
--- ==============================================================================
+-- ==========================================
+-- SUPABASE SCHEMA FOR PRODUCTS & REELS
+-- Konichiwa Mart E-Commerce Database
+-- ==========================================
 
--- 1. Ensure table permissions are granted to anon and authenticated roles
-GRANT ALL ON TABLE public.products TO anon, authenticated, service_role;
-GRANT ALL ON TABLE public.product_variants TO anon, authenticated, service_role;
-GRANT ALL ON TABLE public.categories TO anon, authenticated, service_role;
+-- 1. PRODUCTS TABLE
+CREATE TABLE IF NOT EXISTS public.products (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  slug text UNIQUE NOT NULL,
+  title text NOT NULL,
+  subtitle text,
+  category_name text,
+  description text,
+  benefits text[],
+  usage_how_to text,
+  key_actives jsonb,
+  full_ingredients text,
+  hsn_code text DEFAULT '3304',
+  base_price numeric NOT NULL,
+  compare_at_price numeric,
+  primary_image_url text NOT NULL,
+  secondary_image_url text,
+  images text[],
+  volume_or_weight text,
+  accent_color text DEFAULT '#E11D48',
+  skin_types text[],
+  skin_concerns text[],
+  routine text DEFAULT 'AM/PM',
+  is_bestseller boolean DEFAULT false,
+  is_new boolean DEFAULT false,
+  is_active boolean DEFAULT true,
+  rating numeric DEFAULT 4.9,
+  reviews_count integer DEFAULT 50,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
 
--- 2. Drop all old restrictive policies on products
-DROP POLICY IF EXISTS "Active products are readable by everyone" ON public.products;
-DROP POLICY IF EXISTS "Allow reading products" ON public.products;
-DROP POLICY IF EXISTS "Allow managing products" ON public.products;
-DROP POLICY IF EXISTS "Allow all for anon on products" ON public.products;
-DROP POLICY IF EXISTS "Allow public insert on products" ON public.products;
-DROP POLICY IF EXISTS "Allow public update on products" ON public.products;
-DROP POLICY IF EXISTS "Allow public delete on products" ON public.products;
+-- Enable RLS on products
+ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 
--- 3. Create explicit policies for anon & authenticated
-CREATE POLICY "Allow public select on products"
+-- Allow public read access on products
+CREATE POLICY "Allow public read access on products"
   ON public.products FOR SELECT
-  TO anon, authenticated, service_role
   USING (true);
 
-CREATE POLICY "Allow public insert on products"
-  ON public.products FOR INSERT
-  TO anon, authenticated, service_role
-  WITH CHECK (true);
-
-CREATE POLICY "Allow public update on products"
-  ON public.products FOR UPDATE
-  TO anon, authenticated, service_role
-  USING (true)
-  WITH CHECK (true);
-
-CREATE POLICY "Allow public delete on products"
-  ON public.products FOR DELETE
-  TO anon, authenticated, service_role
+-- Allow public / authenticated insert, update, delete on products
+CREATE POLICY "Allow write access on products"
+  ON public.products FOR ALL
   USING (true);
 
--- 4. Product Variants
-DROP POLICY IF EXISTS "Product variants are readable by everyone" ON public.product_variants;
-DROP POLICY IF EXISTS "Allow reading variants" ON public.product_variants;
-DROP POLICY IF EXISTS "Allow managing variants" ON public.product_variants;
 
-CREATE POLICY "Allow public select on variants"
-  ON public.product_variants FOR SELECT
-  TO anon, authenticated, service_role
+-- 2. REELS TABLE
+CREATE TABLE IF NOT EXISTS public.reels (
+  id text PRIMARY KEY,
+  title text NOT NULL,
+  video_url text NOT NULL,
+  thumbnail text,
+  product_id text,
+  likes integer DEFAULT 0,
+  views text DEFAULT '1.2k',
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- Enable RLS on reels
+ALTER TABLE public.reels ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read access on reels
+CREATE POLICY "Allow public read access on reels"
+  ON public.reels FOR SELECT
   USING (true);
 
-CREATE POLICY "Allow public insert on variants"
-  ON public.product_variants FOR INSERT
-  TO anon, authenticated, service_role
-  WITH CHECK (true);
-
-CREATE POLICY "Allow public update on variants"
-  ON public.product_variants FOR UPDATE
-  TO anon, authenticated, service_role
-  USING (true)
-  WITH CHECK (true);
-
-CREATE POLICY "Allow public delete on variants"
-  ON public.product_variants FOR DELETE
-  TO anon, authenticated, service_role
-  USING (true);
-
--- 5. Categories
-DROP POLICY IF EXISTS "Categories are readable by everyone" ON public.categories;
-DROP POLICY IF EXISTS "Allow reading categories" ON public.categories;
-DROP POLICY IF EXISTS "Allow managing categories" ON public.categories;
-
-CREATE POLICY "Allow public select on categories"
-  ON public.categories FOR SELECT
-  TO anon, authenticated, service_role
-  USING (true);
-
-CREATE POLICY "Allow public insert on categories"
-  ON public.categories FOR INSERT
-  TO anon, authenticated, service_role
-  WITH CHECK (true);
-
-CREATE POLICY "Allow public update on categories"
-  ON public.categories FOR UPDATE
-  TO anon, authenticated, service_role
-  USING (true)
-  WITH CHECK (true);
-
-CREATE POLICY "Allow public delete on categories"
-  ON public.categories FOR DELETE
-  TO anon, authenticated, service_role
+-- Allow write access on reels
+CREATE POLICY "Allow write access on reels"
+  ON public.reels FOR ALL
   USING (true);

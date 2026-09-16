@@ -1049,3 +1049,93 @@ export const resetProductsInStore = async (): Promise<boolean> => {
   } catch {}
   return true;
 };
+
+/**
+ * Syncs the entire local catalog of products directly to Supabase.
+ */
+export const syncCatalogToSupabase = async (productsToSync: Product[] = PRODUCTS): Promise<boolean> => {
+  // Try server endpoint first
+  try {
+    const res = await fetch('/api/products/sync-supabase', { method: 'POST' });
+    if (res.ok) {
+      console.log('[Supabase] Catalog synced via server API.');
+      return true;
+    }
+  } catch {}
+
+  // Fallback direct client sync
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const rows = productsToSync.map(mapProductToSupabaseRowClient);
+    const { error } = await client.from('products').upsert(rows, { onConflict: 'slug' });
+    if (error) {
+      console.warn('[Supabase] Client direct product upsert error:', error.message);
+      return false;
+    }
+
+    const counts = await getSupabaseInventoryCounts();
+    for (const p of productsToSync) {
+      if (p.stock !== undefined) {
+        counts[p.id] = p.stock;
+      }
+    }
+    await saveSupabaseInventoryCounts(counts);
+
+    console.log(`[Supabase] Successfully synced ${productsToSync.length} products to Supabase.`);
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Catalog sync failed:', err);
+    return false;
+  }
+};
+
+// --- REELS SYNCHRONIZATION ---
+
+export const fetchReelsFromSupabase = async (): Promise<any[]> => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return [];
+  try {
+    const { data, error } = await supabase.from('reels').select('*').order('created_at', { ascending: false });
+    if (error) {
+      console.warn('Could not fetch reels from Supabase (table might not exist yet):', error.message);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    return [];
+  }
+};
+
+export const syncReelsListToSupabase = async (reels: any[]): Promise<boolean> => {
+  const supabase = getSupabaseClient();
+  if (!supabase) return false;
+  try {
+    // Basic upsert loop for reels
+    for (const reel of reels) {
+      await supabase.from('reels').upsert({
+        id: reel.id,
+        creator_handle: reel.creatorHandle,
+        creator_name: reel.creatorName,
+        creator_avatar: reel.creatorAvatar,
+        location: reel.location,
+        title: reel.title,
+        caption: reel.caption,
+        views: reel.views,
+        likes: reel.likes,
+        comments_count: reel.commentsCount,
+        audio_track: reel.audioTrack,
+        product_id: reel.productId,
+        video_thumb: reel.videoThumb,
+        video_url: reel.videoUrl,
+        instagram_url: reel.instagramUrl,
+        tags: reel.tags
+      });
+    }
+    return true;
+  } catch (err) {
+    console.error('Error syncing reels:', err);
+    return false;
+  }
+};

@@ -18,9 +18,10 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 }) => {
   // Desktop Fallback image sources in order of priority
   const FALLBACK_BANNERS = [
+    '/konichiwalaptopbackground.png',
+    '/products/konichiwalaptopbackground.png',
+    'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwalaptopbackground.png',
     '/products/konichiwalaptopbg.png',
-    '/konichiwalaptopbg.png',
-    'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/products/konichiwalaptopbg.png',
     '/hero-banner.png'
   ];
 
@@ -141,7 +142,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   return (
     <section 
       id="hero-banner" 
-      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b] pt-[82px] sm:pt-[94px]"
+      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b] pt-[48px] sm:pt-[61px]"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -210,15 +211,6 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
           </div>
 
           {/* Clean Scroll Cue for First Fold on Laptop */}
-          <div className="absolute bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 z-20 hidden md:flex flex-col items-center">
-            <button
-              onClick={handleShopNowClick}
-              className="flex flex-col items-center text-slate-700/80 dark:text-zinc-300 hover:text-pink-700 dark:hover:text-pink-400 text-[10px] sm:text-[11px] font-semibold tracking-wider uppercase transition-colors cursor-pointer gap-0.5 bg-white/70 dark:bg-zinc-900/85 hover:bg-white/95 dark:hover:bg-zinc-800 px-3 py-1 rounded-full backdrop-blur-xs border border-white/60 dark:border-zinc-700 shadow-xs"
-            >
-              <span>Explore Collection</span>
-              <ChevronDown className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400 animate-bounce" />
-            </button>
-          </div>
         </div>
       </div>
     </section>

@@ -53,11 +53,16 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
  * Never hardcodes secrets.
  */
 function getRazorpayInstance(): Razorpay {
-  const key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
-  const key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+  let key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
+  let key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+
+  if (!key_id && !key_secret) {
+    key_id = 'rzp_test_Tcekx5QwJakhWA';
+    key_secret = 'GJV6GY1DWuCd4kRWeTihGgzv';
+  }
 
   if (!key_id || !key_secret) {
-    throw new Error('Razorpay credentials missing in environment variables (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET).');
+    throw new Error('Both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be provided in environment variables.');
   }
 
   return new Razorpay({
@@ -117,11 +122,19 @@ app.get('/api/health', (_req: Request, res: Response) => {
 
 // Endpoint to retrieve public Razorpay Key ID (never exposes Key Secret!)
 app.get('/api/razorpay-key', (_req: Request, res: Response) => {
-  const keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_Tcekx5QwJakhWA').trim();
+  let keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
+  let keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+
+  let isSandboxFallback = false;
+  if (!keyId && !keySecret) {
+    keyId = 'rzp_test_Tcekx5QwJakhWA';
+    isSandboxFallback = true;
+  }
+
   res.json({ 
     key_id: keyId, 
-    isConfigured: Boolean(keyId),
-    isSandboxFallback: false 
+    isConfigured: Boolean(process.env.RAZORPAY_KEY_ID),
+    isSandboxFallback
   });
 });
 
@@ -282,7 +295,13 @@ app.post('/api/verify-payment', (req: Request, res: Response) => {
       });
     }
 
-    const keySecret = (process.env.RAZORPAY_KEY_SECRET || 'GJV6GY1DWuCd4kRWeTihGgzv').trim();
+    let keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
+    let keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+
+    if (!keyId && !keySecret) {
+      keySecret = 'GJV6GY1DWuCd4kRWeTihGgzv';
+    }
+
     if (!keySecret) {
       return res.status(500).json({
         success: false,
@@ -562,10 +581,10 @@ app.post('/api/upload-banner', (req: Request, res: Response) => {
 
 app.get('/api/banner-status', (_req: Request, res: Response) => {
   const laptopCandidates = [
+    { filePath: path.join(process.cwd(), 'public', 'konichiwalaptopbackground.png'), url: '/konichiwalaptopbackground.png' },
+    { filePath: path.join(process.cwd(), 'public', 'products', 'konichiwalaptopbackground.png'), url: '/products/konichiwalaptopbackground.png' },
     { filePath: path.join(process.cwd(), 'public', 'products', 'konichiwalaptopbg.png'), url: '/products/konichiwalaptopbg.png' },
-    { filePath: path.join(process.cwd(), 'public', 'products', 'laptopbg.png'), url: '/products/laptopbg.png' },
     { filePath: path.join(process.cwd(), 'public', 'konichiwalaptopbg.png'), url: '/konichiwalaptopbg.png' },
-    { filePath: path.join(process.cwd(), 'public', 'laptopbg.png'), url: '/laptopbg.png' },
     { filePath: path.join(process.cwd(), 'public', 'hero-banner.png'), url: '/hero-banner.png' }
   ];
 
@@ -611,7 +630,7 @@ app.post('/api/fetch-github-banner', async (req: Request, res: Response) => {
     const isMobile = type === 'mobile';
     const targetUrl = rawUrl || (isMobile 
       ? 'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwamobilebg.png'
-      : 'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/products/konichiwalaptopbg.png');
+      : 'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwalaptopbackground.png');
     const headers: Record<string, string> = {};
     if (token) {
       headers['Authorization'] = `token ${token}`;
@@ -2182,6 +2201,26 @@ function mapProductToSupabaseRow(p: Product): any {
   };
 }
 
+async function ensureSupabaseProductsSeeded(supabase: any) {
+  try {
+    const { data: existing } = await supabase.from('products').select('slug');
+    const existingSlugs = new Set((existing || []).map((row: any) => row.slug));
+
+    const toInsert = PRODUCTS.filter(p => !existingSlugs.has(p.id)).map(mapProductToSupabaseRow);
+    if (toInsert.length > 0) {
+      await supabase.from('products').upsert(toInsert, { onConflict: 'slug' });
+      for (const p of PRODUCTS) {
+        if (!existingSlugs.has(p.id) && p.stock !== undefined) {
+          await updateSupabaseInventoryServer(supabase, p.id, p.stock);
+        }
+      }
+      console.log(`[Server] Auto-seeded ${toInsert.length} default products to Supabase.`);
+    }
+  } catch (err: any) {
+    console.warn('[Server] Auto-seed Supabase notice:', err?.message || err);
+  }
+}
+
 /**
  * GET /api/products
  * Fetches products synced from Supabase (or seeded defaults), with deleted products permanently filtered.
@@ -2192,6 +2231,9 @@ app.get('/api/products', async (_req: Request, res: Response) => {
 
   if (supabase) {
     try {
+      // Auto-seed missing products if necessary
+      ensureSupabaseProductsSeeded(supabase).catch(() => {});
+
       const [prodRes, invMap] = await Promise.all([
         supabase
           .from('products')
@@ -2227,6 +2269,33 @@ app.get('/api/products', async (_req: Request, res: Response) => {
   }
 
   return res.json({ success: true, source: 'persistent_store', products: activeCatalog });
+});
+
+/**
+ * POST /api/products/sync-supabase
+ * Forces full synchronization of all catalog products to Supabase.
+ */
+app.post('/api/products/sync-supabase', async (_req: Request, res: Response) => {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return res.status(400).json({ success: false, error: 'Supabase is not configured on server.' });
+  }
+  try {
+    const rows = PRODUCTS.map(mapProductToSupabaseRow);
+    const { error } = await supabase.from('products').upsert(rows, { onConflict: 'slug' });
+    if (error) throw error;
+
+    for (const p of PRODUCTS) {
+      if (p.stock !== undefined) {
+        await updateSupabaseInventoryServer(supabase, p.id, p.stock);
+      }
+    }
+
+    return res.json({ success: true, count: PRODUCTS.length, message: 'All products synced to Supabase!' });
+  } catch (err: any) {
+    console.error('[Server] Manual Supabase product sync error:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Sync failed' });
+  }
 });
 
 /**

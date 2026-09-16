@@ -399,12 +399,8 @@ export const Navbar: React.FC<NavbarProps> = ({
                         setDropdownOpen(false);
                         onOpenSecurityGuide();
                       }}
-                      className="w-full h-8.5 px-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-850 flex items-center justify-between cursor-pointer transition-colors text-left"
+                      className="hidden"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                        <span>Genuine Guarantee</span>
-                      </div>
                     </button>
                   )}
 

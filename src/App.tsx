@@ -207,6 +207,34 @@ export default function App() {
   });
 
   // Keep cart in localStorage
+  
+  useEffect(() => {
+    // Check if URL has a Supabase password reset hash
+    const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
+    if (hashParams.get('type') === 'recovery' && hashParams.get('access_token')) {
+      window.location.hash = ''; // Clear hash
+      const newPassword = prompt('Password Recovery: Please enter your new password.');
+      if (newPassword && newPassword.length >= 6) {
+        // We will call the backend or supabase directly to update it.
+        const client = getSupabaseClient();
+        if (client) {
+          client.auth.updateUser({ password: newPassword })
+            .then(({ error }) => {
+              if (error) {
+                alert('Failed to update password: ' + error.message);
+              } else {
+                alert('Password updated successfully! You can now sign in.');
+                setIsCustomerAuthOpen(true);
+                setCustomerAuthTab('signin');
+              }
+            });
+        }
+      } else if (newPassword) {
+        alert('Password must be at least 6 characters.');
+      }
+    }
+  }, []);
+
   useEffect(() => {
     try {
       localStorage.setItem('km_user_cart', JSON.stringify(cart));
@@ -554,10 +582,10 @@ export default function App() {
     return {
       storeName: 'Konichiwa.Mart',
       storeTagline: 'Japanese Skincare',
-      heroBannerUrl: localStorage.getItem('km_hero_banner_data') || '/products/konichiwalaptopbg.png',
-      mobileHeroBannerUrl: localStorage.getItem('km_hero_mobile_banner_data') || '/products/konichiwamobilebg.png',
-      backgroundImageUrl: '/products/konichiwalaptopbg.png',
-      mobileBackgroundImageUrl: '/products/konichiwamobilebg.png',
+      heroBannerUrl: localStorage.getItem('km_hero_banner_data') || '/konichiwalaptopbackground.png',
+      mobileHeroBannerUrl: localStorage.getItem('km_hero_mobile_banner_data') || '/konichiwamobilebg.png',
+      backgroundImageUrl: '/konichiwalaptopbackground.png',
+      mobileBackgroundImageUrl: '/konichiwamobilebg.png',
       backgroundHintOpacity: 'balanced',
       flowerDriftEnabled: explicitlyTurnedOn,
       flowerDriftSpeed: 'gentle',
@@ -713,6 +741,15 @@ export default function App() {
     });
 
     addProductToStore(newProduct);
+  };
+
+  const handleEditProduct = (updatedProduct: Product) => {
+    setProductsList((prev) => {
+      const updated = prev.map(p => p.id === updatedProduct.id ? updatedProduct : p);
+      localStorage.setItem('km_custom_products', JSON.stringify(updated));
+      return updated;
+    });
+    updateProductInStore(updatedProduct.id, updatedProduct);
   };
 
   // Remove Product Handler (Permanently deletes from Supabase, Server Storage, and Local state)
@@ -947,6 +984,27 @@ export default function App() {
     });
   };
 
+  const handleDeleteOrder = (orderId: string) => {
+    setStoreOrders(prev => {
+      const updated = prev.filter(o => o.id !== orderId);
+      try {
+        localStorage.setItem('km_store_orders', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  const handleModifyOrder = (orderId: string, updates: Partial<Order>) => {
+    setStoreOrders(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, ...updates } : o);
+      try {
+        localStorage.setItem('km_store_orders', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+
   const totalCartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
   const cartSubtotal = cart.reduce((sum, i) => sum + (i.product.price * i.quantity), 0);
   const shippingFee = cartSubtotal >= 999 || cartSubtotal === 0 ? 0 : 99;
@@ -971,7 +1029,7 @@ export default function App() {
               : 'opacity-[0.24] dark:opacity-[0.36] dark:brightness-[0.85] dark:contrast-[1.10]'
           }`}
           style={{
-            backgroundImage: `url(${siteSettings.backgroundImageUrl || siteSettings.heroBannerUrl || '/products/konichiwalaptopbg.png'})`,
+            backgroundImage: `url(${siteSettings.backgroundImageUrl || siteSettings.heroBannerUrl || '/konichiwalaptopbackground.png'})`,
           }}
         />
         {/* Mobile Background Layout */}
@@ -984,7 +1042,7 @@ export default function App() {
               : 'opacity-[0.24] dark:opacity-[0.36] dark:brightness-[0.85] dark:contrast-[1.10]'
           }`}
           style={{
-            backgroundImage: `url(${siteSettings.mobileBackgroundImageUrl || siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'})`,
+            backgroundImage: `url(${siteSettings.mobileBackgroundImageUrl || siteSettings.mobileHeroBannerUrl || '/konichiwamobilebg.png'})`,
           }}
         />
         {/* Soft Japanese paper tone in light mode / subtle velvet black tint in dark mode */}
@@ -1057,7 +1115,7 @@ export default function App() {
             isWishlisted={isWishlisted}
             onApplyCoupon={() => setIsCartOpen(true)}
             customBannerUrl={siteSettings.heroBannerUrl}
-            customMobileBannerUrl={siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'}
+            customMobileBannerUrl={siteSettings.mobileHeroBannerUrl || '/konichiwamobilebg.png'}
           />
 
           {/* 2. MAIN PRODUCT CATALOG */}
@@ -1244,11 +1302,14 @@ export default function App() {
         onClose={() => setIsAdminOpen(false)}
         orders={storeOrders}
         onUpdateOrderStatus={handleUpdateOrderStatus}
+        onDeleteOrder={handleDeleteOrder}
+        onModifyOrder={handleModifyOrder}
         onViewInvoice={(order) => setActiveInvoiceOrder(order)}
         products={productsList}
         onUpdateProductStock={handleUpdateProductStock}
         onUpdateProductPrice={handleUpdateProductPrice}
         onAddProduct={handleAddProduct}
+        onEditProduct={handleEditProduct}
         onRemoveProduct={handleRemoveProduct}
         onResetDefaultProducts={handleResetDefaultProducts}
         onLogout={() => {

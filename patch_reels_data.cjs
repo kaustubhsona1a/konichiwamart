@@ -1,48 +1,13 @@
-import { fetchReelsFromSupabase, syncReelsListToSupabase, isSupabaseConfigured } from '../lib/supabase';
-import { ReelItem } from '../types';
+const fs = require('fs');
 
-export const KONICHIWA_INSTAGRAM_URL = 'https://www.instagram.com/konichiwa_mart?stkn=MTRrM3I1a21la2cwOQ%3D%3D&utm_source=qr';
-export const KONICHIWA_INSTAGRAM_HANDLE = '@konichiwa_mart';
+let code = fs.readFileSync('src/data/reels.ts', 'utf8');
 
-export const INITIAL_REELS: ReelItem[] = [];
+const importStatement = `import { fetchReelsFromSupabase, syncReelsListToSupabase, isSupabaseConfigured } from '../lib/supabase';\n`;
+if (!code.includes('import { fetchReelsFromSupabase')) {
+  code = importStatement + code;
+}
 
-export const getStoredReels = (): ReelItem[] => {
-  try {
-    const data = localStorage.getItem('km_store_reels');
-    if (data) {
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
-      }
-    }
-  } catch (err) {
-    console.error('Failed to load reels from storage:', err);
-  }
-  return INITIAL_REELS;
-};
-
-/**
- * Saves reels to both localStorage (for fast local cache)
- * and server persistent storage (/api/reels) so all store visitors see them.
- */
-export const saveStoredReels = (reels: ReelItem[]): void => {
-  try {
-    localStorage.setItem('km_store_reels', JSON.stringify(reels));
-  } catch (err) {
-    console.error('Failed to save reels to storage:', err);
-  }
-  
-  // Asynchronously persist to backend server
-  syncReelsToServer(reels).catch(err => {
-    console.warn('Background sync of reels to server error:', err);
-  });
-};
-
-/**
- * Fetch reels from the backend server (/api/reels), which persists across
- * all devices, sessions, and reloads. Falls back to cached local storage.
- */
-export const fetchServerReels = async (): Promise<ReelItem[]> => {
+code = code.replace(/export const fetchServerReels = async \(\): Promise<ReelItem\[\]> => \{[\s\S]*?\};/, `export const fetchServerReels = async (): Promise<ReelItem[]> => {
   if (isSupabaseConfigured()) {
     const supabaseReels = await fetchReelsFromSupabase();
     if (supabaseReels && supabaseReels.length > 0) {
@@ -82,12 +47,10 @@ export const fetchServerReels = async (): Promise<ReelItem[]> => {
     console.warn('Failed to fetch reels from server endpoint, using cached reels:', err);
   }
   return getStoredReels();
-};
+};`);
 
-/**
- * Persist reels to the backend server API
- */
-export const syncReelsToServer = async (reels: ReelItem[]): Promise<boolean> => {
+
+code = code.replace(/export const syncReelsToServer = async \(reels: ReelItem\[\]\): Promise<boolean> => \{[\s\S]*?\};/, `export const syncReelsToServer = async (reels: ReelItem[]): Promise<boolean> => {
   if (isSupabaseConfigured()) {
     const success = await syncReelsListToSupabase(reels);
     if (success) {
@@ -109,15 +72,7 @@ export const syncReelsToServer = async (reels: ReelItem[]): Promise<boolean> => 
     console.warn('Failed to sync reels to server:', err);
     return false;
   }
-};
+};`);
 
-/**
- * Extracts Instagram shortcode from URLs like:
- * - https://www.instagram.com/reel/C123abc/
- * - https://instagram.com/p/C123abc/
- */
-export const extractInstagramCode = (url?: string): string | null => {
-  if (!url) return null;
-  const match = url.match(/(?:reel|p)\/([A-Za-z0-9_-]+)/i);
-  return match ? match[1] : null;
-};
+fs.writeFileSync('src/data/reels.ts', code);
+console.log('Patched reels.ts for Supabase direct sync.');

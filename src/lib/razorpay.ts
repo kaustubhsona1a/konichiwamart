@@ -70,12 +70,10 @@ export const loadRazorpayScript = (): Promise<boolean> => {
  * Note: Key Secret is NEVER exposed to the frontend.
  */
 export const getRazorpayKeyId = async (): Promise<string> => {
-  const envKey = (import.meta as any).env?.VITE_RAZORPAY_KEY_ID;
-  if (envKey && typeof envKey === 'string' && envKey.trim().length > 0 && !envKey.includes('TcdmYNVatNNtib')) {
-    return envKey.trim();
-  }
-
   try {
+    // ALWAYS fetch from backend so we get runtime environment variables.
+    // Relying on Vite build-time env vars causes mismatch between frontend/backend
+    // if the user updates .env after the build.
     const res = await fetch('/api/razorpay-key');
     if (res.ok) {
       const data = await res.json();
@@ -87,6 +85,7 @@ export const getRazorpayKeyId = async (): Promise<string> => {
     console.warn('Could not fetch razorpay key from /api/razorpay-key:', err);
   }
 
+  // Fallback to a safe test key if everything else fails
   return 'rzp_test_Tcekx5QwJakhWA';
 };
 

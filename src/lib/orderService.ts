@@ -96,11 +96,19 @@ export const orderStore = new Map<string, ValidatedOrder>();
  * Lazy helper for Razorpay instance with env check
  */
 function getRazorpayClient(): Razorpay {
-  const key_id = (process.env.RAZORPAY_KEY_ID || 'rzp_test_Tcekx5QwJakhWA').trim();
-  const key_secret = (process.env.RAZORPAY_KEY_SECRET || 'GJV6GY1DWuCd4kRWeTihGgzv').trim();
+  let key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
+  let key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+
+  // If both are missing, use the sandbox fallback credentials so the app doesn't break.
+  // If the user provided one but not the other, we must let it fail naturally 
+  // or throw so they know they missed an env var.
+  if (!key_id && !key_secret) {
+    key_id = 'rzp_test_Tcekx5QwJakhWA';
+    key_secret = 'GJV6GY1DWuCd4kRWeTihGgzv';
+  }
 
   if (!key_id || !key_secret) {
-    throw new Error('Razorpay credentials missing in environment variables (RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET).');
+    throw new Error('Both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be provided in environment variables.');
   }
 
   return new Razorpay({ key_id, key_secret });
@@ -212,9 +220,9 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
   const totalInPaise = Math.round(grandTotal * 100);
 
   // 5. UNIQUE IDENTIFIERS
-  const randomId = Math.floor(1000 + Math.random() * 9000);
-  const orderNumber = `KM-ORD-2026-${randomId}`;
-  const invoiceNumber = `KM-INV-2026-${randomId}`;
+  const uniqueSuffix = Math.floor(100000 + Math.random() * 900000).toString();
+  const orderNumber = `KM-ORD-26${uniqueSuffix}`;
+  const invoiceNumber = `KM-INV-26${uniqueSuffix}`;
 
   // 6. INITIALIZE RAZORPAY ORDER
   let razorpayOrderId: string | undefined;
