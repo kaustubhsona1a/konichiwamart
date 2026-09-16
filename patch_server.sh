@@ -1,1 +1,2 @@
-sed -i "1i import { createShiprocketOrder } from './src/lib/shiprocketServer';" server.ts
+sed -i 's/startServer();/if (!process.env.VERCEL) { startServer(); }/g' server.ts
+echo 'export default app;' >> server.ts

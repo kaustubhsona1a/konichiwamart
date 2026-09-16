@@ -38,7 +38,7 @@ export async function createShiprocketOrder(order: Order): Promise<{ order_id: n
   try {
     const orderItems = order.items.map(item => ({
       name: item.title,
-      sku: item.id,
+      sku: item.productId,
       units: item.quantity,
       selling_price: item.price,
       hsn: "3304"
@@ -61,7 +61,7 @@ export async function createShiprocketOrder(order: Order): Promise<{ order_id: n
       billing_pincode: order.shippingAddress?.pincode || '',
       billing_state: order.shippingAddress?.state || '',
       billing_country: "India",
-      billing_email: order.shippingAddress?.email || 'customer@example.com',
+      billing_email: order.customerEmail || 'customer@example.com',
       billing_phone: order.shippingAddress?.phone || '',
       shipping_is_billing: true,
       order_items: orderItems,
