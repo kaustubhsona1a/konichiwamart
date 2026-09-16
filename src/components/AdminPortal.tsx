@@ -296,37 +296,58 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     if (!file) return;
 
     setIsUploadingBanner(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      try {
-        // 1. Upload to server to persist permanently into public/products/konichiwalaptopbg.png
-        await fetch('/api/upload-banner', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64, target: 'desktop' })
-        });
-        
-        const timestamp = Date.now();
-        const permanentUrl = `/products/konichiwalaptopbg.png?v=${timestamp}`;
+    try {
+      // 1. Optimize image client-side to lightweight compressed JPEG
+      const optimizedBase64 = await resizeAndOptimizeImage(file);
+      let bannerUrlToUse = optimizedBase64;
 
-        // 2. Clean up any heavy base64 strings from localStorage to prevent quota overflow
+      // 2. Try Supabase Storage upload for permanent CDN public URL
+      const supabase = getSupabaseClient();
+      if (supabase) {
         try {
-          localStorage.removeItem('km_hero_banner_data');
-        } catch {}
+          const ext = file.name.split('.').pop() || 'jpg';
+          const fileName = `hero_desktop_${Date.now()}.${ext}`;
+          const { error: uploadErr } = await supabase.storage
+            .from('product-images')
+            .upload(fileName, file, { cacheControl: '3600', upsert: true });
 
-        // 3. Update application state with permanent file path
-        onUpdateSiteSettings({ heroBannerUrl: permanentUrl, backgroundImageUrl: permanentUrl });
-
-        setSettingsSuccessMsg('Laptop & desktop background updated successfully!');
-        setTimeout(() => setSettingsSuccessMsg(null), 3500);
-      } catch (err) {
-        console.error('Error uploading banner:', err);
-      } finally {
-        setIsUploadingBanner(false);
+          if (!uploadErr) {
+            const { data: publicUrlData } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(fileName);
+            if (publicUrlData?.publicUrl) {
+              bannerUrlToUse = publicUrlData.publicUrl;
+            }
+          }
+        } catch (sErr) {
+          console.warn('Supabase banner upload skipped, using optimized base64:', sErr);
+        }
       }
-    };
-    reader.readAsDataURL(file);
+
+      // 3. Save locally in localStorage so Vercel client persistent sessions immediately pick it up
+      try {
+        localStorage.setItem('km_hero_banner_data', bannerUrlToUse);
+      } catch {}
+
+      // 4. Update site settings state
+      onUpdateSiteSettings({ heroBannerUrl: bannerUrlToUse, backgroundImageUrl: bannerUrlToUse });
+
+      // 5. Best-effort server sync for container environments
+      fetch('/api/upload-banner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: optimizedBase64, target: 'desktop' })
+      }).catch(() => {});
+
+      setSettingsSuccessMsg('Laptop & desktop background updated successfully!');
+      setTimeout(() => setSettingsSuccessMsg(null), 3500);
+    } catch (err) {
+      console.error('Error uploading banner:', err);
+      setSettingsSuccessMsg('Failed to process image. Please try another image.');
+    } finally {
+      setIsUploadingBanner(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   // Mobile Layout Banner Upload File Handler
@@ -335,37 +356,58 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     if (!file) return;
 
     setIsUploadingMobileBanner(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      try {
-        // 1. Upload to server to persist permanently into public/products/konichiwamobilebg.png
-        await fetch('/api/upload-banner', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64, target: 'mobile' })
-        });
-        
-        const timestamp = Date.now();
-        const permanentUrl = `/products/konichiwamobilebg.png?v=${timestamp}`;
+    try {
+      // 1. Optimize image client-side to lightweight compressed JPEG
+      const optimizedBase64 = await resizeAndOptimizeImage(file);
+      let bannerUrlToUse = optimizedBase64;
 
-        // 2. Clean up any heavy base64 strings from localStorage to prevent quota overflow
+      // 2. Try Supabase Storage upload for permanent CDN public URL
+      const supabase = getSupabaseClient();
+      if (supabase) {
         try {
-          localStorage.removeItem('km_hero_mobile_banner_data');
-        } catch {}
+          const ext = file.name.split('.').pop() || 'jpg';
+          const fileName = `hero_mobile_${Date.now()}.${ext}`;
+          const { error: uploadErr } = await supabase.storage
+            .from('product-images')
+            .upload(fileName, file, { cacheControl: '3600', upsert: true });
 
-        // 3. Update application state with permanent file path
-        onUpdateSiteSettings({ mobileHeroBannerUrl: permanentUrl, mobileBackgroundImageUrl: permanentUrl });
-
-        setSettingsSuccessMsg('Mobile layout background updated successfully!');
-        setTimeout(() => setSettingsSuccessMsg(null), 3500);
-      } catch (err) {
-        console.error('Error uploading mobile banner:', err);
-      } finally {
-        setIsUploadingMobileBanner(false);
+          if (!uploadErr) {
+            const { data: publicUrlData } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(fileName);
+            if (publicUrlData?.publicUrl) {
+              bannerUrlToUse = publicUrlData.publicUrl;
+            }
+          }
+        } catch (sErr) {
+          console.warn('Supabase mobile banner upload skipped, using optimized base64:', sErr);
+        }
       }
-    };
-    reader.readAsDataURL(file);
+
+      // 3. Save locally in localStorage so Vercel client persistent sessions immediately pick it up
+      try {
+        localStorage.setItem('km_hero_mobile_banner_data', bannerUrlToUse);
+      } catch {}
+
+      // 4. Update site settings state
+      onUpdateSiteSettings({ mobileHeroBannerUrl: bannerUrlToUse, mobileBackgroundImageUrl: bannerUrlToUse });
+
+      // 5. Best-effort server sync for container environments
+      fetch('/api/upload-banner', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageBase64: optimizedBase64, target: 'mobile' })
+      }).catch(() => {});
+
+      setSettingsSuccessMsg('Mobile layout background updated successfully!');
+      setTimeout(() => setSettingsSuccessMsg(null), 3500);
+    } catch (err) {
+      console.error('Error uploading mobile banner:', err);
+      setSettingsSuccessMsg('Failed to process mobile image. Please try another image.');
+    } finally {
+      setIsUploadingMobileBanner(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   // Logo Upload File Handler

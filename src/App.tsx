@@ -559,8 +559,10 @@ export default function App() {
 
   // Site Settings (Store background, Logo, Flower drift controls)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
-    // Check if user has explicitly turned on flower drift in their settings
     const explicitlyTurnedOn = localStorage.getItem('km_flower_drift_user_enabled') === 'true';
+    const storedDesktop = localStorage.getItem('km_hero_banner_data');
+    const storedMobile = localStorage.getItem('km_hero_mobile_banner_data');
+
     try {
       const saved = localStorage.getItem('km_site_settings');
       if (saved) {
@@ -568,13 +570,25 @@ export default function App() {
         const tagline = (!parsed.storeTagline || parsed.storeTagline === 'Japan Skincare' || parsed.storeTagline === 'Tokyo Skincare' || parsed.storeTagline === 'Japanese')
           ? 'Japanese Skincare'
           : parsed.storeTagline;
+
+        const activeHero = parsed.heroBannerUrl && !parsed.heroBannerUrl.includes('konichiwalaptopbg.png')
+          ? parsed.heroBannerUrl
+          : (storedDesktop || parsed.heroBannerUrl || '/konichiwalaptopbackground.png');
+
+        const activeMobileHero = parsed.mobileHeroBannerUrl && !parsed.mobileHeroBannerUrl.includes('konichiwamobilebg.png')
+          ? parsed.mobileHeroBannerUrl
+          : (storedMobile || parsed.mobileHeroBannerUrl || '/konichiwamobilebg.png');
+
         return {
           backgroundHintOpacity: 'balanced',
           flowerDriftSpeed: 'gentle',
           flowerDriftDensity: 'medium',
           ...parsed,
+          heroBannerUrl: activeHero,
+          mobileHeroBannerUrl: activeMobileHero,
+          backgroundImageUrl: activeHero,
+          mobileBackgroundImageUrl: activeMobileHero,
           storeTagline: tagline,
-          // By default keep drift OFF unless explicitly turned on by the user
           flowerDriftEnabled: explicitlyTurnedOn ? Boolean(parsed.flowerDriftEnabled) : false
         };
       }
@@ -582,10 +596,10 @@ export default function App() {
     return {
       storeName: 'Konichiwa.Mart',
       storeTagline: 'Japanese Skincare',
-      heroBannerUrl: localStorage.getItem('km_hero_banner_data') || '/konichiwalaptopbackground.png',
-      mobileHeroBannerUrl: localStorage.getItem('km_hero_mobile_banner_data') || '/konichiwamobilebg.png',
-      backgroundImageUrl: '/konichiwalaptopbackground.png',
-      mobileBackgroundImageUrl: '/konichiwamobilebg.png',
+      heroBannerUrl: storedDesktop || '/konichiwalaptopbackground.png',
+      mobileHeroBannerUrl: storedMobile || '/konichiwamobilebg.png',
+      backgroundImageUrl: storedDesktop || '/konichiwalaptopbackground.png',
+      mobileBackgroundImageUrl: storedMobile || '/konichiwamobilebg.png',
       backgroundHintOpacity: 'balanced',
       flowerDriftEnabled: explicitlyTurnedOn,
       flowerDriftSpeed: 'gentle',

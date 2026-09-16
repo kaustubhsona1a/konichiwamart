@@ -142,7 +142,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   return (
     <section 
       id="hero-banner" 
-      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b]"
+      className="relative w-full overflow-hidden bg-[#0d0d0f]"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -167,10 +167,10 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       )}
 
       {/* FULL-VIEWPORT LAPTOP & DESKTOP HERO BANNER CONTAINER */}
-      <div className="relative w-full max-w-[1920px] mx-auto min-h-[62vh] sm:min-h-[calc(100vh-64px)] flex flex-col justify-center">
+      <div className="relative w-full max-w-[1920px] mx-auto overflow-hidden">
         {/* Banner image representation with responsive Mobile & Laptop art-direction */}
-        <div className="relative w-full h-full min-h-[62vh] sm:min-h-[calc(100vh-64px)] overflow-hidden flex items-center justify-center bg-gradient-to-br from-[#FFEBF1] via-[#FFF0F5] to-[#FED7E2] dark:from-[#18181b] dark:via-[#121214] dark:to-[#09090b]">
-          <picture className="w-full h-full flex items-center justify-center">
+        <div className="relative w-full overflow-hidden flex items-center justify-center bg-[#0d0d0f]">
+          <picture className="w-full h-auto block align-bottom">
             {/* Desktop / Laptop Layout: show laptop background */}
             <source media="(min-width: 640px)" srcSet={bannerUrl} />
             {/* Mobile Layout: show mobile layout background */}
@@ -190,7 +190,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                   setImageLoaded(false);
                 }
               }}
-              className="w-full h-full min-h-[62vh] sm:min-h-[calc(100vh-64px)] max-h-[85vh] sm:max-h-[calc(100vh-64px)] object-cover object-center select-none block transition-[filter,opacity] duration-500 brightness-[0.95] contrast-[0.98] dark:brightness-[0.70] dark:contrast-[1.05]"
+              className="w-full h-auto min-h-[360px] sm:min-h-[500px] md:min-h-[calc(100vh-64px)] max-h-[calc(100vh-64px)] object-cover object-center select-none block align-bottom transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
             />
           </picture>
 
