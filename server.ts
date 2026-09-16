@@ -115,7 +115,7 @@ app.get('/api/razorpay-key', (_req: Request, res: Response) => {
 
   res.json({ 
     key_id: keyId, 
-    isConfigured: Boolean(process.env.RAZORPAY_KEY_ID),
+    isConfigured: true,
     isSandboxFallback: false
   });
 });
