@@ -26,9 +26,17 @@ import {
   Order, 
   ProductShade,
   UserAddress,
-  SiteSettings
+  SiteSettings,
+  ReelItem
 } from './types';
 import { PRODUCTS, CATEGORIES } from './data/products';
+import { 
+  getStoredReels, 
+  saveStoredReels, 
+  fetchServerReels,
+  KONICHIWA_INSTAGRAM_URL, 
+  KONICHIWA_INSTAGRAM_HANDLE 
+} from './data/reels';
 import { Navbar } from './components/Navbar';
 import { HeroBanner } from './components/HeroBanner';
 import { ProductCard } from './components/ProductCard';
@@ -39,6 +47,7 @@ import { InvoiceModal } from './components/InvoiceModal';
 import { AccountPortal } from './components/AccountPortal';
 import { AdminPortal } from './components/AdminPortal';
 import { AdminLoginModal } from './components/AdminLoginModal';
+import { CustomerAuthModal } from './components/CustomerAuthModal';
 import { SecurityGuideModal } from './components/SecurityGuideModal';
 import { Footer } from './components/Footer';
 import { InstagramReelFeed } from './components/InstagramReelFeed';
@@ -51,103 +60,44 @@ import {
   getStoredOperatorSession, 
   operatorLogout, 
   OperatorSession,
+  getSupabaseClient,
   fetchProductsFromStore,
   deleteProductFromStore,
   updateProductInStore,
   addProductToStore,
-  resetProductsInStore
+  resetProductsInStore,
+  getActiveCustomerSession,
+  customerSignOut,
+  fetchCustomerAddressesFromSupabase,
+  fetchCustomerOrdersFromSupabase,
+  saveAddressToSupabase
 } from './lib/supabase';
 import { FallingPetalsBackground } from './components/FallingPetalsBackground';
 import { formatINR } from './data/pincodes';
 
-// Initial dummy user with realistic Indian context & past order
-const INITIAL_PROFILE: UserProfile = {
-  id: 'usr_priya_01',
-  name: 'Priya Sharma',
-  email: 'priya.sharma@example.com',
-  phone: '+91 98201 98421',
-  addresses: [
-    {
-      id: 'addr_01',
-      fullName: 'Priya Sharma',
-      phone: '+91 98201 98421',
-      addressLine1: 'Flat 402, Lotus Grand Residences, 14th Road',
-      addressLine2: 'Off Linking Road, Bandra West',
-      city: 'Mumbai',
-      state: 'Maharashtra',
-      pincode: '400050',
-      tag: 'Home',
-      isDefault: true
-    },
-    {
-      id: 'addr_02',
-      fullName: 'Priya Sharma (Office)',
-      phone: '+91 98201 98421',
-      addressLine1: 'Tech Nexus Hub, Level 5, Embassy GolfLinks',
-      city: 'Bengaluru',
-      state: 'Karnataka',
-      pincode: '560071',
-      tag: 'Office',
-      isDefault: false
-    }
-  ],
-  wishlistIds: ['fino-premium-touch-mask', 'biore-uv-aqua-rich-sunscreen'],
-  orders: [
-    {
-      id: 'ord_demo_101',
-      orderNumber: 'KM-89210',
-      invoiceNumber: 'INV-2026-4819',
-      date: '28 Aug 2026, 04:30 PM',
-      items: [
-        {
-          productId: 'senka-perfect-whip',
-          title: 'Senka Perfect Whip Cleanser',
-          volume: '120g',
-          price: 650,
-          quantity: 1,
-          image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=800&q=80'
-        },
-        {
-          productId: 'biore-uv-aqua-rich-sunscreen',
-          title: 'Bioré UV Aqua Rich Watery Essence SPF 50+',
-          volume: '50g',
-          price: 1250,
-          quantity: 1,
-          image: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=800&q=80'
-        }
-      ],
-      subtotal: 1900,
-      cgst: 145,
-      sgst: 145,
-      shippingFee: 0,
-      discountAmount: 285,
-      discountCode: 'GLOW15',
-      totalAmount: 1615,
-      paymentMethod: 'UPI',
-      paymentId: 'pay_RPZ_98421094',
-      signature: 'sig_hmac_sha256_9b83f120e8',
-      status: 'IN_TRANSIT',
-      shippingAddress: {
-        id: 'addr_01',
-        fullName: 'Priya Sharma',
-        phone: '+91 98201 98421',
-        addressLine1: 'Flat 402, Lotus Grand Residences, 14th Road',
-        addressLine2: 'Off Linking Road, Bandra West',
-        city: 'Mumbai',
-        state: 'Maharashtra',
-        pincode: '400050',
-        tag: 'Home',
-        isDefault: true
-      },
-      awbNumber: 'AWB-SR984210948',
-      courierPartner: 'Blue Dart Air Express',
-      estimatedDeliveryDate: 'Tomorrow by 4 PM',
-      trackingHistory: [
-        { time: '28 Aug 2026, 05:00 PM', location: 'AURA Labs, Mumbai', activity: 'Package Picked up by Blue Dart' },
-        { time: '29 Aug 2026, 09:30 AM', location: 'Mumbai Western Hub', activity: 'Departed Facility in Transit to Local Center' }
-      ]
-    }
-  ]
+// Clean initial customer profile with zero dummy data
+const EMPTY_PROFILE: UserProfile = {
+  id: '',
+  name: '',
+  email: '',
+  phone: '',
+  addresses: [],
+  wishlistIds: [],
+  orders: []
+};
+
+// Purge any lingering legacy dummy data (Priya Sharma / demo test records)
+const cleanLegacyData = (addresses: UserAddress[] = [], orders: Order[] = []) => {
+  const cleanAddrs = (addresses || []).filter(a =>
+    !a.fullName?.toLowerCase().includes('priya sharma') &&
+    !a.addressLine1?.toLowerCase().includes('lotus grand') &&
+    !a.addressLine1?.toLowerCase().includes('tech nexus hub')
+  );
+  const cleanOrds = (orders || []).filter(o =>
+    o.orderNumber !== 'KM-89210' &&
+    o.id !== 'ord_demo_101'
+  );
+  return { cleanAddrs, cleanOrds };
 };
 
 export default function App() {
@@ -175,24 +125,93 @@ export default function App() {
   const [selectedSkinType, setSelectedSkinType] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Cart & Wishlist State
-  const [cart, setCart] = useState<CartItem[]>(() => {
+  // Store-wide orders (for admin portal & store management)
+  const [storeOrders, setStoreOrders] = useState<Order[]>(() => {
     try {
-      const deletedJson = localStorage.getItem('km_deleted_product_ids');
-      const deletedIds = new Set<string>(deletedJson ? JSON.parse(deletedJson) : []);
-      const available = PRODUCTS.filter(p => !deletedIds.has(p.id));
-      if (available.length >= 2) {
-        return [
-          { product: available[0], quantity: 1 },
-          { product: available[1], quantity: 1 }
-        ];
-      } else if (available.length === 1) {
-        return [{ product: available[0], quantity: 1 }];
+      const saved = localStorage.getItem('km_store_orders');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
     return [];
   });
-  const [userProfile, setUserProfile] = useState<UserProfile>(INITIAL_PROFILE);
+
+  // Customer Profile (isolated strictly to active customer session)
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    const session = getActiveCustomerSession();
+    if (session) {
+      const email = session.email.toLowerCase();
+      let savedAddrs: UserAddress[] = [];
+      let savedOrds: Order[] = [];
+      let savedWish: string[] = [];
+      try {
+        const rawA = localStorage.getItem(`km_customer_addresses_${email}`);
+        if (rawA) savedAddrs = JSON.parse(rawA);
+        if (savedAddrs.length === 0) {
+          const lastA = localStorage.getItem(`km_customer_last_addr_${email}`) || localStorage.getItem('km_last_delivery_address');
+          if (lastA) {
+            const parsed = JSON.parse(lastA);
+            if (parsed && parsed.addressLine1) savedAddrs = [parsed];
+          }
+        }
+        const rawO = localStorage.getItem(`km_customer_orders_${email}`);
+        if (rawO) savedOrds = JSON.parse(rawO);
+        const rawW = localStorage.getItem(`km_customer_wishlist_${email}`);
+        if (rawW) savedWish = JSON.parse(rawW);
+      } catch {}
+      const { cleanAddrs, cleanOrds } = cleanLegacyData(savedAddrs, savedOrds);
+      return {
+        id: session.id,
+        name: session.name || email.split('@')[0],
+        email: session.email,
+        phone: session.phone || (cleanAddrs[0]?.phone ? cleanAddrs[0].phone : ''),
+        addresses: cleanAddrs,
+        orders: cleanOrds,
+        wishlistIds: savedWish
+      };
+    }
+
+    // Guest / returning customer profile fallback
+    let fallbackAddrs: UserAddress[] = [];
+    try {
+      const last = localStorage.getItem('km_last_delivery_address');
+      if (last) {
+        const parsed = JSON.parse(last);
+        if (parsed && parsed.addressLine1) fallbackAddrs = [parsed];
+      }
+    } catch {}
+    const storedPhone = localStorage.getItem('km_customer_phone') || '';
+    const storedEmail = localStorage.getItem('km_customer_email') || '';
+    return {
+      id: '',
+      name: fallbackAddrs[0]?.fullName || '',
+      email: storedEmail,
+      phone: storedPhone || fallbackAddrs[0]?.phone || '',
+      addresses: fallbackAddrs,
+      orders: [],
+      wishlistIds: []
+    };
+  });
+
+  // Cart State (clean, starts empty or restores real added items)
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('km_user_cart');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Keep cart in localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('km_user_cart', JSON.stringify(cart));
+    } catch {}
+  }, [cart]);
 
   // Modals Visibility
   const [inspectProduct, setInspectProduct] = useState<Product | null>(null);
@@ -201,6 +220,9 @@ export default function App() {
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [operatorSession, setOperatorSession] = useState<OperatorSession | null>(() => getStoredOperatorSession());
+  const [customerSession, setCustomerSession] = useState<{ id: string; email: string; name: string; phone?: string } | null>(() => getActiveCustomerSession());
+  const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState(false);
+  const [customerAuthTab, setCustomerAuthTab] = useState<'signin' | 'register'>('signin');
   const [isSecurityGuideOpen, setIsSecurityGuideOpen] = useState(false);
   const [isRazorpayOpen, setIsRazorpayOpen] = useState(false);
   const [activeInvoiceOrder, setActiveInvoiceOrder] = useState<Order | null>(null);
@@ -212,7 +234,8 @@ export default function App() {
       if (savedTheme) {
         return savedTheme === 'dark';
       }
-      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      // By default keep app in light mode
+      return false;
     }
     return false;
   });
@@ -231,14 +254,243 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  const [currentPage, setCurrentPage] = useState<'store' | 'about'>(() => {
-    if (typeof window !== 'undefined' && window.location.hash === '#about') {
-      return 'about';
+  // Synchronize live Supabase Auth session for store operator
+  useEffect(() => {
+    const client = getSupabaseClient();
+    if (!client) return;
+
+    // Check existing live Supabase session
+    client.auth.getSession().then(({ data }) => {
+      if (data?.session?.user) {
+        const userRole = data.session.user.user_metadata?.role;
+        // Only treat as operator if role is explicitly operator or admin
+        if (userRole === 'operator' || userRole === 'admin') {
+          const liveSession: OperatorSession = {
+            email: data.session.user.email || '',
+            role: userRole,
+            authenticatedAt: new Date().toISOString(),
+            source: 'supabase',
+            accessToken: data.session.access_token,
+            userId: data.session.user.id
+          };
+          setOperatorSession(liveSession);
+        }
+      }
+    }).catch(err => {
+      console.warn('[Supabase Auth] Session verification notice:', err);
+    });
+
+    // Listen for real-time auth changes (sign in, sign out, token refresh)
+    const { data: authSubscription } = client.auth.onAuthStateChange((event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+        const userRole = session.user.user_metadata?.role;
+        if (userRole === 'operator' || userRole === 'admin') {
+          const liveSession: OperatorSession = {
+            email: session.user.email || '',
+            role: userRole,
+            authenticatedAt: new Date().toISOString(),
+            source: 'supabase',
+            accessToken: session.access_token,
+            userId: session.user.id
+          };
+          setOperatorSession(liveSession);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setOperatorSession(null);
+      }
+    });
+
+    return () => {
+      authSubscription?.subscription?.unsubscribe();
+    };
+  }, []);
+
+  // Synchronize customer profile & Supabase orders when customer session exists
+  useEffect(() => {
+    if (customerSession) {
+      const email = customerSession.email.toLowerCase();
+      let localAddrs: UserAddress[] = [];
+      let localOrds: Order[] = [];
+      let localWish: string[] = [];
+      try {
+        const rawA = localStorage.getItem(`km_customer_addresses_${email}`);
+        if (rawA) localAddrs = JSON.parse(rawA);
+        if (localAddrs.length === 0) {
+          const lastA = localStorage.getItem(`km_customer_last_addr_${email}`) || localStorage.getItem('km_last_delivery_address');
+          if (lastA) {
+            const parsed = JSON.parse(lastA);
+            if (parsed && parsed.addressLine1) localAddrs = [parsed];
+          }
+        }
+        const rawO = localStorage.getItem(`km_customer_orders_${email}`);
+        if (rawO) localOrds = JSON.parse(rawO);
+        const rawW = localStorage.getItem(`km_customer_wishlist_${email}`);
+        if (rawW) localWish = JSON.parse(rawW);
+      } catch {}
+
+      const { cleanAddrs, cleanOrds } = cleanLegacyData(localAddrs, localOrds);
+
+      setUserProfile({
+        id: customerSession.id,
+        name: customerSession.name || email.split('@')[0],
+        email: customerSession.email,
+        phone: customerSession.phone || '',
+        addresses: cleanAddrs,
+        orders: cleanOrds,
+        wishlistIds: localWish
+      });
+
+      // Pull customer orders and saved addresses from Supabase
+      Promise.all([
+        fetchCustomerOrdersFromSupabase(customerSession.id, customerSession.email),
+        fetchCustomerAddressesFromSupabase(customerSession.id, customerSession.email)
+      ]).then(([dbOrders, dbAddresses]) => {
+        setUserProfile(prev => {
+          const remoteOrds = Array.isArray(dbOrders) ? (dbOrders as any) : [];
+          const remoteAddrs = Array.isArray(dbAddresses) ? (dbAddresses as any) : [];
+          const cleaned = cleanLegacyData(remoteAddrs, remoteOrds);
+
+          // Merge addresses: remote first, then any local addresses not already present
+          const addrMap = new Map<string, UserAddress>();
+          cleaned.cleanAddrs.forEach(a => {
+            const sig = `${(a.addressLine1 || '').trim()}_${(a.pincode || '').trim()}`.toLowerCase();
+            if (sig !== '_') addrMap.set(sig, a);
+          });
+          (prev.addresses || []).forEach(a => {
+            const sig = `${(a.addressLine1 || '').trim()}_${(a.pincode || '').trim()}`.toLowerCase();
+            if (sig !== '_' && !addrMap.has(sig)) addrMap.set(sig, a);
+          });
+          const mergedAddrs = Array.from(addrMap.values());
+
+          try {
+            localStorage.setItem(`km_customer_addresses_${email}`, JSON.stringify(mergedAddrs));
+            localStorage.setItem(`km_customer_orders_${email}`, JSON.stringify(cleaned.cleanOrds));
+          } catch {}
+
+          return {
+            ...prev,
+            orders: cleaned.cleanOrds.length > 0 ? cleaned.cleanOrds : prev.orders,
+            addresses: mergedAddrs
+          };
+        });
+      }).catch(err => {
+        console.warn('Customer data sync note:', err);
+      });
+    } else {
+      setUserProfile(EMPTY_PROFILE);
     }
-    return 'store';
-  });
+  }, [customerSession]);
+
+  const handleCustomerLoginSuccess = (customer: { id: string; email: string; name: string; phone?: string }) => {
+    setCustomerSession(customer);
+    const email = customer.email.toLowerCase();
+    let localAddrs: UserAddress[] = [];
+    let localOrds: Order[] = [];
+    let localWish: string[] = [];
+    try {
+      const rawA = localStorage.getItem(`km_customer_addresses_${email}`);
+      if (rawA) localAddrs = JSON.parse(rawA);
+      const rawO = localStorage.getItem(`km_customer_orders_${email}`);
+      if (rawO) localOrds = JSON.parse(rawO);
+      const rawW = localStorage.getItem(`km_customer_wishlist_${email}`);
+      if (rawW) localWish = JSON.parse(rawW);
+    } catch {}
+
+    const { cleanAddrs, cleanOrds } = cleanLegacyData(localAddrs, localOrds);
+
+    setUserProfile({
+      id: customer.id,
+      name: customer.name || email.split('@')[0],
+      email: customer.email,
+      phone: customer.phone || '',
+      addresses: cleanAddrs,
+      orders: cleanOrds,
+      wishlistIds: localWish
+    });
+
+    // Fetch immediately from Supabase for fresh data
+    Promise.all([
+      fetchCustomerOrdersFromSupabase(customer.id, customer.email),
+      fetchCustomerAddressesFromSupabase(customer.id, customer.email)
+    ]).then(([dbOrders, dbAddresses]) => {
+      const remoteOrds = Array.isArray(dbOrders) ? (dbOrders as any) : [];
+      const remoteAddrs = Array.isArray(dbAddresses) ? (dbAddresses as any) : [];
+      const cleaned = cleanLegacyData(remoteAddrs, remoteOrds);
+
+      setUserProfile(prev => {
+        const addrMap = new Map<string, UserAddress>();
+        cleaned.cleanAddrs.forEach(a => {
+          const sig = `${(a.addressLine1 || '').trim()}_${(a.pincode || '').trim()}`.toLowerCase();
+          if (sig !== '_') addrMap.set(sig, a);
+        });
+        (prev.addresses || []).forEach(a => {
+          const sig = `${(a.addressLine1 || '').trim()}_${(a.pincode || '').trim()}`.toLowerCase();
+          if (sig !== '_' && !addrMap.has(sig)) addrMap.set(sig, a);
+        });
+        const mergedAddrs = Array.from(addrMap.values());
+
+        try {
+          localStorage.setItem(`km_customer_addresses_${email}`, JSON.stringify(mergedAddrs));
+          localStorage.setItem(`km_customer_orders_${email}`, JSON.stringify(cleaned.cleanOrds));
+        } catch {}
+
+        return {
+          ...prev,
+          orders: cleaned.cleanOrds.length > 0 ? cleaned.cleanOrds : prev.orders,
+          addresses: mergedAddrs
+        };
+      });
+    }).catch(() => {});
+
+    setIsCustomerAuthOpen(false);
+    setIsAccountOpen(true);
+  };
+
+  const handleCustomerLogout = async () => {
+    await customerSignOut();
+    setCustomerSession(null);
+    setUserProfile(EMPTY_PROFILE);
+    setIsAccountOpen(false);
+  };
+
+  const handleUpdateProfile = (newProfile: UserProfile) => {
+    setUserProfile(newProfile);
+    if (newProfile.email) {
+      const email = newProfile.email.toLowerCase();
+      try {
+        localStorage.setItem(`km_customer_addresses_${email}`, JSON.stringify(newProfile.addresses));
+        localStorage.setItem(`km_customer_wishlist_${email}`, JSON.stringify(newProfile.wishlistIds));
+        localStorage.setItem(`km_customer_orders_${email}`, JSON.stringify(newProfile.orders));
+      } catch {}
+    }
+  };
+
+  const handleOpenAccount = () => {
+    if (customerSession) {
+      setIsAccountOpen(true);
+    } else {
+      setCustomerAuthTab('signin');
+      setIsCustomerAuthOpen(true);
+    }
+  };
+
+  const handleOpenCustomerAuth = (tab: 'signin' | 'register' = 'signin') => {
+    setCustomerAuthTab(tab);
+    setIsCustomerAuthOpen(true);
+  };
+
+  const [currentPage, setCurrentPage] = useState<'store' | 'about'>('store');
 
   useEffect(() => {
+    // Ensure the website always opens on the store/home view first
+    if (typeof window !== 'undefined' && window.location.hash === '#about') {
+      try {
+        history.replaceState(null, '', window.location.pathname);
+      } catch {
+        window.location.hash = '';
+      }
+    }
+
     const handleHash = () => {
       if (window.location.hash === '#about') {
         setCurrentPage('about');
@@ -285,11 +537,15 @@ export default function App() {
       const saved = localStorage.getItem('km_site_settings');
       if (saved) {
         const parsed = JSON.parse(saved);
+        const tagline = (!parsed.storeTagline || parsed.storeTagline === 'Japan Skincare' || parsed.storeTagline === 'Tokyo Skincare' || parsed.storeTagline === 'Japanese')
+          ? 'Japanese Skincare'
+          : parsed.storeTagline;
         return {
           backgroundHintOpacity: 'balanced',
           flowerDriftSpeed: 'gentle',
           flowerDriftDensity: 'medium',
           ...parsed,
+          storeTagline: tagline,
           // By default keep drift OFF unless explicitly turned on by the user
           flowerDriftEnabled: explicitlyTurnedOn ? Boolean(parsed.flowerDriftEnabled) : false
         };
@@ -297,7 +553,7 @@ export default function App() {
     } catch {}
     return {
       storeName: 'Konichiwa.Mart',
-      storeTagline: 'Tokyo Skincare',
+      storeTagline: 'Japanese Skincare',
       heroBannerUrl: localStorage.getItem('km_hero_banner_data') || '/products/konichiwalaptopbg.png',
       mobileHeroBannerUrl: localStorage.getItem('km_hero_mobile_banner_data') || '/products/konichiwamobilebg.png',
       backgroundImageUrl: '/products/konichiwalaptopbg.png',
@@ -324,13 +580,45 @@ export default function App() {
     });
   };
 
-  // Hidden Operator Access Handler
-  const handleRequestAdminAccess = () => {
+  // Community Reels State with Local Storage Persistence & Server Sync
+  const [reels, setReels] = useState<ReelItem[]>(() => getStoredReels());
+  const [adminInitialTab, setAdminInitialTab] = useState<'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels'>('dashboard');
+
+  // Fetch persistent reels from server on mount
+  useEffect(() => {
+    fetchServerReels().then(serverReels => {
+      if (serverReels && serverReels.length > 0) {
+        setReels(serverReels);
+      }
+    }).catch(err => console.warn('Failed to load server reels:', err));
+  }, []);
+
+  const handleUpdateReels = (updatedReels: ReelItem[]) => {
+    setReels(updatedReels);
+    saveStoredReels(updatedReels);
+  };
+
+  // Hidden Operator Access Handler (Supports opening directly to a specific tab like 'reels')
+  const handleRequestAdminAccess = (tab?: any) => {
+    const validTab: 'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels' = 
+      (typeof tab === 'string' && ['dashboard', 'inventory', 'orders', 'settings', 'reels'].includes(tab))
+        ? (tab as any)
+        : 'dashboard';
+    setAdminInitialTab(validTab);
+
+    // Close other overlays to avoid stacking conflicts
+    setIsCustomerAuthOpen(false);
+    setIsAccountOpen(false);
+    setIsCartOpen(false);
+    setIsRazorpayOpen(false);
+
     const session = getStoredOperatorSession();
     if (session) {
       setOperatorSession(session);
+      setIsAdminLoginOpen(false);
       setIsAdminOpen(true);
     } else {
+      setIsAdminOpen(false);
       setIsAdminLoginOpen(true);
     }
   };
@@ -558,16 +846,78 @@ export default function App() {
   // On Razorpay Payment Success
   const handlePaymentSuccess = async (newOrder: Order) => {
     setIsRazorpayOpen(false);
-    setUserProfile((prev) => ({
-      ...prev,
-      orders: [newOrder, ...prev.orders]
-    }));
+
+    // 1. Record in store orders (for admin portal)
+    setStoreOrders(prev => {
+      const updated = [newOrder, ...prev.filter(o => o.id !== newOrder.id)];
+      try {
+        localStorage.setItem('km_store_orders', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    // 2. Record in customer orders and automatically save delivery address to their address book
+    setUserProfile((prev) => {
+      const alreadyHasAddr = prev.addresses.some(
+        a => a.addressLine1.toLowerCase().trim() === newOrder.shippingAddress.addressLine1.toLowerCase().trim() &&
+             a.pincode === newOrder.shippingAddress.pincode
+      );
+
+      const updatedAddresses = alreadyHasAddr 
+        ? prev.addresses 
+        : [
+            ...prev.addresses, 
+            {
+              ...newOrder.shippingAddress,
+              isDefault: prev.addresses.length === 0
+            }
+          ];
+
+      const updatedOrders = [newOrder, ...prev.orders.filter(o => o.id !== newOrder.id)];
+
+      const email = (newOrder.customerEmail || prev.email || '').toLowerCase();
+      if (email) {
+        try {
+          localStorage.setItem(`km_customer_orders_${email}`, JSON.stringify(updatedOrders));
+          localStorage.setItem(`km_customer_addresses_${email}`, JSON.stringify(updatedAddresses));
+        } catch {}
+      }
+
+      return {
+        ...prev,
+        addresses: updatedAddresses,
+        orders: updatedOrders
+      };
+    });
+
     setCart([]); // Clear cart
+    try {
+      localStorage.removeItem('km_user_cart');
+    } catch {}
+
     setActiveInvoiceOrder(newOrder); // Automatically open official GST invoice
 
-    // Persist to Supabase orders and order_items tables
+    // 3. Persist to Supabase orders and order_items tables
     try {
-      await saveOrderToSupabase(newOrder, userProfile?.id);
+      await saveOrderToSupabase(newOrder, userProfile?.id || customerSession?.id);
+      // Immediately pull fresh synchronized orders from Supabase
+      const custId = userProfile?.id || customerSession?.id;
+      const custEmail = newOrder.customerEmail || userProfile?.email || customerSession?.email;
+      if (custEmail || custId) {
+        const freshOrders = await fetchCustomerOrdersFromSupabase(custId, custEmail);
+        if (Array.isArray(freshOrders) && freshOrders.length > 0) {
+          const { cleanOrds } = cleanLegacyData([], freshOrders as Order[]);
+          setUserProfile(prev => ({
+            ...prev,
+            orders: cleanOrds
+          }));
+          if (custEmail) {
+            try {
+              localStorage.setItem(`km_customer_orders_${custEmail.toLowerCase()}`, JSON.stringify(cleanOrds));
+            } catch {}
+          }
+        }
+      }
     } catch (syncErr) {
       console.warn('[Supabase Sync Warning]:', syncErr);
     }
@@ -575,10 +925,26 @@ export default function App() {
 
   // Update order status in admin portal
   const handleUpdateOrderStatus = (orderId: string, status: Order['status']) => {
-    setUserProfile((prev) => ({
-      ...prev,
-      orders: prev.orders.map(o => o.id === orderId ? { ...o, status } : o)
-    }));
+    setStoreOrders(prev => {
+      const updated = prev.map(o => o.id === orderId ? { ...o, status } : o);
+      try {
+        localStorage.setItem('km_store_orders', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+
+    setUserProfile((prev) => {
+      const updatedOrders = prev.orders.map(o => o.id === orderId ? { ...o, status } : o);
+      if (prev.email) {
+        try {
+          localStorage.setItem(`km_customer_orders_${prev.email.toLowerCase()}`, JSON.stringify(updatedOrders));
+        } catch {}
+      }
+      return {
+        ...prev,
+        orders: updatedOrders
+      };
+    });
   };
 
   const totalCartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
@@ -633,12 +999,21 @@ export default function App() {
         cartCount={totalCartCount}
         wishlistCount={userProfile.wishlistIds.length}
         onOpenCart={() => setIsCartOpen(true)}
-        onOpenWishlist={() => setIsAccountOpen(true)}
-        onOpenAccount={() => setIsAccountOpen(true)}
+        onOpenWishlist={() => {
+          if (customerSession) {
+            setIsAccountOpen(true);
+          } else {
+            handleOpenCustomerAuth('signin');
+          }
+        }}
+        onOpenAccount={handleOpenAccount}
+        isCustomerLoggedIn={!!customerSession}
+        customerName={customerSession?.name || userProfile.name}
+        onOpenCustomerAuth={handleOpenCustomerAuth}
         onOpenAbout={handleOpenAboutPage}
         onOpenContact={() => setIsContactOpen(true)}
         onNavigateToProducts={handleNavigateToProducts}
-        onOpenAdmin={() => setIsAdminOpen(true)}
+        onOpenAdmin={() => handleRequestAdminAccess('dashboard')}
         onOpenSecurityGuide={() => setIsSecurityGuideOpen(true)}
         selectedCategory={selectedCategory}
         onSelectCategory={(cat) => {
@@ -652,8 +1027,8 @@ export default function App() {
         storeName={siteSettings.storeName}
         storeTagline={siteSettings.storeTagline}
         logoUrl={siteSettings.logoUrl}
-        instagramUrl="https://www.instagram.com"
-        instagramHandle="@konichiwa.mart"
+        instagramUrl={KONICHIWA_INSTAGRAM_URL}
+        instagramHandle={KONICHIWA_INSTAGRAM_HANDLE}
         activePage={currentPage}
         isDarkMode={isDarkMode}
         onToggleTheme={() => setIsDarkMode(prev => !prev)}
@@ -768,6 +1143,8 @@ export default function App() {
             onSelectProduct={setInspectProduct}
             onAddToCart={handleAddToCart}
             products={productsList}
+            reels={reels}
+            onOpenReelsManager={() => handleRequestAdminAccess('reels')}
           />
         </>
       )}
@@ -779,8 +1156,8 @@ export default function App() {
         onOpenAbout={handleOpenAboutPage}
         onOpenContact={() => setIsContactOpen(true)}
         onNavigateToProducts={handleNavigateToProducts}
-        instagramUrl="https://www.instagram.com"
-        instagramHandle="@konichiwa.mart"
+        instagramUrl={KONICHIWA_INSTAGRAM_URL}
+        instagramHandle={KONICHIWA_INSTAGRAM_HANDLE}
       />
 
       {/* MODALS */}
@@ -816,7 +1193,7 @@ export default function App() {
         shippingFee={shippingFee}
         shippingAddress={defaultAddress}
         userProfile={userProfile}
-        onUpdateProfile={setUserProfile}
+        onUpdateProfile={handleUpdateProfile}
         onPaymentSuccess={handlePaymentSuccess}
       />
 
@@ -835,10 +1212,19 @@ export default function App() {
         isOpen={isAccountOpen}
         onClose={() => setIsAccountOpen(false)}
         profile={userProfile}
-        onUpdateProfile={setUserProfile}
+        onUpdateProfile={handleUpdateProfile}
         onViewInvoice={(order) => setActiveInvoiceOrder(order)}
         onAddToCart={handleAddToCart}
         onRemoveWishlist={handleToggleWishlist}
+        onSignOut={handleCustomerLogout}
+      />
+
+      {/* 6b. Customer Sign-In & Registration Modal (Supabase Customer Auth) */}
+      <CustomerAuthModal
+        isOpen={isCustomerAuthOpen}
+        onClose={() => setIsCustomerAuthOpen(false)}
+        initialTab={customerAuthTab}
+        onSuccess={handleCustomerLoginSuccess}
       />
 
       {/* 7. Operator Login Gate (Supabase Auth / Secret Operator Gateway) */}
@@ -856,7 +1242,7 @@ export default function App() {
       <AdminPortal
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
-        orders={userProfile.orders}
+        orders={storeOrders}
         onUpdateOrderStatus={handleUpdateOrderStatus}
         onViewInvoice={(order) => setActiveInvoiceOrder(order)}
         products={productsList}
@@ -873,6 +1259,9 @@ export default function App() {
         operatorEmail={operatorSession?.email}
         siteSettings={siteSettings}
         onUpdateSiteSettings={handleUpdateSiteSettings}
+        reels={reels}
+        onUpdateReels={handleUpdateReels}
+        initialTab={adminInitialTab}
       />
 
       {/* 9. Architecture & Security Blueprint Modal */}
@@ -892,8 +1281,8 @@ export default function App() {
       <ContactUsModal
         isOpen={isContactOpen}
         onClose={() => setIsContactOpen(false)}
-        instagramHandle="@konichiwa.mart"
-        instagramUrl="https://www.instagram.com"
+        instagramHandle={KONICHIWA_INSTAGRAM_HANDLE}
+        instagramUrl={KONICHIWA_INSTAGRAM_URL}
       />
 
     </div>

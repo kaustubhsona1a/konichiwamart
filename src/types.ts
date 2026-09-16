@@ -1,6 +1,15 @@
 export type SkinType = 'All' | 'Dry' | 'Oily' | 'Sensitive' | 'Combination' | 'Mature' | 'Normal';
 export type SkinConcern = 'Hydration' | 'Glow & Dullness' | 'Barrier Repair' | 'Anti-Aging' | 'Blemishes & Texture' | 'Redness Relief';
-export type ProductCategory = 'All' | 'Face Wash' | 'Face Mask' | 'Toner' | 'Sunscreen' | 'Lips' | 'Face' | 'Serum' | 'Skincare';
+export type ProductCategory = 'All' | 'Face Wash' | 'Face Mask' | 'Toner' | 'Sunscreen' | 'Lips' | 'Face' | 'Serum' | 'Skincare' | (string & {});
+
+export interface CategoryRecord {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  display_order?: number;
+  is_active?: boolean;
+}
 
 export interface ProductShade {
   id: string;
@@ -148,4 +157,23 @@ export interface Review {
   headline: string;
   comment: string;
   helpfulCount: number;
+}
+
+export interface ReelItem {
+  id: string;
+  creatorHandle: string;
+  creatorName: string;
+  creatorAvatar: string;
+  location: string;
+  title: string;
+  caption: string;
+  views: string;
+  likes: number;
+  commentsCount: number;
+  audioTrack: string;
+  productId: string;
+  videoThumb: string;
+  videoUrl?: string;
+  instagramUrl?: string;
+  tags: string[];
 }

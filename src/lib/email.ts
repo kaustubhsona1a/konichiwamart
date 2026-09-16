@@ -43,7 +43,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData): Promise<EmailDis
 
   try {
     const invoiceHtml = generateGSTInvoiceHtml(data);
-    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <orders@konichiwamart.in>';
+    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <orders@konichiwamart.com>';
 
     const response = await client.emails.send({
       from: fromAddress,
@@ -93,14 +93,14 @@ export async function sendOrderInvoiceEmail(data: InvoiceData): Promise<EmailDis
           <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
           <p style="font-size: 11px; color: #94a3b8; text-align: center;">
             ${SELLER_DETAILS.tradeName} • ${SELLER_DETAILS.supportEmail}<br>
-            Authentic Japanese Cosmetics Imported Directly From Tokyo
+            Authentic Japanese Cosmetics Imported Directly From Japan
           </p>
         </div>
       `,
       attachments: [
         {
           filename: `Tax-Invoice-${data.invoiceNumber}.html`,
-          content: Buffer.from(invoiceHtml).toString('base64')
+          content: Buffer.from(invoiceHtml)
         }
       ]
     });
@@ -123,5 +123,58 @@ export async function sendOrderInvoiceEmail(data: InvoiceData): Promise<EmailDis
       success: false,
       error: err.message || 'Failed to send email.'
     };
+  }
+}
+
+/**
+ * Sends a live test email to verify domain & API key setup
+ */
+export async function sendTestEmail(toEmail: string): Promise<EmailDispatchResult> {
+  const client = getResendClient();
+  if (!client) {
+    return {
+      success: false,
+      error: 'RESEND_API_KEY environment variable is not configured. Please add it in project Settings.'
+    };
+  }
+
+  try {
+    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <orders@konichiwamart.com>';
+    const response = await client.emails.send({
+      from: fromAddress,
+      to: [toEmail],
+      subject: '🌸 Resend Setup Verified - Konichiwa Mart Japan',
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; max-width: 540px; margin: 0 auto; padding: 30px 20px; background: #ffffff; border-radius: 12px; border: 1px solid #f1f5f9;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 36px;">🌸</span>
+            <h1 style="color: #be185d; margin: 8px 0 4px 0; font-size: 22px; font-weight: 700;">Konichiwa Mart</h1>
+            <p style="color: #64748b; font-size: 13px; margin: 0;">Direct-From-Japan Luxury Cosmetics</p>
+          </div>
+          <div style="background: #fdf2f8; border: 1px solid #fbcfe8; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+            <h3 style="color: #9d174d; margin: 0 0 8px 0; font-size: 15px; font-weight: 600;">✅ Resend Verification Successful!</h3>
+            <p style="color: #475569; font-size: 13px; line-height: 1.6; margin: 0;">
+              Your domain <strong>konichiwamart.com</strong> and Resend integration are connected. All customer order confirmations, GST tax invoices, and dispatch tracking emails will now be automatically dispatched.
+            </p>
+          </div>
+          <div style="font-size: 12px; color: #64748b; line-height: 1.5;">
+            <strong>Sender:</strong> ${fromAddress}<br>
+            <strong>Timestamp:</strong> ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST
+          </div>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;">
+          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0;">
+            ${SELLER_DETAILS.tradeName} • Japan to India Direct Logistics
+          </p>
+        </div>
+      `
+    });
+
+    if (response.error) {
+      return { success: false, error: response.error.message };
+    }
+
+    return { success: true, messageId: response.data?.id };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Failed to send test email.' };
   }
 }

@@ -149,7 +149,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
             <span className="text-slate-300 dark:text-slate-600">•</span>
             <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{reviews.length} Verified Reviews from Tokyo Import Batches</span>
+              <span>{reviews.length} Verified Reviews from Japan Import Batches</span>
             </div>
           </div>
         </div>
@@ -199,7 +199,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
       {filteredReviews.length === 0 ? (
         <div className="bg-white/80 dark:bg-zinc-900 border border-pink-100 dark:border-zinc-800 rounded-2xl p-8 text-center space-y-2">
           <p className="text-sm font-semibold text-slate-700 dark:text-zinc-200">No reviews yet for this product</p>
-          <p className="text-xs text-slate-500 dark:text-zinc-400">Be the first to share your experience with this Tokyo skincare essential!</p>
+          <p className="text-xs text-slate-500 dark:text-zinc-400">Be the first to share your experience with this Japan skincare essential!</p>
           <button
             onClick={() => setIsWriteModalOpen(true)}
             className="mt-3 px-4 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-xs font-semibold cursor-pointer"

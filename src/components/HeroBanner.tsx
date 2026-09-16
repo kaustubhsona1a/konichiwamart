@@ -141,7 +141,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   return (
     <section 
       id="hero-banner" 
-      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b] pt-[56px] sm:pt-[64px]"
+      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b] pt-[82px] sm:pt-[94px]"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

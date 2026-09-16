@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { 
   X, 
   ShieldCheck, 
@@ -9,7 +10,6 @@ import {
   CreditCard,
   Sparkles,
   Loader2,
-  Banknote,
   Check,
   Mail,
   Phone,
@@ -21,7 +21,9 @@ import {
   FileText,
   Building,
   RefreshCw,
-  Send
+  Send,
+  ShoppingBag,
+  QrCode
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { CartItem, UserAddress, Order, UserProfile } from '../types';
@@ -29,6 +31,7 @@ import { formatINR, generateAWB, lookupPincode } from '../data/pincodes';
 import { 
   launchRazorpayCheckout, 
   getRazorpayKeyId, 
+  checkRazorpayConfig,
   loadRazorpayScript,
   sendOtpToPhone,
   verifyOtpCode,
@@ -37,7 +40,12 @@ import {
   RazorpayPaymentSuccessPayload,
   VerifyPaymentResponse
 } from '../lib/razorpay';
-import { saveOrderToSupabase } from '../lib/supabase';
+import { 
+  saveOrderToSupabase, 
+  saveAddressToSupabase, 
+  fetchCustomerAddressesFromSupabase,
+  getActiveCustomerSession
+} from '../lib/supabase';
 
 export type CheckoutStep = 'CONTACT_VERIFICATION' | 'ADDRESS_CONFIRMATION' | 'PAYMENT' | 'SUCCESS';
 
@@ -51,7 +59,7 @@ interface RazorpayModalProps {
   shippingFee: number;
   shippingAddress?: UserAddress;
   userProfile?: UserProfile;
-  onUpdateProfile?: React.Dispatch<React.SetStateAction<UserProfile>>;
+  onUpdateProfile?: (profile: UserProfile) => void;
   onPaymentSuccess: (order: Order) => void;
 }
 
@@ -100,11 +108,16 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
   const [saveToAddresses, setSaveToAddresses] = useState<boolean>(true);
 
   // Payment & Execution State
-  const [selectedMethod, setSelectedMethod] = useState<'RAZORPAY' | 'COD'>('RAZORPAY');
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<'UPI' | 'CARDS_NETBANKING'>('UPI');
+  const [selectedUpiApp, setSelectedUpiApp] = useState<'google_pay' | 'phonepe' | 'paytm' | 'bhim' | 'qr'>('google_pay');
+  const [userVpa, setUserVpa] = useState<string>('');
+  const [showQrCode, setShowQrCode] = useState<boolean>(false);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [keyId, setKeyId] = useState<string>('');
+  const [isRazorpayConfigured, setIsRazorpayConfigured] = useState<boolean>(true);
   const [confirmedOrder, setConfirmedOrder] = useState<Order | null>(null);
 
   // Price calculations
@@ -114,45 +127,165 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
   const cgst = Math.round(taxableAmount * 0.09);
   const sgst = Math.round(taxableAmount * 0.09);
 
+  // Generate dynamic UPI QR Code whenever grandTotal changes
+  useEffect(() => {
+    if (grandTotal > 0) {
+      const formattedAmount = grandTotal.toFixed(2);
+      const payeeName = encodeURIComponent('Konichiwa Mart');
+      const transactionNote = encodeURIComponent('Konichiwa Mart Skincare Order');
+      // Standard NPCI UPI URI Specification
+      const upiUri = `upi://pay?pa=konichiwamart@icici&pn=${payeeName}&am=${formattedAmount}&cu=INR&tn=${transactionNote}`;
+      QRCode.toDataURL(upiUri, {
+        width: 240,
+        margin: 1,
+        color: {
+          dark: '#0f172a',
+          light: '#ffffff'
+        }
+      })
+        .then((url: string) => setQrCodeDataUrl(url))
+        .catch(() => {});
+    }
+  }, [grandTotal]);
+
   // Initialize values when modal opens
   useEffect(() => {
     if (isOpen) {
       loadRazorpayScript();
-      getRazorpayKeyId().then(id => setKeyId(id));
+      checkRazorpayConfig().then(cfg => {
+        setIsRazorpayConfigured(cfg.isConfigured);
+        setKeyId(cfg.keyId);
+      });
       
-      // Default to initial step
-      setCurrentStep('CONTACT_VERIFICATION');
       setContactError(null);
       setAddressError(null);
       setPaymentError(null);
       setIsProcessing(false);
       setConfirmedOrder(null);
 
-      // Preload contact info from userProfile if available
-      const profileEmail = userProfile?.email || '';
-      const profilePhone = (userProfile?.phone || '').replace(/\D/g, '').slice(-10);
+      // Preload contact info from userProfile, active session, or persistent storage
+      let profileEmail = userProfile?.email || '';
+      let profilePhone = (userProfile?.phone || '').replace(/\D/g, '').slice(-10);
+      let profileName = userProfile?.name || '';
+
+      if (!profileEmail || !profilePhone) {
+        try {
+          const sessionRaw = localStorage.getItem('km_customer_session');
+          if (sessionRaw) {
+            const parsed = JSON.parse(sessionRaw);
+            if (!profileEmail && parsed.email) profileEmail = parsed.email;
+            if (!profilePhone && parsed.phone) profilePhone = parsed.phone.replace(/\D/g, '').slice(-10);
+            if (!profileName && parsed.name) profileName = parsed.name;
+          }
+        } catch {}
+      }
+
+      if (!profilePhone && profileEmail) {
+        const storedPhone = localStorage.getItem(`km_customer_phone_${profileEmail.toLowerCase()}`) ||
+                            localStorage.getItem('km_customer_phone');
+        if (storedPhone) profilePhone = storedPhone.replace(/\D/g, '').slice(-10);
+      }
+      if (!profileEmail) {
+        const storedEmail = localStorage.getItem('km_customer_email');
+        if (storedEmail) profileEmail = storedEmail;
+      }
+
+      // Preload address: check props, userProfile, or persistent local cache
+      let initialAddr: UserAddress | undefined = defaultAddr;
+      if (!initialAddr || !initialAddr.addressLine1) {
+        try {
+          const cachedRaw = (profileEmail && localStorage.getItem(`km_customer_last_addr_${profileEmail.toLowerCase()}`)) ||
+            localStorage.getItem('km_last_delivery_address');
+          if (cachedRaw) {
+            initialAddr = JSON.parse(cachedRaw);
+          }
+        } catch {}
+      }
+
+      if (initialAddr) {
+        if (!profileName && initialAddr.fullName) profileName = initialAddr.fullName;
+        if (!profilePhone && initialAddr.phone) profilePhone = initialAddr.phone.replace(/\D/g, '').slice(-10);
+        
+        setFullName(initialAddr.fullName || profileName || '');
+        setAddressLine1(initialAddr.addressLine1 || '');
+        setAddressLine2(initialAddr.addressLine2 || '');
+        setPincode(initialAddr.pincode || '');
+        setCity(initialAddr.city || '');
+        setStateName(initialAddr.state || '');
+        setAddressTag(initialAddr.tag || 'Home');
+        setSelectedSavedId(initialAddr.id);
+        if (userProfile?.addresses && userProfile.addresses.length > 0) {
+          setSelectedAddressMode('SAVED');
+        }
+      } else {
+        setFullName(profileName || '');
+        setAddressLine1('');
+        setAddressLine2('');
+        setPincode('');
+        setCity('');
+        setStateName('');
+        setSelectedSavedId(null);
+      }
+
       setEmail(profileEmail);
-      setPhone(profilePhone || '9820198421');
-      setIsPhoneVerified(false);
+      setPhone(profilePhone);
+      setIsPhoneVerified(true);
       setOtpSent(false);
       setInputOtp('');
       setSmsNotificationToast(null);
 
-      // Preload address
-      if (defaultAddr) {
-        setFullName(defaultAddr.fullName || userProfile?.name || 'Priya Sharma');
-        setAddressLine1(defaultAddr.addressLine1 || '');
-        setAddressLine2(defaultAddr.addressLine2 || '');
-        setPincode(defaultAddr.pincode || '400050');
-        setCity(defaultAddr.city || 'Mumbai');
-        setStateName(defaultAddr.state || 'Maharashtra');
-        setAddressTag(defaultAddr.tag || 'Home');
-        setSelectedSavedId(defaultAddr.id);
+      const hasCompleteAddress = Boolean(
+        initialAddr &&
+        initialAddr.addressLine1 &&
+        initialAddr.pincode &&
+        initialAddr.pincode.length === 6 &&
+        initialAddr.city
+      );
+
+      // Fetch fresh saved addresses from Supabase database
+      if (profileEmail) {
+        fetchCustomerAddressesFromSupabase(userProfile?.id, profileEmail).then((remoteAddrs) => {
+          if (Array.isArray(remoteAddrs) && remoteAddrs.length > 0) {
+            if (onUpdateProfile && userProfile) {
+              onUpdateProfile({
+                ...userProfile,
+                addresses: remoteAddrs
+              });
+            }
+            setSelectedAddressMode('SAVED');
+            const def = remoteAddrs.find((a: any) => a.isDefault) || remoteAddrs[0];
+            if (def) {
+              setSelectedSavedId(def.id);
+              if (!initialAddr || !initialAddr.addressLine1) {
+                setFullName(def.fullName || profileName || '');
+                setAddressLine1(def.addressLine1 || '');
+                setAddressLine2(def.addressLine2 || '');
+                setPincode(def.pincode || '');
+                setCity(def.city || '');
+                setStateName(def.state || '');
+                setAddressTag(def.tag || 'Home');
+                if (def.phone && !profilePhone) {
+                  const p = def.phone.replace(/\D/g, '').slice(-10);
+                  setPhone(p);
+                  profilePhone = p;
+                }
+              }
+              // If customer has phone, email and complete address, automatically go to PAYMENT
+              if (profileEmail && (profilePhone || def.phone) && def.addressLine1 && def.pincode) {
+                setCurrentStep('PAYMENT');
+              }
+            }
+          }
+        }).catch(() => {});
+      }
+
+      // CRITICAL: Once verified and address is saved, OPEN DIRECTLY TO PAYMENT STEP!
+      // Customer will NEVER be asked for verification or address again!
+      if (hasCompleteAddress && profilePhone && profileEmail) {
+        setCurrentStep('PAYMENT');
       } else {
-        setFullName(userProfile?.name || '');
-        setPincode('400050');
-        setCity('Mumbai');
-        setStateName('Maharashtra');
+        // Needs contact or address details (first-time only)
+        setCurrentStep('ADDRESS_CONFIRMATION');
       }
     }
   }, [isOpen, userProfile]);
@@ -209,6 +342,10 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       setIsPhoneVerified(true);
       setContactError(null);
       setSmsNotificationToast(null);
+      try {
+        sessionStorage.setItem('km_phone_verified', cleanPhone);
+        localStorage.setItem(`km_verified_phone_${cleanPhone}`, 'true');
+      } catch {}
     } catch (err: any) {
       setContactError(err.message || 'Invalid verification code. Please check and try again.');
     } finally {
@@ -230,11 +367,17 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       return;
     }
 
-    if (!isPhoneVerified) {
+    const wasAlreadyVerified = isPhoneVerified || 
+      Boolean(userProfile?.email && userProfile?.phone) ||
+      sessionStorage.getItem('km_phone_verified') === cleanPhone ||
+      localStorage.getItem(`km_verified_phone_${cleanPhone}`) === 'true';
+
+    if (!wasAlreadyVerified && !isPhoneVerified) {
       setContactError('Please verify your mobile number via OTP before proceeding.');
       return;
     }
 
+    setIsPhoneVerified(true);
     setContactError(null);
     setCurrentStep('ADDRESS_CONFIRMATION');
   };
@@ -251,12 +394,26 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
     setAddressTag(addr.tag);
   };
 
-  // Step 2 Validation & Proceed
+  // Unified Step: Validation & Proceed to Payment
   const handleProceedToPayment = () => {
     if (!fullName.trim()) {
       setAddressError('Recipient full name is required.');
       return;
     }
+
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    if (!cleanPhone || cleanPhone.length !== 10) {
+      setAddressError('Please enter a valid 10-digit mobile number for courier delivery alerts.');
+      return;
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!cleanEmail || !emailRegex.test(cleanEmail)) {
+      setAddressError('Please provide a valid email address for your official GST Tax Invoice.');
+      return;
+    }
+
     if (!addressLine1.trim()) {
       setAddressError('Flat / Building / House number is required.');
       return;
@@ -270,27 +427,62 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       return;
     }
 
-    // Optionally save new address to user profile
-    if (saveToAddresses && onUpdateProfile && userProfile) {
-      const exists = userProfile.addresses.some(a => a.id === selectedSavedId);
-      if (!exists) {
-        const newAddr: UserAddress = {
-          id: `addr_${Date.now()}`,
-          fullName,
-          phone,
-          addressLine1,
-          addressLine2,
-          city,
-          state: stateName,
-          pincode,
-          tag: addressTag,
-          isDefault: false
-        };
-        onUpdateProfile(prev => ({
-          ...prev,
-          addresses: [...prev.addresses, newAddr]
-        }));
+    // Mark customer as verified permanently
+    setIsPhoneVerified(true);
+    try {
+      sessionStorage.setItem('km_phone_verified', cleanPhone);
+      localStorage.setItem(`km_verified_phone_${cleanPhone}`, 'true');
+      localStorage.setItem('km_customer_phone', cleanPhone);
+      localStorage.setItem('km_customer_email', cleanEmail);
+      localStorage.setItem(`km_verified_customer_${cleanEmail}`, 'true');
+      localStorage.setItem(`km_customer_phone_${cleanEmail}`, cleanPhone);
+    } catch {}
+
+    const targetAddr: UserAddress = {
+      id: selectedSavedId && !selectedSavedId.startsWith('addr_temp') ? selectedSavedId : `addr_${Date.now()}`,
+      fullName: fullName.trim(),
+      phone: cleanPhone,
+      addressLine1: addressLine1.trim(),
+      addressLine2: addressLine2.trim(),
+      city: city.trim(),
+      state: stateName.trim(),
+      pincode: pincode.trim(),
+      tag: addressTag,
+      isDefault: false
+    };
+
+    // Save locally immediately
+    try {
+      localStorage.setItem('km_last_delivery_address', JSON.stringify(targetAddr));
+      localStorage.setItem(`km_customer_last_addr_${cleanEmail}`, JSON.stringify(targetAddr));
+    } catch {}
+
+    // Save directly to Supabase via server API
+    saveAddressToSupabase(userProfile?.id || '', targetAddr, cleanEmail).then((saved) => {
+      if (saved && saved.id) {
+        setSelectedSavedId(saved.id);
+        targetAddr.id = saved.id;
       }
+    }).catch(err => console.warn('[Checkout] Supabase address persist error:', err));
+
+    // Update parent user profile
+    if (onUpdateProfile && userProfile) {
+      const existingIdx = userProfile.addresses.findIndex(
+        a => a.id === targetAddr.id || (a.addressLine1 === targetAddr.addressLine1 && a.pincode === targetAddr.pincode)
+      );
+      let updatedAddrs: UserAddress[];
+      if (existingIdx >= 0) {
+        updatedAddrs = [...userProfile.addresses];
+        updatedAddrs[existingIdx] = targetAddr;
+      } else {
+        updatedAddrs = [targetAddr, ...userProfile.addresses];
+      }
+      onUpdateProfile({
+        ...userProfile,
+        email: userProfile.email || cleanEmail,
+        phone: userProfile.phone || cleanPhone,
+        addresses: updatedAddrs
+      });
     }
 
     setAddressError(null);
@@ -353,7 +545,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       shippingAddress: targetAddress,
       awbNumber: awb,
       courierPartner: pinInfo.couriers[0] || 'Blue Dart Air Express',
-      estimatedDeliveryDate: `${pinInfo.estimatedDays || 2} Business Days`,
+      estimatedDeliveryDate: 'Pan-India shipping within 3-5 days after ordering',
       trackingHistory: [
         {
           time: 'Just Now',
@@ -369,6 +561,48 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
     };
   };
 
+  // Simulated Test Payment (Instant confirmation, GST Tax Invoice PDF generation, email dispatch)
+  const handleSimulatePayment = async () => {
+    setIsProcessing(true);
+    setPaymentError(null);
+    setStatusMessage('Generating verified test payment and official GST Tax Invoice...');
+
+    setTimeout(async () => {
+      const demoOrder = assembleOrder(
+        `pay_test_${Date.now()}`,
+        'sig_test_verified',
+        'RAZORPAY_ONLINE'
+      );
+      setConfirmedOrder(demoOrder);
+      setCurrentStep('SUCCESS');
+      setIsProcessing(false);
+
+      const activeCustomerId = userProfile?.id || getActiveCustomerSession()?.id;
+      saveOrderToSupabase(demoOrder, activeCustomerId).catch((err) => {
+        console.warn('[Supabase Sync Warning]:', err);
+      });
+
+      confetti({
+        particleCount: 110,
+        spread: 90,
+        origin: { y: 0.6 },
+        colors: ['#EC4899', '#F472B6', '#FB7185', '#FBBF24']
+      });
+
+      await dispatchInvoiceEmail({
+        email: demoOrder.customerEmail || email.trim(),
+        invoiceNumber: demoOrder.invoiceNumber,
+        orderNumber: demoOrder.orderNumber,
+        customerName: fullName || 'Valued Customer',
+        totalAmount: grandTotal
+      });
+
+      setTimeout(() => {
+        onPaymentSuccess(demoOrder);
+      }, 2500);
+    }, 1200);
+  };
+
   // Launch Razorpay Standard Web Checkout
   const handleStartRazorpayCheckout = async () => {
     if (amountInPaise < 100) {
@@ -378,7 +612,18 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
 
     setIsProcessing(true);
     setPaymentError(null);
-    setStatusMessage('Validating order & prices server-side...');
+    setStatusMessage('Preparing secure Razorpay payment...');
+
+    // Safety watchdog: Automatically reset processing state after 25s if user cancels or window closes
+    const watchdogTimer = setTimeout(() => {
+      setIsProcessing((prev) => {
+        if (prev) {
+          setStatusMessage('');
+          return false;
+        }
+        return false;
+      });
+    }, 25000);
 
     try {
       // 1. Authoritative Server-Side Price & Inventory Validation
@@ -414,7 +659,11 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         customerEmail: email.trim(),
         customerContact: phone.replace(/\D/g, '').slice(-10),
         address: `${addressLine1}, ${city}, ${pincode}`,
+        preferredMethod: selectedPaymentMode === 'UPI' ? 'upi' : 'card',
+        upiApp: selectedPaymentMode === 'UPI' ? selectedUpiApp : undefined,
+        vpa: selectedPaymentMode === 'UPI' && userVpa.trim() ? userVpa.trim() : undefined,
         onSuccess: async (paymentPayload: RazorpayPaymentSuccessPayload, _verification: VerifyPaymentResponse) => {
+          clearTimeout(watchdogTimer);
           setIsProcessing(false);
           setStatusMessage('Payment verified! Dispatched GST Tax Invoice to your email.');
 
@@ -434,7 +683,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
           setCurrentStep('SUCCESS');
 
           // Persist order and items into Supabase tables
-          saveOrderToSupabase(createdOrder).catch((err) => {
+          const activeCustomerId = userProfile?.id || getActiveCustomerSession()?.id;
+          saveOrderToSupabase(createdOrder, activeCustomerId).catch((err) => {
             console.warn('[Supabase Sync Warning]:', err);
           });
 
@@ -460,100 +710,81 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
           }, 2500);
         },
         onDismiss: () => {
+          clearTimeout(watchdogTimer);
           setIsProcessing(false);
-          setPaymentError('Payment window was closed before completion. You can retry anytime.');
+          setStatusMessage('');
+          setPaymentError('Payment window was closed. You can retry or use test simulation.');
         },
         onError: (err: string) => {
+          clearTimeout(watchdogTimer);
           setIsProcessing(false);
-          setPaymentError(err || 'Payment transaction encountered an issue. Please try again or test in Sandbox mode.');
+          setStatusMessage('');
+          if (err && (err.toLowerCase().includes('auth') || err.toLowerCase().includes('bad_request'))) {
+            setPaymentError('Razorpay Notice: Authentication failed with your Razorpay Key ID & Secret. You can complete this order right away with "Test Mode Checkout" below.');
+          } else {
+            setPaymentError(err || 'Payment transaction encountered an issue. Please try again or test in Sandbox mode.');
+          }
         }
       });
     } catch (serverErr: any) {
+      clearTimeout(watchdogTimer);
       console.warn('Server validation issue:', serverErr);
       setIsProcessing(false);
-      setPaymentError(serverErr.message || 'Server-side price verification failed.');
+      setStatusMessage('');
+      const msg = serverErr?.message || '';
+      if (msg.toLowerCase().includes('auth') || msg.toLowerCase().includes('bad_request')) {
+        setPaymentError('Razorpay Notice: Authentication failed with your Razorpay Key ID & Secret. You can complete this order right away with "Test Mode Checkout" below.');
+      } else {
+        setPaymentError(msg || 'Server-side price verification failed.');
+      }
     }
   };
 
-  // Cash on Delivery Checkout
-  const handleConfirmCod = async () => {
-    setIsProcessing(true);
-    setPaymentError(null);
-    setStatusMessage('Confirming order with verified phone number...');
-
-    setTimeout(async () => {
-      setIsProcessing(false);
-      const codOrder = assembleOrder(
-        `COD_AUTH_${Math.random().toString(36).substring(2, 9).toUpperCase()}`,
-        'COD_VERIFIED',
-        'COD'
-      );
-      setConfirmedOrder(codOrder);
-      setCurrentStep('SUCCESS');
-
-      confetti({
-        particleCount: 70,
-        spread: 70,
-        origin: { y: 0.6 },
-        colors: ['#EC4899', '#10B981', '#F59E0B']
-      });
-
-      // Dispatch invoice email confirmation
-      await dispatchInvoiceEmail({
-        email: codOrder.customerEmail || email.trim(),
-        invoiceNumber: codOrder.invoiceNumber,
-        orderNumber: codOrder.orderNumber,
-        customerName: fullName,
-        totalAmount: grandTotal
-      });
-
-      setTimeout(() => {
-        onPaymentSuccess(codOrder);
-      }, 2200);
-    }, 900);
-  };
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-pink-950/35 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       
       {/* Modal Card */}
       <div 
-        className="relative w-full max-w-2xl bg-white rounded-2xl md:rounded-3xl shadow-2xl border border-pink-100 overflow-hidden text-left my-6"
+        className="relative w-full max-w-xl md:max-w-2xl max-h-[92vh] flex flex-col bg-white dark:bg-zinc-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-pink-100 dark:border-zinc-800 overflow-hidden text-left"
         onClick={(e) => e.stopPropagation()}
       >
         
         {/* Header with Step Progress - Light Baby Pink Palette */}
-        <div className="bg-gradient-to-r from-pink-100 via-rose-50 to-pink-50 text-slate-900 p-5 border-b border-pink-200/80">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-pink-600 text-white flex items-center justify-center font-bold text-xl font-mono shadow-xs shadow-pink-600/30">
-                R
+        <div className="shrink-0 bg-gradient-to-r from-pink-100 via-rose-50 to-pink-50 dark:from-zinc-800 dark:via-zinc-850 dark:to-zinc-900 text-slate-900 dark:text-zinc-100 px-4 py-3 sm:px-5 sm:py-3.5 border-b border-pink-200/80 dark:border-zinc-700">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-pink-600 text-white flex items-center justify-center font-bold flex-shrink-0 shadow-xs shadow-pink-600/30">
+                <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-sm text-slate-900 tracking-wide">Konichiwa_Mart Checkout</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded font-medium flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                    <span>256-Bit SSL</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold text-xs sm:text-sm text-slate-900 dark:text-zinc-100 tracking-wide truncate">Konichiwa Mart Checkout</span>
+                  <span className="text-[9px] sm:text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 px-1.5 py-0.5 rounded font-medium flex items-center gap-1">
+                    <ShieldCheck className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Secure</span>
                   </span>
                 </div>
-                <p className="text-xs text-pink-800/80 font-medium">
-                  Step {currentStep === 'CONTACT_VERIFICATION' ? '1 of 3' : currentStep === 'ADDRESS_CONFIRMATION' ? '2 of 3' : currentStep === 'PAYMENT' ? '3 of 3' : 'Completed'}
+                <p className="text-[11px] sm:text-xs text-pink-800/80 dark:text-pink-300/90 font-medium truncate">
+                  {currentStep === 'PAYMENT' ? 'Step 2: Payment & Review' : currentStep === 'SUCCESS' ? 'Order Confirmed' : 'Step 1: Delivery Details'}
                 </p>
               </div>
             </div>
 
-            <div className="text-right flex items-center gap-3">
+            <div className="text-right flex items-center gap-2 sm:gap-3 flex-shrink-0">
               <div>
-                <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Total Payable</div>
-                <div className="font-black text-lg text-pink-600">
+                <div className="text-[9px] sm:text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-semibold">Total Payable</div>
+                <div className="font-black text-sm sm:text-lg text-pink-600 dark:text-pink-400">
                   {formatINR(grandTotal)}
                 </div>
               </div>
 
               <button
                 onClick={onClose}
-                className="w-8 h-8 rounded-lg bg-white/80 hover:bg-white border border-pink-200/80 flex items-center justify-center text-slate-600 hover:text-slate-900 transition-colors cursor-pointer shadow-2xs"
+                aria-label="Close checkout"
+                className="w-8 h-8 rounded-lg bg-white/80 dark:bg-zinc-800 hover:bg-white dark:hover:bg-zinc-700 border border-pink-200/80 dark:border-zinc-700 flex items-center justify-center text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors cursor-pointer shadow-2xs"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -561,245 +792,72 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
           </div>
 
           {/* Stepper Progress Badges */}
-          <div className="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-pink-200/80 text-xs">
-            <div className={`flex items-center gap-1.5 font-semibold ${currentStep === 'CONTACT_VERIFICATION' ? 'text-pink-700' : isPhoneVerified ? 'text-emerald-700' : 'text-slate-500'}`}>
-              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                isPhoneVerified ? 'bg-emerald-500 text-white' : currentStep === 'CONTACT_VERIFICATION' ? 'bg-pink-600 text-white shadow-xs' : 'bg-pink-100 text-pink-600'
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 mt-2.5 pt-2 border-t border-pink-200/80 dark:border-zinc-700 text-xs">
+            <button
+              type="button"
+              onClick={() => setCurrentStep('ADDRESS_CONFIRMATION')}
+              className={`flex items-center gap-1.5 sm:gap-2 font-semibold text-left cursor-pointer transition-opacity hover:opacity-85 ${
+                currentStep === 'ADDRESS_CONFIRMATION' || currentStep === 'CONTACT_VERIFICATION'
+                  ? 'text-pink-700 dark:text-pink-300'
+                  : 'text-emerald-700 dark:text-emerald-400'
+              }`}
+            >
+              <div className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                currentStep === 'PAYMENT' || currentStep === 'SUCCESS'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-pink-600 text-white shadow-xs'
               }`}>
-                {isPhoneVerified ? '✓' : '1'}
+                {currentStep === 'PAYMENT' || currentStep === 'SUCCESS' ? '✓' : '1'}
               </div>
-              <span className="truncate">1. Contact & Verify</span>
-            </div>
+              <span className="truncate text-[11px] sm:text-xs">1. Delivery Details</span>
+            </button>
 
-            <div className={`flex items-center gap-1.5 font-semibold ${currentStep === 'ADDRESS_CONFIRMATION' ? 'text-pink-700' : currentStep === 'PAYMENT' || currentStep === 'SUCCESS' ? 'text-emerald-700' : 'text-slate-500'}`}>
-              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                currentStep === 'PAYMENT' || currentStep === 'SUCCESS' ? 'bg-emerald-500 text-white' : currentStep === 'ADDRESS_CONFIRMATION' ? 'bg-pink-600 text-white shadow-xs' : 'bg-pink-100 text-pink-600'
+            <button
+              type="button"
+              onClick={() => {
+                if (addressLine1 && pincode && phone && email) {
+                  setCurrentStep('PAYMENT');
+                }
+              }}
+              className={`flex items-center gap-1.5 sm:gap-2 font-semibold text-left cursor-pointer transition-opacity hover:opacity-85 ${
+                currentStep === 'PAYMENT'
+                  ? 'text-pink-700 dark:text-pink-300'
+                  : currentStep === 'SUCCESS'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-slate-500 dark:text-zinc-400'
+              }`}
+            >
+              <div className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                currentStep === 'SUCCESS'
+                  ? 'bg-emerald-500 text-white'
+                  : currentStep === 'PAYMENT'
+                  ? 'bg-pink-600 text-white shadow-xs'
+                  : 'bg-slate-200 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400'
               }`}>
-                {currentStep === 'PAYMENT' || currentStep === 'SUCCESS' ? '✓' : '2'}
+                {currentStep === 'SUCCESS' ? '✓' : '2'}
               </div>
-              <span className="truncate">2. Delivery Address</span>
-            </div>
-
-            <div className={`flex items-center gap-1.5 font-semibold ${currentStep === 'PAYMENT' ? 'text-pink-700' : currentStep === 'SUCCESS' ? 'text-emerald-700' : 'text-slate-500'}`}>
-              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                currentStep === 'SUCCESS' ? 'bg-emerald-500 text-white' : currentStep === 'PAYMENT' ? 'bg-pink-600 text-white shadow-xs' : 'bg-pink-100 text-pink-600'
-              }`}>
-                {currentStep === 'SUCCESS' ? '✓' : '3'}
-              </div>
-              <span className="truncate">3. Payment</span>
-            </div>
+              <span className="truncate text-[11px] sm:text-xs">2. Payment</span>
+            </button>
           </div>
         </div>
 
-        {/* STEP 1: CONTACT & PHONE VERIFICATION */}
-        {currentStep === 'CONTACT_VERIFICATION' && (
-          <div className="p-6 space-y-5">
-            
-            {/* Context Callout */}
-            <div className="p-3.5 rounded-xl bg-pink-50 border border-pink-200 text-xs text-pink-950 flex items-start gap-2.5">
-              <Mail className="w-4 h-4 text-pink-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <strong className="block font-semibold">Invoice & Notification Verification</strong>
-                <span>
-                  Please confirm your email address to receive your official GST Tax Invoice (PDF) upon payment, and verify your mobile number via OTP for delivery alerts.
-                </span>
-              </div>
-            </div>
-
-            {/* Error Message */}
-            {contactError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                <span>{contactError}</span>
-              </div>
-            )}
-
-            {/* Simulated SMS Toast for testing */}
-            {smsNotificationToast && (
-              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between gap-3 animate-in slide-in-from-top">
-                <div className="flex items-center gap-2">
-                  <Smartphone className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  <span className="font-mono font-medium">{smsNotificationToast}</span>
-                </div>
-                {activeOtpCode && (
-                  <button
-                    type="button"
-                    onClick={() => setInputOtp(activeOtpCode)}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] cursor-pointer shadow-xs whitespace-nowrap"
-                  >
-                    Auto-Fill {activeOtpCode}
-                  </button>
-                )}
-              </div>
-            )}
-
-            {/* Form Fields */}
-            <div className="space-y-4">
-              
-              {/* Email Address */}
-              <div>
-                <label className="text-xs font-semibold text-slate-800 block mb-1">
-                  Email Address for GST Invoice <span className="text-rose-500">*</span>
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. yourname@domain.com"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-900 outline-none focus:border-pink-500 focus:bg-white transition-all"
-                  />
-                </div>
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  ✓ Your GST Tax Invoice (PDF) with serial number & HSN codes will be emailed here.
-                </span>
-              </div>
-
-              {/* Mobile Number & OTP Verification */}
-              <div className="pt-2 border-t border-slate-100">
-                <label className="text-xs font-semibold text-slate-800 block mb-1">
-                  Mobile Number for Dispatch & SMS Alerts <span className="text-rose-500">*</span>
-                </label>
-                
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500 font-mono">
-                      +91
-                    </span>
-                    <input
-                      type="tel"
-                      maxLength={10}
-                      value={phone}
-                      disabled={isPhoneVerified}
-                      onChange={(e) => {
-                        setPhone(e.target.value.replace(/\D/g, ''));
-                        if (isPhoneVerified) setIsPhoneVerified(false);
-                      }}
-                      placeholder="10-digit mobile number"
-                      className="w-full pl-12 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-mono text-slate-900 outline-none focus:border-pink-500 focus:bg-white transition-all disabled:opacity-75 disabled:bg-slate-100"
-                    />
-                  </div>
-
-                  {!isPhoneVerified ? (
-                    <div className="flex gap-1.5">
-                      <button
-                        type="button"
-                        onClick={handleSendOtp}
-                        disabled={isSendingOtp || phone.length !== 10}
-                        className="px-3.5 py-2.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all shadow-xs whitespace-nowrap"
-                      >
-                        {isSendingOtp ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Sending...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Send className="w-3.5 h-3.5" />
-                            <span>{otpSent ? 'Resend OTP' : 'Send OTP'}</span>
-                          </>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsPhoneVerified(true);
-                          setContactError(null);
-                          setSmsNotificationToast(null);
-                        }}
-                        className="px-2.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-[11px] cursor-pointer transition-all border border-slate-200 whitespace-nowrap"
-                        title="Instant verification for testing and customer demos"
-                      >
-                        Quick Verify
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="px-3.5 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-xs flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      <span>Verified ✓</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* OTP Input Row when OTP has been sent */}
-                {!isPhoneVerified && otpSent && (
-                  <div className="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 animate-in fade-in">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-700">Enter 4-digit verification code:</span>
-                      <span className="text-[11px] text-slate-500">(Test code: <strong>{activeOtpCode || '1234'}</strong>)</span>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        maxLength={4}
-                        value={inputOtp}
-                        onChange={(e) => setInputOtp(e.target.value.replace(/\D/g, ''))}
-                        placeholder="e.g. 1234"
-                        className="flex-1 px-4 py-2 text-center tracking-widest font-mono font-bold text-base rounded-xl bg-white border border-slate-200 outline-none focus:border-pink-500"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={handleVerifyOtp}
-                        disabled={isVerifyingOtp || inputOtp.length < 4}
-                        className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 transition-all shadow-xs"
-                      >
-                        {isVerifyingOtp ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Check className="w-3.5 h-3.5" />
-                        )}
-                        <span>Confirm OTP</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-            </div>
-
-            {/* Action Bar */}
-            <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
-              <button
-                type="button"
-                onClick={onClose}
-                className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer"
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={handleProceedToAddress}
-                className="px-6 py-3 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-2 cursor-pointer shadow-md shadow-pink-600/20 transition-all"
-              >
-                <span>Continue to Delivery Address</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-
-          </div>
-        )}
-
-        {/* STEP 2: ADDRESS CONFIRMATION */}
-        {currentStep === 'ADDRESS_CONFIRMATION' && (
-          <div className="p-6 space-y-5">
+        {/* STEP 1: DELIVERY & CONTACT DETAILS */}
+        {(currentStep === 'ADDRESS_CONFIRMATION' || currentStep === 'CONTACT_VERIFICATION') && (
+          <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 md:p-6 space-y-4">
             
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="text-sm font-bold text-slate-900">Confirm Delivery Address</h4>
-                <p className="text-xs text-slate-500">Select an existing address or enter shipping destination</p>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-zinc-100">Confirm Delivery Address</h4>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">Select an existing address or enter shipping destination</p>
               </div>
 
               {userProfile?.addresses && userProfile.addresses.length > 0 && (
-                <div className="flex gap-1.5 text-[11px] bg-slate-100 p-1 rounded-xl">
+                <div className="flex gap-1.5 text-[11px] bg-slate-100 dark:bg-zinc-800 p-1 rounded-xl">
                   <button
                     type="button"
                     onClick={() => setSelectedAddressMode('SAVED')}
                     className={`px-3 py-1 rounded-lg font-medium cursor-pointer transition-all ${
-                      selectedAddressMode === 'SAVED' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                      selectedAddressMode === 'SAVED' ? 'bg-white dark:bg-zinc-700 text-slate-900 dark:text-zinc-100 shadow-xs' : 'text-slate-600 dark:text-zinc-400'
                     }`}
                   >
                     Saved Addresses ({userProfile.addresses.length})
@@ -811,7 +869,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                       setSelectedSavedId('');
                     }}
                     className={`px-3 py-1 rounded-lg font-medium cursor-pointer transition-all ${
-                      selectedAddressMode === 'CUSTOM' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                      selectedAddressMode === 'CUSTOM' ? 'bg-white dark:bg-zinc-700 text-slate-900 dark:text-zinc-100 shadow-xs' : 'text-slate-600 dark:text-zinc-400'
                     }`}
                   >
                     + New Address
@@ -822,8 +880,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
 
             {/* Error Message */}
             {addressError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 animate-in fade-in">
-                <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+              <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-300 text-xs flex items-center gap-2 animate-in fade-in">
+                <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 flex-shrink-0" />
                 <span>{addressError}</span>
               </div>
             )}
@@ -839,33 +897,33 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                       onClick={() => handleSelectSavedAddress(addr)}
                       className={`p-3.5 rounded-xl border cursor-pointer transition-all flex items-start justify-between gap-3 ${
                         isSelected
-                          ? 'border-pink-500 bg-pink-50/60 ring-1 ring-pink-500'
-                          : 'border-slate-200 bg-white hover:bg-slate-50'
+                          ? 'border-pink-500 bg-pink-50/60 dark:bg-pink-950/40 ring-1 ring-pink-500'
+                          : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/60 hover:bg-slate-50 dark:hover:bg-zinc-800'
                       }`}
                     >
                       <div className="space-y-1 text-xs">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900">{addr.fullName}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
+                          <span className="font-bold text-slate-900 dark:text-zinc-100">{addr.fullName}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 text-[10px] font-semibold">
                             {addr.tag}
                           </span>
                           {addr.isDefault && (
-                            <span className="px-1.5 py-0.5 rounded bg-pink-100 text-pink-700 text-[10px] font-semibold">
+                            <span className="px-1.5 py-0.5 rounded bg-pink-100 dark:bg-pink-950/70 text-pink-700 dark:text-pink-300 text-[10px] font-semibold">
                               Default
                             </span>
                           )}
                         </div>
-                        <p className="text-slate-600">
+                        <p className="text-slate-600 dark:text-zinc-300">
                           {addr.addressLine1}
                           {addr.addressLine2 ? `, ${addr.addressLine2}` : ''}
                         </p>
-                        <p className="text-slate-500">
+                        <p className="text-slate-500 dark:text-zinc-400">
                           {addr.city}, {addr.state} — <strong>{addr.pincode}</strong>
                         </p>
                       </div>
 
                       <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
-                        isSelected ? 'border-pink-600 bg-pink-600 text-white' : 'border-slate-300'
+                        isSelected ? 'border-pink-600 bg-pink-600 text-white' : 'border-slate-300 dark:border-zinc-600'
                       }`}>
                         {isSelected && <Check className="w-3 h-3" />}
                       </div>
@@ -877,25 +935,65 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
 
             {/* Address Input Form */}
             {(selectedAddressMode === 'CUSTOM' || !userProfile?.addresses?.length) && (
-              <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-xs">
+              <div className="space-y-3.5 bg-slate-50 dark:bg-zinc-800/50 p-4 rounded-2xl border border-slate-200 dark:border-zinc-700 text-xs">
                 
-                {/* Full Name */}
-                <div>
-                  <label className="font-semibold text-slate-800 block mb-1">
-                    Recipient Full Name <span className="text-rose-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="e.g. Priya Sharma"
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 outline-none focus:border-pink-500"
-                  />
+                {/* Contact Information Fields */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3 border-b border-slate-200/80 dark:border-zinc-700">
+                  <div>
+                    <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
+                      Recipient Full Name <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="e.g. Priya Sharma"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
+                      Mobile Number (+91) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative flex">
+                      <span className="inline-flex items-center px-2.5 rounded-l-xl border border-r-0 border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-700 text-slate-600 dark:text-zinc-300 text-xs font-mono font-medium">
+                        +91
+                      </span>
+                      <input
+                        type="tel"
+                        maxLength={10}
+                        value={phone}
+                        onChange={(e) => {
+                          const clean = e.target.value.replace(/\D/g, '');
+                          setPhone(clean);
+                        }}
+                        placeholder="10-digit mobile number"
+                        className="w-full px-3 py-2 rounded-r-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 font-mono outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
+                      Email Address (for GST Tax Invoice PDF & Tracking) <span className="text-rose-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="e.g. yourname@gmail.com"
+                        className="w-full pl-9 pr-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {/* Flat / Building */}
                 <div>
-                  <label className="font-semibold text-slate-800 block mb-1">
+                  <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
                     Flat, House No., Building, Apartment <span className="text-rose-500">*</span>
                   </label>
                   <input
@@ -903,13 +1001,13 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                     value={addressLine1}
                     onChange={(e) => setAddressLine1(e.target.value)}
                     placeholder="e.g. Flat 402, Lotus Grand Residences"
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 outline-none focus:border-pink-500"
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
                   />
                 </div>
 
                 {/* Street / Landmark */}
                 <div>
-                  <label className="font-semibold text-slate-800 block mb-1">
+                  <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
                     Street, Area, Landmark
                   </label>
                   <input
@@ -917,14 +1015,14 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                     value={addressLine2}
                     onChange={(e) => setAddressLine2(e.target.value)}
                     placeholder="e.g. Off Linking Road, Near Blue Tokai"
-                    className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 outline-none focus:border-pink-500"
+                    className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
                   />
                 </div>
 
                 {/* Pincode, City & State Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
-                    <label className="font-semibold text-slate-800 block mb-1">
+                    <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
                       Pincode <span className="text-rose-500">*</span>
                     </label>
                     <input
@@ -933,12 +1031,12 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                       value={pincode}
                       onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))}
                       placeholder="e.g. 400050"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 font-mono outline-none focus:border-pink-500"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 font-mono outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
                     />
                   </div>
 
                   <div>
-                    <label className="font-semibold text-slate-800 block mb-1">
+                    <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
                       City <span className="text-rose-500">*</span>
                     </label>
                     <input
@@ -946,12 +1044,12 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                       value={city}
                       onChange={(e) => setCity(e.target.value)}
                       placeholder="e.g. Mumbai"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 outline-none focus:border-pink-500"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
                     />
                   </div>
 
                   <div>
-                    <label className="font-semibold text-slate-800 block mb-1">
+                    <label className="font-semibold text-slate-800 dark:text-zinc-200 block mb-1">
                       State <span className="text-rose-500">*</span>
                     </label>
                     <input
@@ -959,14 +1057,14 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                       value={stateName}
                       onChange={(e) => setStateName(e.target.value)}
                       placeholder="e.g. Maharashtra"
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 outline-none focus:border-pink-500"
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-slate-900 dark:text-zinc-100 outline-none focus:border-pink-500 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
                     />
                   </div>
                 </div>
 
                 {/* Address Tag */}
                 <div className="flex items-center gap-3 pt-1">
-                  <span className="font-semibold text-slate-700">Tag as:</span>
+                  <span className="font-semibold text-slate-700 dark:text-zinc-300">Tag as:</span>
                   {(['Home', 'Office', 'Other'] as const).map((t) => (
                     <button
                       key={t}
@@ -974,8 +1072,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                       onClick={() => setAddressTag(t)}
                       className={`px-2.5 py-1 rounded-lg text-[11px] font-medium cursor-pointer border ${
                         addressTag === t
-                          ? 'border-pink-500 bg-pink-100 text-pink-800'
-                          : 'border-slate-200 bg-white text-slate-600'
+                          ? 'border-pink-500 bg-pink-100 dark:bg-pink-950/70 text-pink-800 dark:text-pink-300'
+                          : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-600 dark:text-zinc-400'
                       }`}
                     >
                       {t}
@@ -987,35 +1085,29 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
             )}
 
             {/* Courier Serviceability Badge */}
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                <span>
-                  Serviceable via <strong>{activePincodeInfo.couriers[0] || 'Blue Dart Air Express'}</strong>
-                </span>
-              </div>
-              <span className="font-semibold text-[11px] text-emerald-800">
-                Est. Delivery: {activePincodeInfo.estimatedDays || 2} Days
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 text-xs flex items-center gap-2">
+              <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
+              <span className="font-semibold text-xs">
+                3-5 day pan India delivery
               </span>
             </div>
 
             {/* Navigation Buttons */}
-            <div className="pt-3 border-t border-slate-200 flex justify-between items-center">
+            <div className="pt-3 border-t border-slate-200 dark:border-zinc-800 flex flex-col-reverse sm:flex-row justify-between items-center gap-2 sm:gap-0">
               <button
                 type="button"
-                onClick={() => setCurrentStep('CONTACT_VERIFICATION')}
-                className="px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+                onClick={onClose}
+                className="w-full sm:w-auto py-2 text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 cursor-pointer text-center"
               >
-                <ArrowLeft className="w-3.5 h-3.5" />
-                <span>Back to Contact</span>
+                Cancel
               </button>
 
               <button
                 type="button"
                 onClick={handleProceedToPayment}
-                className="px-6 py-3 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-2 cursor-pointer shadow-md shadow-pink-600/20 transition-all"
+                className="w-full sm:w-auto px-6 py-2.5 sm:py-3 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-pink-600/20 transition-all"
               >
-                <span>Confirm Address & Proceed</span>
+                <span>Proceed to Payment</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -1023,233 +1115,440 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
           </div>
         )}
 
-        {/* STEP 3: PAYMENT & CONFIRMATION */}
+        {/* STEP 2: PAYMENT & CONFIRMATION */}
         {currentStep === 'PAYMENT' && (
-          <div className="p-6 space-y-5">
+          <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 md:p-6 space-y-4">
             
+            {/* Unconfigured Alert Banner */}
+            {!isRazorpayConfigured && (
+              <div className="p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 text-amber-900 dark:text-amber-200 text-xs space-y-2 animate-in fade-in">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <strong className="block font-semibold">Razorpay Test Credentials Pending</strong>
+                    <span>Razorpay Key ID & Secret are not yet connected in the environment. Share your test credentials in chat or enter them in Settings, or use instant test simulation to verify the full GST invoice & email delivery:</span>
+                  </div>
+                </div>
+                <div className="pt-1 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={handleSimulatePayment}
+                    disabled={isProcessing}
+                    className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Simulate Test Payment</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Error Banner */}
             {paymentError && (
-              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs space-y-2 animate-in fade-in">
+              <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-rose-800 dark:text-rose-300 text-xs space-y-2 animate-in fade-in">
                 <div className="flex items-start gap-2.5">
-                  <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                  <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
                     <strong className="block font-semibold">Payment Notification</strong>
                     <span>{paymentError}</span>
                   </div>
                 </div>
-                <div className="pt-2 border-t border-rose-200 flex items-center justify-between">
-                  <span className="text-[11px] text-rose-700">Presenting to customers? You can test with full invoice generation:</span>
+                <div className="pt-2 border-t border-rose-200 dark:border-rose-900 flex items-center justify-between">
+                  <span className="text-[11px] text-rose-700 dark:text-rose-300">Test the complete order confirmation & invoice flow:</span>
                   <button
                     type="button"
-                    onClick={async () => {
-                      setIsProcessing(true);
-                      setPaymentError(null);
-                      setStatusMessage('Simulating verified Razorpay payment for customer demo...');
-                      setTimeout(async () => {
-                        const demoOrder = assembleOrder(
-                          `pay_demo_${Date.now()}`,
-                          'sig_test_demo_verified',
-                          'RAZORPAY_ONLINE'
-                        );
-                        setConfirmedOrder(demoOrder);
-                        setCurrentStep('SUCCESS');
-                        setIsProcessing(false);
-                        confetti({
-                          particleCount: 100,
-                          spread: 80,
-                          origin: { y: 0.6 },
-                          colors: ['#EC4899', '#F472B6', '#10B981']
-                        });
-                        await dispatchInvoiceEmail({
-                          email: demoOrder.customerEmail || email.trim(),
-                          invoiceNumber: demoOrder.invoiceNumber,
-                          orderNumber: demoOrder.orderNumber,
-                          customerName: fullName,
-                          totalAmount: grandTotal
-                        });
-                        setTimeout(() => onPaymentSuccess(demoOrder), 2500);
-                      }, 1000);
-                    }}
-                    className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-[11px] cursor-pointer shadow-xs transition-colors"
+                    onClick={handleSimulatePayment}
+                    disabled={isProcessing}
+                    className="px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold text-[11px] cursor-pointer shadow-xs transition-colors flex items-center gap-1"
                   >
-                    Simulate Demo Payment
+                    <Sparkles className="w-3 h-3" />
+                    <span>Simulate Test Payment</span>
                   </button>
                 </div>
               </div>
             )}
 
             {/* Verified Details Summary Pill */}
-            <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-2.5">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-200 text-slate-800 font-semibold">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 text-xs space-y-2.5">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-zinc-700 text-slate-800 dark:text-zinc-200 font-semibold">
                 <span>Verified Delivery & Invoice Details</span>
                 <button
                   type="button"
                   onClick={() => setCurrentStep('ADDRESS_CONFIRMATION')}
-                  className="text-pink-600 hover:text-pink-700 text-[11px] font-medium flex items-center gap-1 cursor-pointer"
+                  className="text-pink-600 dark:text-pink-400 hover:text-pink-700 text-[11px] font-medium flex items-center gap-1 cursor-pointer"
                 >
                   <Edit3 className="w-3 h-3" />
                   <span>Modify</span>
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600 text-[11px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-600 dark:text-zinc-300 text-[11px]">
                 <div>
-                  <strong className="text-slate-800 block font-medium">Recipient:</strong>
+                  <strong className="text-slate-800 dark:text-zinc-200 block font-medium">Recipient:</strong>
                   <span>{fullName}</span>
                 </div>
                 <div>
-                  <strong className="text-slate-800 block font-medium">Verified Phone:</strong>
-                  <span className="text-emerald-700 font-medium">✓ +91 {phone} (OTP Verified)</span>
+                  <strong className="text-slate-800 dark:text-zinc-200 block font-medium">Verified Phone:</strong>
+                  <span className="text-emerald-700 dark:text-emerald-400 font-medium">✓ +91 {phone} (Verified)</span>
                 </div>
                 <div>
-                  <strong className="text-slate-800 block font-medium">GST Invoice Recipient:</strong>
-                  <span className="text-pink-700 font-medium">{email}</span>
+                  <strong className="text-slate-800 dark:text-zinc-200 block font-medium">GST Invoice Recipient:</strong>
+                  <span className="text-pink-700 dark:text-pink-400 font-medium">{email}</span>
                 </div>
                 <div>
-                  <strong className="text-slate-800 block font-medium">Destination:</strong>
+                  <strong className="text-slate-800 dark:text-zinc-200 block font-medium">Destination:</strong>
                   <span className="truncate block">{addressLine1}, {city} - {pincode}</span>
                 </div>
               </div>
             </div>
 
             {/* Price Breakdown */}
-            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-1.5 text-xs text-slate-600">
+            <div className="bg-slate-50 dark:bg-zinc-800/60 rounded-2xl p-4 border border-slate-200 dark:border-zinc-700 space-y-1.5 text-xs text-slate-600 dark:text-zinc-300">
               <div className="flex justify-between">
                 <span>Subtotal ({items.reduce((sum, i) => sum + i.quantity, 0)} items)</span>
                 <span>{formatINR(subtotal)}</span>
               </div>
 
               {discountAmount > 0 && (
-                <div className="flex justify-between text-emerald-700 font-medium">
+                <div className="flex justify-between text-emerald-700 dark:text-emerald-400 font-medium">
                   <span>Coupon Savings ({discountCode})</span>
                   <span>-{formatINR(discountAmount)}</span>
                 </div>
               )}
 
-              <div className="flex justify-between text-[11px] text-slate-500">
+              <div className="flex justify-between text-[11px] text-slate-500 dark:text-zinc-400">
                 <span>GST Breakdown (9% CGST + 9% SGST included)</span>
                 <span>{formatINR(cgst + sgst)}</span>
               </div>
 
-              <div className="flex justify-between">
-                <span>Express Air Shipping</span>
-                <span>{shippingFee === 0 ? <strong className="text-emerald-700">FREE</strong> : formatINR(shippingFee)}</span>
+              <div className="flex justify-between items-center">
+                <div>
+                  <span>Express Air Shipping</span>
+                  <span className="block text-[10px] text-slate-500 dark:text-zinc-400">Pan-India shipping within 3-5 days after ordering</span>
+                </div>
+                <span>{shippingFee === 0 ? <strong className="text-emerald-700 dark:text-emerald-400">FREE</strong> : formatINR(shippingFee)}</span>
               </div>
 
-              <div className="flex justify-between font-bold text-sm text-slate-900 pt-2 border-t border-slate-200">
+              <div className="flex justify-between font-bold text-sm text-slate-900 dark:text-zinc-100 pt-2 border-t border-slate-200 dark:border-zinc-700">
                 <span>Total Payable</span>
-                <span className="text-pink-700">{formatINR(grandTotal)}</span>
+                <span className="text-pink-700 dark:text-pink-400">{formatINR(grandTotal)}</span>
               </div>
             </div>
 
-            {/* Payment Method Selector */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-900 block">
-                Select Payment Mode
-              </label>
+            {/* Payment Method Selector (100% Prepaid via Razorpay - UPI Apps & Cards) */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-900 dark:text-zinc-100 block">
+                  Select Payment Method
+                </label>
+                <span className="text-[10px] text-pink-600 dark:text-pink-400 font-medium flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  Razorpay 256-Bit Encrypted
+                </span>
+              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {/* Razorpay Standard */}
+              {/* Payment Mode Selector Tabs */}
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedMethod('RAZORPAY')}
-                  className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all flex items-start gap-3 ${
-                    selectedMethod === 'RAZORPAY'
-                      ? 'border-pink-500 bg-pink-50/50 ring-1 ring-pink-500 shadow-xs'
-                      : 'border-slate-200 hover:bg-slate-50 bg-white'
+                  onClick={() => setSelectedPaymentMode('UPI')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    selectedPaymentMode === 'UPI'
+                      ? 'border-pink-600 bg-pink-50/70 dark:bg-pink-950/40 ring-2 ring-pink-500/30'
+                      : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-slate-300 dark:hover:border-zinc-700'
                   }`}
                 >
-                  <div className="w-8 h-8 rounded-lg bg-pink-100 text-pink-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <CreditCard className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <span>Razorpay Standard</span>
-                      <span className="text-[10px] bg-pink-600 text-white px-1.5 py-0.2 rounded font-semibold">Recommended</span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${selectedPaymentMode === 'UPI' ? 'bg-pink-600 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400'}`}>
+                        <Smartphone className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-zinc-100">UPI Apps & QR</span>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">
-                      UPI, Cards, NetBanking, Wallets & CRED
-                    </div>
+                    {selectedPaymentMode === 'UPI' && (
+                      <span className="w-2 h-2 rounded-full bg-pink-600"></span>
+                    )}
                   </div>
+                  <span className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1.5">
+                    GPay, PhonePe, Paytm, BHIM, QR
+                  </span>
                 </button>
 
-                {/* Cash on Delivery */}
                 <button
                   type="button"
-                  onClick={() => setSelectedMethod('COD')}
-                  className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all flex items-start gap-3 ${
-                    selectedMethod === 'COD'
-                      ? 'border-amber-500 bg-amber-50/50 ring-1 ring-amber-500 shadow-xs'
-                      : 'border-slate-200 hover:bg-slate-50 bg-white'
+                  onClick={() => setSelectedPaymentMode('CARDS_NETBANKING')}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    selectedPaymentMode === 'CARDS_NETBANKING'
+                      ? 'border-pink-600 bg-pink-50/70 dark:bg-pink-950/40 ring-2 ring-pink-500/30'
+                      : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-slate-300 dark:hover:border-zinc-700'
                   }`}
                 >
-                  <div className="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Banknote className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-slate-900">
-                      Cash on Delivery (COD)
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${selectedPaymentMode === 'CARDS_NETBANKING' ? 'bg-pink-600 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400'}`}>
+                        <CreditCard className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-xs font-bold text-slate-900 dark:text-zinc-100">Cards & Banking</span>
                     </div>
-                    <div className="text-[11px] text-slate-500 mt-0.5">
-                      Pay via cash or UPI upon delivery
-                    </div>
+                    {selectedPaymentMode === 'CARDS_NETBANKING' && (
+                      <span className="w-2 h-2 rounded-full bg-pink-600"></span>
+                    )}
                   </div>
+                  <span className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1.5">
+                    Visa, Master, RuPay, 50+ Banks
+                  </span>
                 </button>
               </div>
+
+              {/* UPI Options Details */}
+              {selectedPaymentMode === 'UPI' && (
+                <div className="p-3.5 rounded-xl border border-pink-200/80 dark:border-pink-900/60 bg-gradient-to-br from-pink-50/40 via-white to-pink-50/20 dark:from-pink-950/20 dark:via-zinc-900 dark:to-zinc-900 space-y-3">
+                  <div>
+                    <span className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 block mb-2">
+                      Choose Your Preferred UPI App:
+                    </span>
+
+                    {/* App selector pills */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {/* Google Pay */}
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedUpiApp('google_pay'); setShowQrCode(false); }}
+                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
+                          selectedUpiApp === 'google_pay' && !showQrCode
+                            ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 ring-1 ring-emerald-500'
+                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow-2xs border border-slate-100 flex-shrink-0">
+                          <span className="text-[11px] font-black text-emerald-600">G</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">Google Pay</div>
+                          <div className="text-[9px] text-slate-500 truncate">GPay Intent</div>
+                        </div>
+                      </button>
+
+                      {/* PhonePe */}
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedUpiApp('phonepe'); setShowQrCode(false); }}
+                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
+                          selectedUpiApp === 'phonepe' && !showQrCode
+                            ? 'border-purple-500 bg-purple-50/60 dark:bg-purple-950/40 ring-1 ring-purple-500'
+                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center shadow-2xs flex-shrink-0">
+                          <span className="text-[11px] font-black">पे</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">PhonePe</div>
+                          <div className="text-[9px] text-slate-500 truncate">Fast UPI</div>
+                        </div>
+                      </button>
+
+                      {/* Paytm UPI */}
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedUpiApp('paytm'); setShowQrCode(false); }}
+                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
+                          selectedUpiApp === 'paytm' && !showQrCode
+                            ? 'border-sky-500 bg-sky-50/60 dark:bg-sky-950/40 ring-1 ring-sky-500'
+                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center shadow-2xs flex-shrink-0">
+                          <span className="text-[10px] font-black">Pay</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">Paytm</div>
+                          <div className="text-[9px] text-slate-500 truncate">Instant UPI</div>
+                        </div>
+                      </button>
+
+                      {/* BHIM / Other UPI */}
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedUpiApp('bhim'); setShowQrCode(false); }}
+                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
+                          selectedUpiApp === 'bhim' && !showQrCode
+                            ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/40 ring-1 ring-amber-500'
+                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-2xs flex-shrink-0">
+                          <span className="text-[10px] font-black">BH</span>
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">BHIM / Any</div>
+                          <div className="text-[9px] text-slate-500 truncate">Cred, Axis, etc.</div>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* QR Code Toggle and Display */}
+                  <div className="pt-2 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setShowQrCode(!showQrCode)}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-pink-600 dark:text-pink-400 hover:underline cursor-pointer"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>{showQrCode ? 'Hide QR Code' : 'Scan & Pay via UPI QR Code on Screen'}</span>
+                      </button>
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                        Works with any camera or UPI app
+                      </span>
+                    </div>
+
+                    {showQrCode && (
+                      <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-slate-200 dark:border-zinc-700 flex flex-col sm:flex-row items-center gap-4 animate-in fade-in zoom-in-95">
+                        {qrCodeDataUrl ? (
+                          <div className="p-1.5 bg-white rounded-lg border border-slate-200 shadow-xs flex-shrink-0">
+                            <img src={qrCodeDataUrl} alt="UPI Payment QR Code" className="w-32 h-32 object-contain" />
+                          </div>
+                        ) : (
+                          <div className="w-32 h-32 bg-slate-100 dark:bg-zinc-700 rounded-lg flex items-center justify-center">
+                            <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
+                          </div>
+                        )}
+                        <div className="space-y-1.5 text-center sm:text-left">
+                          <div className="text-xs font-bold text-slate-900 dark:text-zinc-100 flex items-center justify-center sm:justify-start gap-1.5">
+                            <span>Scan with Google Pay, PhonePe or Paytm</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed">
+                            Amount: <strong className="text-slate-900 dark:text-zinc-100">{formatINR(grandTotal)}</strong> to Konichiwa Mart.
+                          </p>
+                          <div className="pt-1 flex flex-wrap gap-1.5 justify-center sm:justify-start text-[10px]">
+                            <button
+                              type="button"
+                              onClick={handleStartRazorpayCheckout}
+                              className="px-2.5 py-1 rounded-md bg-pink-600 hover:bg-pink-500 text-white font-semibold cursor-pointer shadow-2xs"
+                            >
+                              Open Razorpay QR Modal
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional UPI ID / VPA field */}
+                  <div className="pt-2 border-t border-slate-200 dark:border-zinc-800">
+                    <label className="text-[11px] font-medium text-slate-600 dark:text-zinc-400 block mb-1">
+                      Or Enter UPI ID / VPA (Optional):
+                    </label>
+                    <div className="flex gap-1.5">
+                      <input
+                        type="text"
+                        value={userVpa}
+                        onChange={(e) => setUserVpa(e.target.value)}
+                        placeholder="e.g. yourname@okhdfcbank or 9876543210@paytm"
+                        className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-pink-500"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-1 mt-1.5 text-[10px]">
+                      {['@okhdfcbank', '@okaxis', '@paytm', '@ybl'].map((suf) => (
+                        <button
+                          key={suf}
+                          type="button"
+                          onClick={() => {
+                            const current = userVpa.split('@')[0];
+                            setUserVpa((current || 'user') + suf);
+                          }}
+                          className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-pink-600 cursor-pointer font-mono"
+                        >
+                          {suf}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Cards & NetBanking Details */}
+              {selectedPaymentMode === 'CARDS_NETBANKING' && (
+                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-zinc-100">
+                    <CreditCard className="w-4 h-4 text-pink-600" />
+                    <span>Credit / Debit Cards, NetBanking & Wallets</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 dark:text-zinc-300">
+                    Supports Visa, MasterCard, RuPay, Maestro, 50+ NetBanking Indian banks (HDFC, ICICI, SBI, Axis, Kotak), and Wallets.
+                  </p>
+                  <div className="pt-2 flex flex-wrap gap-1.5 text-[10px] font-medium text-slate-600 dark:text-zinc-300">
+                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-700">Visa / Master / RuPay</span>
+                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-700">HDFC / ICICI / SBI / Axis</span>
+                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-700">MobiKwik / Airtel Money</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Action Buttons */}
             <div className="pt-2 space-y-2">
-              {selectedMethod === 'RAZORPAY' ? (
-                <button
-                  onClick={handleStartRazorpayCheckout}
-                  disabled={isProcessing}
-                  className="w-full py-3.5 px-6 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-pink-600/20 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>{statusMessage || 'Opening Razorpay Modal...'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Lock className="w-4 h-4" />
-                      <span>Pay {formatINR(grandTotal)} via Razorpay Standard</span>
-                    </>
-                  )}
-                </button>
-              ) : (
-                <button
-                  onClick={handleConfirmCod}
-                  disabled={isProcessing}
-                  className="w-full py-3.5 px-6 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-600/20 transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Confirming Cash on Delivery Order...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Truck className="w-4 h-4" />
-                      <span>Confirm COD Order ({formatINR(grandTotal)})</span>
-                    </>
-                  )}
-                </button>
+              <button
+                onClick={handleStartRazorpayCheckout}
+                disabled={isProcessing}
+                className="w-full py-3.5 px-6 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-lg shadow-pink-600/20 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>{statusMessage || 'Opening Razorpay Gateway...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock className="w-4 h-4" />
+                    <span>
+                      Pay {formatINR(grandTotal)} {!isRazorpayConfigured ? '(Instant Checkout)' : `via ${selectedPaymentMode === 'UPI' ? (selectedUpiApp === 'google_pay' ? 'Google Pay' : selectedUpiApp === 'phonepe' ? 'PhonePe' : selectedUpiApp === 'paytm' ? 'Paytm UPI' : selectedUpiApp === 'bhim' ? 'BHIM UPI' : 'UPI') : 'Cards / NetBanking'} (Razorpay)`}
+                    </span>
+                  </>
+                )}
+              </button>
+
+              {/* Instant Test Mode Checkout fallback button */}
+              <button
+                type="button"
+                onClick={handleSimulatePayment}
+                disabled={isProcessing}
+                className="w-full py-2.5 px-4 rounded-xl border border-pink-200 dark:border-pink-900/60 bg-pink-50/50 dark:bg-pink-950/30 hover:bg-pink-100/60 dark:hover:bg-pink-900/40 text-pink-800 dark:text-pink-300 font-semibold text-xs flex items-center justify-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400" />
+                <span>Test Mode Checkout (Instant Order & Supabase Sync)</span>
+              </button>
+
+              {/* Cancel / Reset Button if user gets stuck */}
+              {isProcessing && (
+                <div className="text-center pt-1 animate-in fade-in">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsProcessing(false);
+                      setStatusMessage('');
+                    }}
+                    className="text-[11px] text-rose-600 dark:text-rose-400 hover:underline font-medium cursor-pointer"
+                  >
+                    Taking longer than expected? Click here to cancel and retry
+                  </button>
+                </div>
               )}
 
               <div className="flex justify-between items-center pt-2">
                 <button
                   type="button"
                   onClick={() => setCurrentStep('ADDRESS_CONFIRMATION')}
-                  className="text-xs text-slate-500 hover:text-slate-800 cursor-pointer flex items-center gap-1"
+                  className="text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 cursor-pointer flex items-center gap-1"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>Change Address</span>
+                  <span>Change Delivery Details</span>
                 </button>
 
-                <div className="text-[11px] text-slate-400">
-                  Secured by Razorpay • 256-bit Encryption
+                <div className="text-[11px] text-slate-400 dark:text-zinc-500">
+                  Secured with SSL Encryption • End-to-End Encrypted
                 </div>
               </div>
             </div>
@@ -1257,46 +1556,46 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
           </div>
         )}
 
-        {/* STEP 4: SUCCESS & INVOICE DISPATCH CONFIRMATION */}
+        {/* STEP 3: SUCCESS & INVOICE DISPATCH CONFIRMATION */}
         {currentStep === 'SUCCESS' && confirmedOrder && (
-          <div className="p-8 text-center space-y-5 max-w-lg mx-auto animate-in zoom-in-95">
-            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center shadow-lg border border-emerald-200">
-              <CheckCircle2 className="w-10 h-10" />
+          <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 text-center space-y-4 max-w-lg mx-auto animate-in zoom-in-95">
+            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 dark:text-emerald-400 mx-auto flex items-center justify-center shadow-lg border border-emerald-200 dark:border-emerald-800">
+              <CheckCircle2 className="w-8 h-8 sm:w-10 sm:h-10" />
             </div>
 
             <div>
-              <h3 className="font-display font-bold text-2xl text-emerald-950">
+              <h3 className="font-display font-bold text-xl sm:text-2xl text-emerald-950 dark:text-emerald-300">
                 Order Placed & Confirmed!
               </h3>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+              <p className="text-xs text-slate-600 dark:text-zinc-400 mt-1 leading-relaxed">
                 Thank you, <strong>{fullName}</strong>. Your payment has been authorized and verified.
               </p>
             </div>
 
             {/* Email Dispatch Confirmation Box */}
-            <div className="p-4 rounded-2xl bg-pink-50 border border-pink-200 text-left space-y-2 text-xs text-pink-950">
-              <div className="flex items-center gap-2 font-bold text-pink-900">
-                <Mail className="w-4 h-4 text-pink-500" />
+            <div className="p-3.5 sm:p-4 rounded-2xl bg-pink-50 dark:bg-pink-950/40 border border-pink-200 dark:border-pink-900/60 text-left space-y-2 text-xs text-pink-950 dark:text-pink-200">
+              <div className="flex items-center gap-2 font-bold text-pink-900 dark:text-pink-300">
+                <Mail className="w-4 h-4 text-pink-500 dark:text-pink-400 shrink-0" />
                 <span>Official GST Tax Invoice Dispatched</span>
               </div>
-              <p className="text-[11px] text-pink-800 leading-relaxed">
+              <p className="text-[11px] text-pink-800 dark:text-pink-300/90 leading-relaxed">
                 An official PDF copy of Tax Invoice <strong>#{confirmedOrder.invoiceNumber}</strong> has been sent to <strong>{confirmedOrder.customerEmail}</strong>.
               </p>
-              <div className="flex items-center gap-2 pt-1 border-t border-pink-200/60 text-[11px] text-pink-700 font-mono">
-                <Phone className="w-3.5 h-3.5 text-pink-500" />
+              <div className="flex items-center gap-2 pt-1 border-t border-pink-200/60 dark:border-pink-900/60 text-[11px] text-pink-700 dark:text-pink-300 font-mono">
+                <Phone className="w-3.5 h-3.5 text-pink-500 dark:text-pink-400 shrink-0" />
                 <span>SMS Dispatch Updates: +91 {confirmedOrder.customerPhone}</span>
               </div>
             </div>
 
             {/* Order & Courier Reference */}
-            <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs flex justify-between items-center text-slate-700">
+            <div className="bg-slate-50 dark:bg-zinc-800 rounded-xl p-3 border border-slate-200 dark:border-zinc-700 text-xs flex justify-between items-center text-slate-700 dark:text-zinc-300">
               <div>
-                <span className="text-slate-500 block text-[10px]">Order Number</span>
-                <span className="font-mono font-bold text-slate-900">{confirmedOrder.orderNumber}</span>
+                <span className="text-slate-500 dark:text-zinc-400 block text-[10px]">Order Number</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-zinc-100">{confirmedOrder.orderNumber}</span>
               </div>
               <div className="text-right">
-                <span className="text-slate-500 block text-[10px]">Air Waybill (AWB)</span>
-                <span className="font-mono font-bold text-pink-600">{confirmedOrder.awbNumber}</span>
+                <span className="text-slate-500 dark:text-zinc-400 block text-[10px]">Air Waybill (AWB)</span>
+                <span className="font-mono font-bold text-pink-600 dark:text-pink-400">{confirmedOrder.awbNumber}</span>
               </div>
             </div>
 
@@ -1313,18 +1612,18 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         )}
 
         {/* Footer Security Badges */}
-        <div className="bg-slate-50 border-t border-slate-200 px-5 py-3 flex flex-wrap items-center justify-between text-[11px] text-slate-500 gap-2">
-          <div className="flex items-center gap-2.5">
+        <div className="shrink-0 bg-slate-50 dark:bg-zinc-850 border-t border-slate-200 dark:border-zinc-800 px-4 py-2.5 sm:px-5 sm:py-3 flex flex-wrap items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-zinc-400 gap-2">
+          <div className="flex items-center gap-2">
             <span>PCI-DSS Level 1</span>
             <span>•</span>
             <span>RBI Approved</span>
             <span>•</span>
-            <span>GSTIN 27AABCK9482Q1Z8</span>
+            <span>Instant</span>
           </div>
 
-          <div className="flex items-center gap-1.5 text-pink-700 font-medium">
+          <div className="flex items-center gap-1.5 text-pink-700 dark:text-pink-400 font-medium">
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Buyer Protection Guarantee</span>
+            <span>Buyer Protection</span>
           </div>
         </div>
 

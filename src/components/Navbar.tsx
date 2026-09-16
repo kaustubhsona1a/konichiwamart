@@ -15,7 +15,9 @@ import {
   Sun,
   Moon,
   ShieldCheck,
-  ChevronDown
+  ChevronDown,
+  UserPlus,
+  LogIn
 } from 'lucide-react';
 import { ProductCategory } from '../types';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
@@ -43,6 +45,9 @@ interface NavbarProps {
   activePage?: 'store' | 'about';
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
+  isCustomerLoggedIn?: boolean;
+  customerName?: string;
+  onOpenCustomerAuth?: (tab?: 'signin' | 'register') => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -56,15 +61,18 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToProducts,
   onSelectCategory,
   storeName = 'Konichiwa.Mart',
-  storeTagline = 'Tokyo Skincare',
+  storeTagline = 'Japanese Skincare',
   logoUrl,
-  instagramUrl = 'https://www.instagram.com',
-  instagramHandle = '@konichiwa.mart',
+  instagramUrl = 'https://www.instagram.com/konichiwa_mart?stkn=MTRrM3I1a21la2cwOQ%3D%3D&utm_source=qr',
+  instagramHandle = '@konichiwa_mart',
   activePage = 'store',
   isDarkMode = false,
   onToggleTheme,
   onOpenAdmin,
-  onOpenSecurityGuide
+  onOpenSecurityGuide,
+  isCustomerLoggedIn = false,
+  customerName,
+  onOpenCustomerAuth
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -112,10 +120,36 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const handleAccountClick = () => {
     setDropdownOpen(false);
-    onOpenAccount();
+    if (isCustomerLoggedIn) {
+      onOpenAccount();
+    } else if (onOpenCustomerAuth) {
+      onOpenCustomerAuth('signin');
+    } else {
+      onOpenAccount();
+    }
   };
 
+  const logoTapCountRef = useRef(0);
+  const logoTapTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const handleLogoClick = () => {
+    logoTapCountRef.current += 1;
+    if (logoTapTimerRef.current) {
+      clearTimeout(logoTapTimerRef.current);
+    }
+
+    if (logoTapCountRef.current >= 3) {
+      logoTapCountRef.current = 0;
+      if (onOpenAdmin) {
+        onOpenAdmin();
+        return;
+      }
+    } else {
+      logoTapTimerRef.current = setTimeout(() => {
+        logoTapCountRef.current = 0;
+      }, 700);
+    }
+
     setDropdownOpen(false);
     onSelectCategory('All');
     if (onNavigateToProducts) {
@@ -234,7 +268,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     className="h-9 px-3 rounded-xl bg-stone-50 dark:bg-zinc-850 hover:bg-pink-50 dark:hover:bg-zinc-800 border border-stone-200/60 dark:border-zinc-800 text-slate-700 dark:text-zinc-200 flex items-center justify-center gap-2 transition-colors cursor-pointer text-xs font-semibold"
                   >
                     <User className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
-                    <span>Account</span>
+                    <span className="truncate max-w-[85px]">
+                      {isCustomerLoggedIn && customerName ? customerName.split(' ')[0] : 'Sign In'}
+                    </span>
                   </button>
 
                   <button
@@ -251,6 +287,30 @@ export const Navbar: React.FC<NavbarProps> = ({
                     )}
                   </button>
                 </div>
+
+                {/* Optional Customer Register Shortcut if not logged in */}
+                {!isCustomerLoggedIn && (
+                  <button
+                    id="dropdown-customer-register-btn"
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      if (onOpenCustomerAuth) {
+                        onOpenCustomerAuth('register');
+                      } else {
+                        onOpenAccount();
+                      }
+                    }}
+                    className="w-full mb-1 py-1.5 px-2.5 rounded-xl bg-rose-50/70 hover:bg-rose-100/90 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 border border-rose-200/70 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 flex items-center justify-between text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <UserPlus className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                      <span>New Customer?</span>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-rose-200/70 dark:bg-rose-900/80 px-1.5 py-0.5 rounded text-rose-800 dark:text-rose-200">
+                      Register
+                    </span>
+                  </button>
+                )}
 
                 {/* 2. Core Navigation */}
                 <div className="pt-1 border-t border-stone-100 dark:border-zinc-800/80 space-y-0.5">
@@ -362,23 +422,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     <ExternalLink className="w-3 h-3 text-emerald-500 opacity-60" />
                   </a>
                 </div>
-
-                {/* 4. Staff Portal (Discreet bottom link) */}
-                {onOpenAdmin && (
-                  <div className="pt-1 border-t border-stone-100 dark:border-zinc-800/80">
-                    <button
-                      id="dropdown-staff-portal-btn"
-                      onClick={() => {
-                        setDropdownOpen(false);
-                        onOpenAdmin();
-                      }}
-                      className="w-full h-7.5 px-2.5 rounded-lg text-[11px] font-medium text-slate-400 hover:text-pink-600 dark:text-zinc-500 dark:hover:text-pink-400 hover:bg-pink-50/40 dark:hover:bg-zinc-800/40 flex items-center justify-between cursor-pointer transition-colors"
-                    >
-                      <span>Dealer / Staff Portal</span>
-                      <span className="text-[10px] text-slate-400 dark:text-zinc-500">Manage →</span>
-                    </button>
-                  </div>
-                )}
               </div>
             )}
           </div>

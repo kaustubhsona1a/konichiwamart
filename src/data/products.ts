@@ -158,7 +158,7 @@ export const PRODUCTS: Product[] = [
     isNew: false,
     stock: 48,
     shades: [
-      { id: 'sh-01', name: '01 Tokyo Crimson', hex: '#BE123C', sku: 'LIP-VK-01' },
+      { id: 'sh-01', name: '01 Japan Crimson', hex: '#BE123C', sku: 'LIP-VK-01' },
       { id: 'sh-02', name: '02 Sakura Bloom', hex: '#E11D48', sku: 'LIP-VK-02' },
       { id: 'sh-04', name: '04 Dusty Rose', hex: '#BE185D', sku: 'LIP-VK-04' },
       { id: 'sh-05', name: '05 Kyoto Warm Nude', hex: '#B45309', sku: 'LIP-VK-05' }
@@ -332,7 +332,7 @@ export const PRODUCTS: Product[] = [
   {
     id: 'camellia-tinted-lip-treatment-oil',
     title: 'Tsubaki Camellia Tinted Lip Treatment Oil',
-    subtitle: 'Nourishing Glass Shine Treatment with Sheer Tokyo Tint',
+    subtitle: 'Nourishing Glass Shine Treatment with Sheer Japan Tint',
     price: 990,
     originalPrice: 1200,
     rating: 4.86,
@@ -452,7 +452,7 @@ export const PRODUCTS: Product[] = [
     skinConcerns: ['Glow & Dullness', 'Blemishes & Texture', 'Hydration'],
     routine: 'AM/PM',
     volume: '30ml',
-    badges: ['Fresh Micro-Capsules', 'Dual Vitamin C', 'Instant Burst Delivery', 'Tokyo Favorite'],
+    badges: ['Fresh Micro-Capsules', 'Dual Vitamin C', 'Instant Burst Delivery', 'Japan Favorite'],
     image: '/products/capsule-serum-vitamin-c.jpg',
     secondaryImage: 'https://d2w53g1q050m78.cloudfront.net/shopcapsuleserum/uploads/top/serum_category_pc.jpg',
     accentColor: '#EAB308',

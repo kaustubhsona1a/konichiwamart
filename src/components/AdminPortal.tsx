@@ -21,11 +21,16 @@ import {
   RotateCcw,
   Store,
   Trash2,
-  Menu
+  Menu,
+  Video,
+  FolderPlus,
+  Loader2,
+  Mail
 } from 'lucide-react';
-import { Order, Product, ProductCategory, SiteSettings } from '../types';
+import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
+import { ReelsManager } from './admin/ReelsManager';
 
 // Client-side image optimizer to compress direct photos into fast-loading web images
 const resizeAndOptimizeImage = (file: File): Promise<string> => {
@@ -88,6 +93,9 @@ interface AdminPortalProps {
   operatorEmail?: string;
   siteSettings: SiteSettings;
   onUpdateSiteSettings: (settings: Partial<SiteSettings>) => void;
+  reels?: ReelItem[];
+  onUpdateReels?: (reels: ReelItem[]) => void;
+  initialTab?: 'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels';
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -104,9 +112,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onLogout,
   operatorEmail = 'dealer@konichiwamart.com',
   siteSettings,
-  onUpdateSiteSettings
+  onUpdateSiteSettings,
+  reels = [],
+  onUpdateReels,
+  initialTab
 }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'settings'>('dashboard');
+  const validInitialTab = (typeof initialTab === 'string' && ['dashboard', 'inventory', 'orders', 'settings', 'reels'].includes(initialTab))
+    ? initialTab
+    : 'dashboard';
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels'>(validInitialTab);
+
+  React.useEffect(() => {
+    if (typeof initialTab === 'string' && ['dashboard', 'inventory', 'orders', 'settings', 'reels'].includes(initialTab)) {
+      setActiveTab(initialTab as any);
+    }
+  }, [initialTab]);
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
@@ -116,11 +136,96 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [removeToastMessage, setRemoveToastMessage] = useState<string | null>(null);
 
+  // Resend Email Test State
+  const [testEmailRecipient, setTestEmailRecipient] = useState('kaustubhsona1a@gmail.com');
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [testEmailStatus, setTestEmailStatus] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleSendTestEmail = async () => {
+    if (!testEmailRecipient.trim()) return;
+    setIsSendingTestEmail(true);
+    setTestEmailStatus(null);
+    try {
+      const res = await fetch('/api/send-test-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: testEmailRecipient.trim() })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestEmailStatus({ success: true, message: data.message || 'Test email dispatched successfully!' });
+      } else {
+        setTestEmailStatus({ success: false, message: data.error || 'Failed to send test email.' });
+      }
+    } catch (err: any) {
+      setTestEmailStatus({ success: false, message: err.message || 'Network error sending test email.' });
+    } finally {
+      setIsSendingTestEmail(false);
+    }
+  };
+
   // Add Product Modal / State inside Portal
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newSubtitle, setNewSubtitle] = useState('');
   const [newCategory, setNewCategory] = useState<ProductCategory>('Face Wash');
+  const [categoriesList, setCategoriesList] = useState<string[]>([
+    'Face Wash', 'Face Mask', 'Toner', 'Sunscreen', 'Lips', 'Serum', 'Cleansing Oil', 'Moisturizer', 'Skincare'
+  ]);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCustomCategoryName, setNewCustomCategoryName] = useState('');
+  const [isSavingCategory, setIsSavingCategory] = useState(false);
+  const [categorySaveMsg, setCategorySaveMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Sync available categories from Supabase on load
+  React.useEffect(() => {
+    fetch('/api/categories')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.categories) && data.categories.length > 0) {
+          const names = data.categories.map((c: any) => c.name);
+          setCategoriesList((prev) => Array.from(new Set([...prev, ...names])));
+        }
+      })
+      .catch((err) => {
+        console.warn('[AdminPortal] Categories fetch notice:', err);
+      });
+  }, []);
+
+  // Save new category directly into Supabase and local storage
+  const handleSaveNewCategory = async () => {
+    const trimmed = newCustomCategoryName.trim();
+    if (!trimmed) {
+      setCategorySaveMsg({ type: 'error', text: 'Please enter a category name.' });
+      return;
+    }
+    setIsSavingCategory(true);
+    setCategorySaveMsg(null);
+    try {
+      const res = await fetch('/api/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCategoriesList((prev) => Array.from(new Set([...prev, trimmed])));
+        setNewCategory(trimmed);
+        setCategorySaveMsg({ type: 'success', text: `Category "${trimmed}" saved to Supabase!` });
+        setTimeout(() => {
+          setIsCreatingCategory(false);
+          setNewCustomCategoryName('');
+          setCategorySaveMsg(null);
+        }, 1200);
+      } else {
+        setCategorySaveMsg({ type: 'error', text: data.error || 'Failed to save category in Supabase.' });
+      }
+    } catch (err: any) {
+      setCategorySaveMsg({ type: 'error', text: err?.message || 'Error connecting to server.' });
+    } finally {
+      setIsSavingCategory(false);
+    }
+  };
   const [newPrice, setNewPrice] = useState('750');
   const [newOriginalPrice, setNewOriginalPrice] = useState('950');
   const [newStock, setNewStock] = useState('50');
@@ -323,7 +428,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const newProduct: Product = {
       id: `km-${Date.now()}`,
       title: newTitle.trim(),
-      subtitle: newSubtitle.trim() || `${newCategory} • Authentic Tokyo Skincare`,
+      subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
       price: parsedPrice,
       originalPrice: parsedOriginal,
       rating: 4.9,
@@ -333,7 +438,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       skinConcerns: ['Hydration', 'Glow & Dullness'],
       routine: 'AM/PM',
       volume: newVolume || '100ml',
-      badges: ['Tokyo Arrival', 'Authentic Import'],
+      badges: ['Japan Arrival', 'Authentic Import'],
       image: mainCover,
       secondaryImage: secondary,
       images: newPhotos,
@@ -375,7 +480,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex bg-[#FAF7F2] text-slate-800 overflow-hidden font-sans select-none animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[90] flex bg-[#FAF7F2] dark:bg-zinc-950 text-slate-800 dark:text-zinc-100 overflow-hidden font-sans select-text animate-in fade-in duration-200 admin-portal-root">
       
       {/* ========================================================================= */}
       {/* 1. LEFT SIDEBAR NAVIGATION - DESKTOP */}
@@ -459,6 +564,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
                   {orders.length}
+                </span>
+              </button>
+
+              {/* COMMUNITY REELS TAB */}
+              <button
+                onClick={() => setActiveTab('reels')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl transition-all cursor-pointer text-left font-medium ${
+                  activeTab === 'reels'
+                    ? 'bg-pink-50 text-pink-700 shadow-xs font-bold border-l-4 border-pink-600'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-stone-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Video className={`w-4 h-4 ${activeTab === 'reels' ? 'text-pink-600' : 'text-slate-400'}`} />
+                  <span className="tracking-wide">COMMUNITY REELS</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                  {reels.length}
                 </span>
               </button>
 
@@ -584,6 +707,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
                     {orders.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('reels'); setMobileDrawerOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                    activeTab === 'reels'
+                      ? 'bg-pink-50 text-pink-700 border-l-4 border-pink-600 shadow-2xs'
+                      : 'text-slate-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <Video className={`w-4 h-4 ${activeTab === 'reels' ? 'text-pink-600' : 'text-slate-400'}`} />
+                    <span>Community Reels</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                    {reels.length}
                   </span>
                 </button>
 
@@ -982,7 +1122,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
               {/* Category Filter Pills */}
               <div className="flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
-                {['All', 'Face Wash', 'Face Mask', 'Toner', 'Sunscreen', 'Lips', 'Serum'].map((cat) => (
+                {['All', ...categoriesList].map((cat) => (
                   <button
                     key={cat}
                     onClick={() => setCategoryFilter(cat)}
@@ -1772,7 +1912,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         type="text"
                         value={tempStoreTagline}
                         onChange={(e) => setTempStoreTagline(e.target.value)}
-                        placeholder="e.g. Tokyo Skincare"
+                        placeholder="e.g. Japanese Skincare"
                         className="w-full px-3.5 py-2.5 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 text-xs focus:outline-none focus:bg-white focus:border-pink-500"
                       />
                     </div>
@@ -1781,7 +1921,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       onClick={() => {
                         onUpdateSiteSettings({
                           storeName: tempStoreName.trim() || 'Konichiwa.Mart',
-                          storeTagline: tempStoreTagline.trim() || 'Tokyo Skincare'
+                          storeTagline: tempStoreTagline.trim() || 'Japanese Skincare'
                         });
                         setSettingsSuccessMsg('Brand name and tagline saved!');
                         setTimeout(() => setSettingsSuccessMsg(null), 3000);
@@ -1892,7 +2032,106 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
+              {/* MODULE 4: RESEND EMAIL DISPATCH & LIVE TEST */}
+              <div className="bg-white border border-pink-100 rounded-2xl p-6 space-y-5 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-600">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm tracking-wider uppercase text-slate-900">
+                        RESEND EMAIL & ORDER NOTIFICATIONS
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Automated customer order confirmations, GST tax invoices, and shipment tracking dispatch.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="self-start sm:self-center inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Domain: konichiwamart.com (Ready)
+                  </span>
+                </div>
+
+                <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-3">
+                  <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Sender Configuration
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">From Address</span>
+                      <span className="font-mono font-medium text-slate-800">orders@konichiwamart.com</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Verified Sending Domain</span>
+                      <span className="font-mono font-medium text-slate-800">konichiwamart.com</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-1">
+                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                    Send Live Test Email
+                  </label>
+                  <p className="text-xs text-slate-500">
+                    Verify that your Resend API key and domain configuration can deliver emails directly to an inbox.
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="email"
+                      value={testEmailRecipient}
+                      onChange={(e) => setTestEmailRecipient(e.target.value)}
+                      placeholder="Enter recipient email address..."
+                      className="flex-1 px-3.5 py-2.5 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 text-xs focus:outline-none focus:bg-white focus:border-pink-500 font-sans"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSendTestEmail}
+                      disabled={isSendingTestEmail}
+                      className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50"
+                    >
+                      {isSendingTestEmail ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        <span>Send Test Email</span>
+                      )}
+                    </button>
+                  </div>
+
+                  {testEmailStatus && (
+                    <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 animate-in fade-in ${
+                      testEmailStatus.success 
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
+                        : 'bg-rose-50 border-rose-200 text-rose-800'
+                    }`}>
+                      {testEmailStatus.success ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                      )}
+                      <span>{testEmailStatus.message}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
             </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB: COMMUNITY REELS (Update Links, Thumbnails, and Products)              */}
+          {/* ========================================================================= */}
+          {activeTab === 'reels' && (
+            <ReelsManager
+              reels={reels}
+              onUpdateReels={onUpdateReels || (() => {})}
+              products={products}
+            />
           )}
 
         </div>
@@ -1958,25 +2197,96 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                    Category
-                  </label>
-                  <select
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value as ProductCategory)}
-                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
-                  >
-                    <option value="Face Wash">Face Wash</option>
-                    <option value="Face Mask">Face Mask</option>
-                    <option value="Toner">Toner</option>
-                    <option value="Sunscreen">Sunscreen</option>
-                    <option value="Lips">Lips</option>
-                    <option value="Serum">Serum</option>
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-slate-700 uppercase tracking-wider text-[11px]">
+                      Category
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCreatingCategory(!isCreatingCategory);
+                        setCategorySaveMsg(null);
+                      }}
+                      className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <FolderPlus className="w-3 h-3" />
+                      <span>{isCreatingCategory ? 'Cancel' : '+ New Category'}</span>
+                    </button>
+                  </div>
+
+                  {isCreatingCategory ? (
+                    <div className="p-3 rounded-xl bg-pink-50/70 border border-pink-200 space-y-2 animate-in fade-in">
+                      <div className="text-[11px] font-bold text-pink-900">Add New Category to Supabase</div>
+                      <input
+                        type="text"
+                        value={newCustomCategoryName}
+                        onChange={(e) => setNewCustomCategoryName(e.target.value)}
+                        placeholder="e.g. Cleansing Balm"
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-pink-300 text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-pink-500"
+                        autoFocus
+                      />
+                      {categorySaveMsg && (
+                        <div className={`text-[11px] font-medium ${categorySaveMsg.type === 'success' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {categorySaveMsg.text}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleSaveNewCategory}
+                          disabled={isSavingCategory || !newCustomCategoryName.trim()}
+                          className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
+                        >
+                          {isSavingCategory ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              <span>Saving to Supabase...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3 h-3" />
+                              <span>Save to Supabase</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsCreatingCategory(false);
+                            setCategorySaveMsg(null);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-600 hover:bg-stone-100 text-xs font-medium cursor-pointer"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <select
+                      value={newCategory}
+                      onChange={(e) => {
+                        if (e.target.value === '__ADD_NEW__') {
+                          setIsCreatingCategory(true);
+                        } else {
+                          setNewCategory(e.target.value as ProductCategory);
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
+                    >
+                      {categoriesList.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                      <option value="__ADD_NEW__" className="text-pink-600 font-bold">
+                        + Create & Save New Category...
+                      </option>
+                    </select>
+                  )}
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 text-[11px]">
                     Volume / Size
                   </label>
                   <input
@@ -2282,7 +2592,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {/* Orders */}
         <button
           onClick={() => setActiveTab('orders')}
-          className={`relative flex flex-col items-center py-1 px-3 rounded-xl transition-colors cursor-pointer min-w-[64px] ${
+          className={`relative flex flex-col items-center py-1 px-2.5 rounded-xl transition-colors cursor-pointer min-w-[58px] ${
             activeTab === 'orders' ? 'text-pink-600 font-bold' : 'text-slate-400 hover:text-slate-600'
           }`}
         >
@@ -2295,6 +2605,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             )}
           </div>
           <span className="text-[10px] tracking-tight">Orders</span>
+        </button>
+
+        {/* Reels */}
+        <button
+          onClick={() => setActiveTab('reels')}
+          className={`relative flex flex-col items-center py-1 px-2.5 rounded-xl transition-colors cursor-pointer min-w-[58px] ${
+            activeTab === 'reels' ? 'text-pink-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <div className="relative">
+            <Video className="w-5 h-5 mb-0.5" />
+            <span className="absolute -top-1 -right-2 text-[9px] bg-pink-100 text-pink-700 font-extrabold px-1 rounded-full border border-pink-200">
+              {reels.length}
+            </span>
+          </div>
+          <span className="text-[10px] tracking-tight">Reels</span>
         </button>
 
         {/* Settings */}

@@ -42,8 +42,6 @@ export interface InvoiceData {
 export const SELLER_DETAILS = {
   companyName: 'Konichiwa Mart Retail Pvt. Ltd.',
   tradeName: 'Konichiwa Mart - Boutique Japanese Beauty & Cosmetics',
-  gstin: '27AABCK1234F1Z5',
-  pan: 'AABCK1234F',
   addressLine1: 'Unit 402, Trade World B-Wing, Kamala Mills Compound',
   addressLine2: 'Lower Parel West, Mumbai',
   city: 'Mumbai',
@@ -152,7 +150,7 @@ export function generateGSTInvoiceHtml(data: InvoiceData): string {
         <div class="logo-brand">${SELLER_DETAILS.tradeName}</div>
         <div>${SELLER_DETAILS.addressLine1}</div>
         <div>${SELLER_DETAILS.addressLine2}, ${SELLER_DETAILS.city} - ${SELLER_DETAILS.pincode}</div>
-        <div><strong>GSTIN:</strong> ${SELLER_DETAILS.gstin} | <strong>State:</strong> Maharashtra (Code: 27)</div>
+        <div><strong>State:</strong> Maharashtra (Code: 27)</div>
       </div>
       <div>
         <div class="invoice-title">TAX INVOICE</div>

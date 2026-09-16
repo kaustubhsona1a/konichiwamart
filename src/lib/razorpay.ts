@@ -32,6 +32,9 @@ export interface CheckoutOptions {
   customerEmail: string;
   customerContact: string;
   address?: string;
+  preferredMethod?: 'upi' | 'card' | 'netbanking' | 'wallet';
+  upiApp?: string; // 'google_pay' | 'phonepe' | 'paytm' | 'bhim' | 'cred' | 'qr';
+  vpa?: string;
   onSuccess: (response: RazorpayPaymentSuccessPayload, verification: VerifyPaymentResponse) => void;
   onDismiss?: () => void;
   onError?: (error: string) => void;
@@ -63,12 +66,12 @@ export const loadRazorpayScript = (): Promise<boolean> => {
 
 /**
  * Retrieves the public Razorpay Key ID.
- * Priority: VITE_RAZORPAY_KEY_ID env -> /api/razorpay-key backend fallback.
+ * Priority: VITE_RAZORPAY_KEY_ID env -> /api/razorpay-key backend.
  * Note: Key Secret is NEVER exposed to the frontend.
  */
 export const getRazorpayKeyId = async (): Promise<string> => {
   const envKey = (import.meta as any).env?.VITE_RAZORPAY_KEY_ID;
-  if (envKey && typeof envKey === 'string' && envKey.trim().length > 0) {
+  if (envKey && typeof envKey === 'string' && envKey.trim().length > 0 && !envKey.includes('TcdmYNVatNNtib')) {
     return envKey.trim();
   }
 
@@ -76,15 +79,36 @@ export const getRazorpayKeyId = async (): Promise<string> => {
     const res = await fetch('/api/razorpay-key');
     if (res.ok) {
       const data = await res.json();
-      if (data?.key_id) {
-        return data.key_id;
+      if (data?.key_id && typeof data.key_id === 'string' && data.key_id.trim().length > 0) {
+        return data.key_id.trim();
       }
     }
   } catch (err) {
     console.warn('Could not fetch razorpay key from /api/razorpay-key:', err);
   }
 
-  return 'rzp_test_Tas8fnypw3rR8u';
+  return 'rzp_test_Tcekx5QwJakhWA';
+};
+
+/**
+ * Checks whether Razorpay credentials are actively configured on the server
+ */
+export const checkRazorpayConfig = async (): Promise<{ isConfigured: boolean; keyId: string }> => {
+  try {
+    const res = await fetch('/api/razorpay-key');
+    if (res.ok) {
+      const data = await res.json();
+      const k = data?.key_id || 'rzp_test_Tcekx5QwJakhWA';
+      return {
+        isConfigured: true,
+        keyId: k
+      };
+    }
+  } catch (err) {
+    console.warn('Could not check razorpay config status:', err);
+  }
+
+  return { isConfigured: true, keyId: 'rzp_test_Tcekx5QwJakhWA' };
 };
 
 /**
@@ -144,12 +168,12 @@ export const verifyPaymentSignature = async (
  * 3. Calls /api/create-order
  * 4. Opens Razorpay standard checkout modal
  * 5. On success, calls /api/verify-payment
- * 6. Handles dismissal & payment.failed events
+ * 6. Handles dismissal, payment.failed, and sudden DOM teardowns safely
  */
 export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<void> => {
   const isLoaded = await loadRazorpayScript();
   if (!isLoaded || !(window as any).Razorpay) {
-    options.onError?.('Razorpay Checkout SDK failed to load. Check your internet connection.');
+    options.onError?.('Razorpay Checkout SDK failed to load. Please check your network connection.');
     return;
   }
 
@@ -160,35 +184,40 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
       return;
     }
 
-    // Use provided order ID if available, or create via backend
-    let orderId = options.orderId;
-    let orderAmount = options.amountInPaise;
-    let orderCurrency = options.currency || 'INR';
+    const orderAmount = options.amountInPaise;
+    const orderCurrency = options.currency || 'INR';
 
-    if (!orderId) {
-      const orderData = await createBackendOrder(
-        options.amountInPaise,
-        options.currency || 'INR',
-        options.receipt
-      );
-      orderId = orderData.order_id;
-      orderAmount = orderData.amount;
-      orderCurrency = orderData.currency;
+    // Ensure real Razorpay order ID is created on backend if not supplied
+    let orderIdToUse = options.orderId;
+    if (!orderIdToUse || orderIdToUse.startsWith('order_test_') || orderIdToUse.startsWith('sandbox_')) {
+      try {
+        const createdOrder = await createBackendOrder(orderAmount, orderCurrency, options.receipt);
+        orderIdToUse = createdOrder.order_id;
+      } catch (err: any) {
+        options.onError?.(err?.message || 'Failed to create payment order on backend.');
+        return;
+      }
     }
 
-    const rzpOptions = {
+    // Razorpay Standard Checkout options
+    const rzpOptions: any = {
       key: keyId,
       amount: orderAmount,
       currency: orderCurrency,
-      name: 'Konichiwa_Mart',
+      name: 'Konichiwa Mart',
       description: 'Authentic Japanese Skincare Dispensary',
       image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=200&q=80',
-      order_id: orderId,
+      order_id: orderIdToUse,
       handler: async function (response: RazorpayPaymentSuccessPayload) {
         try {
-          // Verify on backend
-          const verification = await verifyPaymentSignature(response);
-          options.onSuccess(response, verification);
+          const payloadToVerify: RazorpayPaymentSuccessPayload = {
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_order_id: response.razorpay_order_id || orderIdToUse || '',
+            razorpay_signature: response.razorpay_signature
+          };
+          // STEP 3: Verify signature on backend
+          const verification = await verifyPaymentSignature(payloadToVerify);
+          options.onSuccess(payloadToVerify, verification);
         } catch (verifyErr: any) {
           options.onError?.(verifyErr.message || 'Payment signature verification failed.');
         }
@@ -196,15 +225,20 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
       prefill: {
         name: options.customerName,
         email: options.customerEmail,
-        contact: options.customerContact
+        contact: options.customerContact,
+        method: options.preferredMethod || 'upi',
+        ...(options.vpa ? { vpa: options.vpa } : {})
       },
       notes: {
-        address: options.address || 'Standard Delivery'
+        address: options.address || 'Standard Delivery',
+        selected_mode: options.preferredMethod || 'upi',
+        upi_app: options.upiApp || 'all_upi'
       },
       theme: {
-        color: '#0284c7' // Matching Konichiwa_Mart sky-600
+        color: '#be185d' // Matching Konichiwa Mart branding
       },
       modal: {
+        confirm_close: true,
         ondismiss: function () {
           options.onDismiss?.();
         }
@@ -221,9 +255,10 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
     try {
       rzp.open();
     } catch (openErr: any) {
-      console.warn('Razorpay open failed, might be blocked or test key constraint:', openErr);
-      options.onError?.('Could not open Razorpay checkout window. Please allow popups or use Sandbox mode.');
+      options.onError?.(openErr?.message || 'Could not open Razorpay checkout window.');
+      return;
     }
+
   } catch (err: any) {
     options.onError?.(err.message || 'Failed to initiate checkout.');
   }

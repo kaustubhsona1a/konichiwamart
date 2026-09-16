@@ -29,7 +29,9 @@ export interface OperatorSession {
   email: string;
   role: 'operator' | 'admin';
   authenticatedAt: string;
-  source: 'supabase' | 'local_secure';
+  source: 'supabase';
+  accessToken?: string;
+  userId?: string;
 }
 
 const STORAGE_KEY = 'km_operator_session_auth';
@@ -53,71 +55,91 @@ export const setStoredOperatorSession = (session: OperatorSession | null): void 
 };
 
 /**
- * Authenticates the store operator.
- * If Supabase credentials exist, it performs real supabase.auth.signInWithPassword.
- * Otherwise, it validates against secure local operator credentials.
+ * Pure Supabase Authentication for Store Operators.
+ * Signs in using real supabase.auth.signInWithPassword.
  */
 export const operatorLogin = async (
   email: string,
   pass: string
 ): Promise<{ success: boolean; error?: string; session?: OperatorSession }> => {
-  const cleanEmail = email.trim().toLowerCase();
-  const client = getSupabaseClient();
+  const cleanEmail = (email || '').trim();
+  const cleanPass = (pass || '').trim();
 
+  if (!cleanEmail || !cleanPass) {
+    return { success: false, error: 'Please enter both your operator email and password.' };
+  }
+
+  // 1. Direct Client-side Supabase Auth
+  const client = getSupabaseClient();
   if (client) {
     try {
       const { data, error } = await client.auth.signInWithPassword({
         email: cleanEmail,
-        password: pass
+        password: cleanPass
       });
 
-      if (error) {
-        return { success: false, error: error.message };
+      if (!error && data?.user && data?.session) {
+        const session: OperatorSession = {
+          email: data.user.email || cleanEmail,
+          role: (data.user.user_metadata?.role as any) || 'operator',
+          authenticatedAt: new Date().toISOString(),
+          source: 'supabase',
+          accessToken: data.session.access_token,
+          userId: data.user.id
+        };
+        setStoredOperatorSession(session);
+        return { success: true, session };
       }
 
-      const session: OperatorSession = {
-        email: data.user?.email || cleanEmail,
-        role: 'operator',
-        authenticatedAt: new Date().toISOString(),
-        source: 'supabase'
-      };
-      setStoredOperatorSession(session);
-      return { success: true, session };
+      if (error) {
+        // If client-side failed with an explicit Supabase credential error, report it directly
+        return { success: false, error: error.message };
+      }
     } catch (err: any) {
-      return { success: false, error: err?.message || 'Failed to authenticate with Supabase' };
+      console.warn('[OperatorLogin] Client-side Supabase notice, trying server proxy:', err?.message);
     }
   }
 
-  // Local Secure Operator Passkey mode (when VITE_SUPABASE_URL is not yet provided)
-  // Accepts standard admin email or "admin" with passkey "admin123" or any custom operator password >= 6 chars
-  if (pass === 'admin123' || pass === 'konichiwa2026' || (cleanEmail.includes('admin') && pass.length >= 6)) {
-    const session: OperatorSession = {
-      email: cleanEmail.includes('@') ? cleanEmail : `${cleanEmail}@konichiwamart.com`,
-      role: 'operator',
-      authenticatedAt: new Date().toISOString(),
-      source: 'local_secure'
+  // 2. Server-side Supabase Auth Proxy (if client direct network is blocked)
+  try {
+    const res = await fetch('/api/operator/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, password: cleanPass })
+    });
+    const json = await res.json();
+    if (res.ok && json.success && json.session) {
+      setStoredOperatorSession(json.session);
+      return { success: true, session: json.session };
+    }
+    return {
+      success: false,
+      error: json.error || 'Invalid Supabase login credentials. Please verify your email and password.'
     };
-    setStoredOperatorSession(session);
-    return { success: true, session };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Failed to connect to Supabase Auth service.'
+    };
   }
-
-  return { 
-    success: false, 
-    error: 'Invalid operator credentials. Use password "admin123" or configure your Supabase Auth credentials in settings.' 
-  };
 };
 
+/**
+ * Sign out of Supabase Auth
+ */
 export const operatorLogout = async (): Promise<void> => {
   const client = getSupabaseClient();
   if (client) {
     try {
       await client.auth.signOut();
-    } catch {
-      // ignore
+    } catch (e) {
+      console.warn('Supabase signOut notice:', e);
     }
   }
   setStoredOperatorSession(null);
 };
+
+export const operatorSignOut = operatorLogout;
 
 // ==============================================================================
 // CUSTOMER AUTHENTICATION & PROFILE MANAGEMENT
@@ -145,15 +167,48 @@ export const customerSignUp = async (
   phone: string
 ): Promise<CustomerAuthResult> => {
   const cleanEmail = email.trim().toLowerCase();
-  const client = getSupabaseClient();
+  const cleanPass = password.trim();
+  const cleanName = fullName.trim();
+  const cleanPhone = phone.trim();
 
+  // Guard: Operator email reservation (only reserved administrative staff accounts)
+  if (cleanEmail === 'admin@konichiwamart.com') {
+    return {
+      success: false,
+      error: 'This email is reserved for store operations. Operator accounts cannot register as customers.'
+    };
+  }
+
+  // 1. Try server provision endpoint for instant auto-confirmed registration in Supabase
+  try {
+    const res = await fetch('/api/customer/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: cleanEmail,
+        password: cleanPass,
+        fullName: cleanName,
+        phone: cleanPhone
+      })
+    });
+    const json = await res.json();
+    if (res.ok && json.success) {
+      // Auto sign-in to get active Supabase session
+      return await customerSignIn(cleanEmail, cleanPass);
+    }
+    if (!res.ok && json.error) {
+      return { success: false, error: json.error };
+    }
+  } catch (_) {}
+
+  // 2. Direct Supabase Client fallback
+  const client = getSupabaseClient();
   if (!client) {
-    // Local session simulation for instant preview when env vars are pending
     const localUser = {
       id: `usr_${Date.now()}`,
       email: cleanEmail,
-      name: fullName,
-      phone
+      name: cleanName,
+      phone: cleanPhone
     };
     localStorage.setItem('km_customer_session', JSON.stringify(localUser));
     return { success: true, user: localUser };
@@ -162,11 +217,11 @@ export const customerSignUp = async (
   try {
     const { data, error } = await client.auth.signUp({
       email: cleanEmail,
-      password,
+      password: cleanPass,
       options: {
         data: {
-          full_name: fullName,
-          phone
+          full_name: cleanName,
+          phone: cleanPhone
         }
       }
     });
@@ -178,8 +233,8 @@ export const customerSignUp = async (
     const user = {
       id: data.user?.id || `usr_${Date.now()}`,
       email: data.user?.email || cleanEmail,
-      name: fullName,
-      phone
+      name: cleanName,
+      phone: cleanPhone
     };
 
     localStorage.setItem('km_customer_session', JSON.stringify(user));
@@ -197,23 +252,51 @@ export const customerSignIn = async (
   password: string
 ): Promise<CustomerAuthResult> => {
   const cleanEmail = email.trim().toLowerCase();
-  const client = getSupabaseClient();
+  const cleanPass = password.trim();
 
-  if (!client) {
-    const localUser = {
-      id: `usr_local_${Date.now()}`,
-      email: cleanEmail,
-      name: cleanEmail.split('@')[0],
-      phone: '+91 98201 45892'
+  // Guard 1: Direct operator email check (only dedicated store admin email)
+  if (cleanEmail === 'admin@konichiwamart.com') {
+    return {
+      success: false,
+      error: 'This account is designated for Store Operators and cannot be used in the Customer Sign-In portal. Please use the Staff / Dealer Access portal.'
     };
-    localStorage.setItem('km_customer_session', JSON.stringify(localUser));
-    return { success: true, user: localUser };
+  }
+
+  // 1. Authoritative Backend Authentication via Supabase
+  try {
+    const res = await fetch('/api/customer/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, password: cleanPass })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        error: data.error || 'Invalid customer email or password.'
+      };
+    }
+    if (data.user) {
+      localStorage.setItem('km_customer_session', JSON.stringify(data.user));
+      return { success: true, user: data.user };
+    }
+  } catch (apiErr) {
+    console.warn('[Auth] Server login endpoint exception:', apiErr);
+  }
+
+  // 2. Direct client fallback ONLY if client credentials exist
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      success: false,
+      error: 'Unable to connect to authentication services. Please verify your credentials and network connection.'
+    };
   }
 
   try {
     const { data, error } = await client.auth.signInWithPassword({
       email: cleanEmail,
-      password
+      password: cleanPass
     });
 
     if (error) {
@@ -221,6 +304,17 @@ export const customerSignIn = async (
     }
 
     const meta = data.user?.user_metadata || {};
+    const role = (meta.role || '').toLowerCase();
+
+    // Guard 2: Reject any account configured as operator or admin
+    if (role === 'operator' || role === 'admin') {
+      await client.auth.signOut().catch(() => {});
+      return {
+        success: false,
+        error: 'This account is designated for Store Operators and cannot be used in the Customer Sign-In portal. Please use the Staff / Dealer Access portal.'
+      };
+    }
+
     const user = {
       id: data.user?.id || '',
       email: data.user?.email || cleanEmail,
@@ -251,6 +345,37 @@ export const customerSignOut = async (): Promise<void> => {
 };
 
 /**
+ * Customer Forgot Password (sends reset instructions via Supabase)
+ */
+export const customerForgotPassword = async (email: string): Promise<{ success: boolean; message: string }> => {
+  const cleanEmail = email.trim().toLowerCase();
+  try {
+    const res = await fetch('/api/customer/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to send password reset email.');
+    }
+    return { success: true, message: data.message || 'Password reset link sent to your email.' };
+  } catch (err: any) {
+    const client = getSupabaseClient();
+    if (client) {
+      try {
+        const { error } = await client.auth.resetPasswordForEmail(cleanEmail);
+        if (error) throw error;
+        return { success: true, message: `Password reset instructions sent to ${cleanEmail}.` };
+      } catch (clientErr: any) {
+        throw new Error(clientErr.message || 'Password reset failed.');
+      }
+    }
+    throw new Error(err.message || 'Could not send password reset email.');
+  }
+};
+
+/**
  * Get active customer session
  */
 export const getActiveCustomerSession = () => {
@@ -264,24 +389,64 @@ export const getActiveCustomerSession = () => {
 };
 
 /**
- * Fetch Saved Addresses from Supabase
+ * Fetch Saved Addresses from Supabase (Server endpoint first, direct fallback)
  */
-export const fetchCustomerAddressesFromSupabase = async (customerId: string) => {
+export const fetchCustomerAddressesFromSupabase = async (customerId?: string, email?: string) => {
+  try {
+    const params = new URLSearchParams();
+    if (customerId) params.set('customerId', customerId);
+    if (email) params.set('email', email);
+
+    const res = await fetch(`/api/customer/addresses?${params.toString()}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.addresses)) {
+        return json.addresses;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[Address Fetch] Server proxy failed, trying direct client:', apiErr);
+  }
+
   const client = getSupabaseClient();
-  if (!client || !customerId) return [];
+  if (!client || (!customerId && !email)) return [];
 
   try {
+    let resolvedId = customerId;
+    if (!resolvedId && email) {
+      const { data: prof } = await client
+        .from('customer_profiles')
+        .select('id')
+        .ilike('email', email.trim().toLowerCase())
+        .maybeSingle();
+      if (prof?.id) resolvedId = prof.id;
+    }
+
+    if (!resolvedId) return [];
+
     const { data, error } = await client
       .from('customer_addresses')
       .select('*')
-      .eq('customer_id', customerId)
+      .eq('customer_id', resolvedId)
+      .order('is_default', { ascending: false })
       .order('created_at', { ascending: false });
 
     if (error) {
       console.warn('[Supabase] Failed to fetch customer addresses:', error.message);
       return [];
     }
-    return data || [];
+    return (data || []).map((a: any) => ({
+      id: a.id,
+      fullName: a.full_name,
+      phone: a.phone,
+      addressLine1: a.address_line1,
+      addressLine2: a.address_line2,
+      city: a.city,
+      state: a.state,
+      pincode: a.pincode,
+      tag: a.tag || 'Home',
+      isDefault: Boolean(a.is_default)
+    }));
   } catch (err) {
     console.warn('[Supabase] Address fetch error:', err);
     return [];
@@ -289,7 +454,7 @@ export const fetchCustomerAddressesFromSupabase = async (customerId: string) => 
 };
 
 /**
- * Save Address to Supabase
+ * Save Address to Supabase (Server endpoint first, direct fallback)
  */
 export const saveAddressToSupabase = async (
   customerId: string,
@@ -303,16 +468,45 @@ export const saveAddressToSupabase = async (
     pincode: string;
     tag?: string;
     isDefault?: boolean;
-  }
+  },
+  email?: string
 ) => {
+  try {
+    const res = await fetch('/api/customer/address', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerId, email, address })
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && json.address) {
+        return json.address;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[Address Save] Server proxy error:', apiErr);
+  }
+
   const client = getSupabaseClient();
-  if (!client || !customerId) return null;
+  if (!client) return null;
 
   try {
+    let resolvedId = customerId;
+    if ((!resolvedId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedId)) && email) {
+      const { data: prof } = await client
+        .from('customer_profiles')
+        .select('id')
+        .ilike('email', email.trim().toLowerCase())
+        .maybeSingle();
+      if (prof?.id) resolvedId = prof.id;
+    }
+
+    if (!resolvedId) return null;
+
     const { data, error } = await client
       .from('customer_addresses')
       .insert({
-        customer_id: customerId,
+        customer_id: resolvedId,
         full_name: address.fullName,
         phone: address.phone,
         address_line1: address.addressLine1,
@@ -338,22 +532,73 @@ export const saveAddressToSupabase = async (
 };
 
 /**
- * Fetch Customer Orders from Supabase
+ * Delete Address from Supabase
  */
-export const fetchCustomerOrdersFromSupabase = async (customerId: string, email: string) => {
+export const deleteCustomerAddressFromSupabase = async (id: string, email?: string) => {
+  try {
+    const q = email ? `?email=${encodeURIComponent(email.trim().toLowerCase())}` : '';
+    await fetch(`/api/customer/address/${encodeURIComponent(id)}${q}`, { method: 'DELETE' });
+  } catch (err) {
+    console.warn('[Supabase] Delete address server error:', err);
+  }
   const client = getSupabaseClient();
-  if (!client) return [];
+  if (client) {
+    try {
+      await client.from('customer_addresses').delete().eq('id', id);
+    } catch (_) {}
+  }
+};
+
+/**
+ * Set Default Address in Supabase
+ */
+export const setDefaultAddressInSupabase = async (id: string, customerId?: string, email?: string) => {
+  try {
+    await fetch(`/api/customer/address/${encodeURIComponent(id)}/default`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ customerId, email })
+    });
+  } catch (err) {
+    console.warn('[Supabase] Set default address server error:', err);
+  }
+};
+
+/**
+ * Fetch Customer Orders from Supabase (Server endpoint first, direct fallback)
+ */
+export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email?: string) => {
+  try {
+    const params = new URLSearchParams();
+    if (customerId) params.set('customerId', customerId);
+    if (email) params.set('email', email);
+
+    const res = await fetch(`/api/customer/orders?${params.toString()}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.orders)) {
+        return json.orders;
+      }
+    }
+  } catch (apiErr) {
+    console.warn('[Orders Fetch] Server proxy failed, trying direct client:', apiErr);
+  }
+
+  const client = getSupabaseClient();
+  if (!client || (!customerId && !email)) return [];
 
   try {
-    const query = client
+    let query = client
       .from('orders')
       .select('*, order_items(*)')
       .order('created_at', { ascending: false });
 
-    if (customerId) {
-      query.or(`customer_id.eq.${customerId},customer_email.eq.${email}`);
-    } else {
-      query.eq('customer_email', email);
+    if (customerId && email) {
+      query = query.or(`customer_id.eq.${customerId},customer_email.eq.${email}`);
+    } else if (customerId) {
+      query = query.eq('customer_id', customerId);
+    } else if (email) {
+      query = query.eq('customer_email', email);
     }
 
     const { data, error } = await query;
@@ -472,7 +717,7 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
 // Helper: shade definitions fallback for lipstick and foundations
 const PRODUCT_SHADES_MAP: Record<string, any[]> = {
   'velvet-petal-matte-lipstick': [
-    { id: 'sh-01', name: '01 Tokyo Crimson', hex: '#BE123C', sku: 'LIP-VK-01' },
+    { id: 'sh-01', name: '01 Japan Crimson', hex: '#BE123C', sku: 'LIP-VK-01' },
     { id: 'sh-02', name: '02 Sakura Bloom', hex: '#E11D48', sku: 'LIP-VK-02' },
     { id: 'sh-04', name: '04 Dusty Rose', hex: '#BE185D', sku: 'LIP-VK-04' },
     { id: 'sh-05', name: '05 Kyoto Warm Nude', hex: '#B45309', sku: 'LIP-VK-05' }

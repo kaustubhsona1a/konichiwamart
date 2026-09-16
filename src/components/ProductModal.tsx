@@ -11,7 +11,7 @@ import {
   Check
 } from 'lucide-react';
 import { Product, ProductShade } from '../types';
-import { formatINR, lookupPincode } from '../data/pincodes';
+import { formatINR } from '../data/pincodes';
 
 interface ProductModalProps {
   product: Product;
@@ -33,8 +33,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   );
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'benefits' | 'ingredients' | 'howTo' | 'reviews'>('benefits');
-  const [pincodeInput, setPincodeInput] = useState('400050');
-  const [pincodeResult, setPincodeResult] = useState(() => lookupPincode('400050'));
   const [addedAnimation, setAddedAnimation] = useState(false);
 
   const galleryImages = React.useMemo(() => {
@@ -53,11 +51,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   React.useEffect(() => {
     setSelectedImageIndex(0);
   }, [product.id]);
-
-  const handleCheckPincode = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPincodeResult(lookupPincode(pincodeInput));
-  };
 
   const handleAdd = () => {
     onAddToCart(product, quantity, selectedShade);
@@ -225,47 +218,10 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               </div>
             )}
 
-            {/* Pincode & Availability Checker */}
-            <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                  <Truck className="w-3.5 h-3.5 text-pink-500" />
-                  <span>Check Pincode Serviceability</span>
-                </span>
-              </div>
-              
-              <form onSubmit={handleCheckPincode} className="flex items-center gap-2">
-                <div className="relative flex-1">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    maxLength={6}
-                    placeholder="Enter 6-digit Pincode (e.g. 400050)"
-                    value={pincodeInput}
-                    onChange={(e) => setPincodeInput(e.target.value.replace(/\D/g, ''))}
-                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-pink-500"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="px-3.5 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-xs font-semibold cursor-pointer shadow-xs transition-colors"
-                >
-                  Verify
-                </button>
-              </form>
-
-              {pincodeResult.isServiceable ? (
-                <div className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 p-2 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                  <div className="font-medium flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" />
-                    <span>Deliverable to <strong>{pincodeResult.city}, {pincodeResult.state}</strong></span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 p-2 rounded-lg border border-rose-200 dark:border-rose-800">
-                  Please enter a valid 6-digit Indian pincode.
-                </div>
-              )}
+            {/* Delivery Estimation */}
+            <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 flex items-center gap-2.5 text-xs text-slate-700 dark:text-zinc-300">
+              <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
+              <span className="font-medium text-slate-800 dark:text-zinc-200">3-5 day pan India delivery</span>
             </div>
 
             {/* Tabs for Details */}

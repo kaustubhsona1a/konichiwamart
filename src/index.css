@@ -173,3 +173,111 @@
   animation: blossomSway 9s ease-in-out infinite;
 }
 
+/* ========================================================================= */
+/* Global Dark Mode Contrast Safeguards & Admin Portal Theme Coordination    */
+/* ========================================================================= */
+.dark input, 
+.dark select, 
+.dark textarea {
+  color-scheme: dark;
+}
+
+/* Scoped dark mode styles for AdminPortal */
+.dark .admin-portal-root {
+  color: #f4f4f5;
+  background-color: #09090b !important;
+}
+
+.dark .admin-portal-root aside {
+  background-color: #121215 !important;
+  border-color: #27272a !important;
+}
+
+.dark .admin-portal-root header {
+  background-color: #121215 !important;
+  border-color: #27272a !important;
+}
+
+.dark .admin-portal-root .bg-white {
+  background-color: #18181b !important;
+  border-color: #27272a !important;
+  color: #f4f4f5;
+}
+
+.dark .admin-portal-root .bg-white\/95 {
+  background-color: rgba(24, 24, 27, 0.95) !important;
+  border-color: #27272a !important;
+}
+
+.dark .admin-portal-root .bg-stone-50,
+.dark .admin-portal-root .bg-stone-50\/40,
+.dark .admin-portal-root .bg-stone-50\/70,
+.dark .admin-portal-root .bg-stone-50\/80,
+.dark .admin-portal-root .bg-stone-50\/90,
+.dark .admin-portal-root .bg-stone-100 {
+  background-color: #202024 !important;
+  border-color: #2e2e33 !important;
+  color: #f4f4f5;
+}
+
+.dark .admin-portal-root .bg-\[\#FAF7F2\] {
+  background-color: #09090b !important;
+}
+
+.dark .admin-portal-root .border-pink-100,
+.dark .admin-portal-root .border-pink-200,
+.dark .admin-portal-root .border-pink-100\/80,
+.dark .admin-portal-root .border-stone-100,
+.dark .admin-portal-root .border-stone-200,
+.dark .admin-portal-root .border-stone-200\/80,
+.dark .admin-portal-root .border-stone-300 {
+  border-color: #27272a !important;
+}
+
+.dark .admin-portal-root .text-slate-900,
+.dark .admin-portal-root .text-slate-800,
+.dark .admin-portal-root .text-slate-700 {
+  color: #f4f4f5 !important;
+}
+
+.dark .admin-portal-root .text-slate-600,
+.dark .admin-portal-root .text-slate-500 {
+  color: #a1a1aa !important;
+}
+
+.dark .admin-portal-root .text-slate-400 {
+  color: #71717a !important;
+}
+
+.dark .admin-portal-root .bg-pink-50,
+.dark .admin-portal-root .bg-pink-50\/40,
+.dark .admin-portal-root .bg-pink-50\/50,
+.dark .admin-portal-root .bg-pink-50\/70 {
+  background-color: rgba(244, 114, 182, 0.12) !important;
+  border-color: rgba(244, 114, 182, 0.25) !important;
+}
+
+.dark .admin-portal-root .bg-pink-100 {
+  background-color: rgba(244, 114, 182, 0.2) !important;
+  color: #f472b6 !important;
+}
+
+.dark .admin-portal-root .text-pink-700,
+.dark .admin-portal-root .text-pink-800,
+.dark .admin-portal-root .text-pink-900 {
+  color: #f472b6 !important;
+}
+
+.dark .admin-portal-root input,
+.dark .admin-portal-root select,
+.dark .admin-portal-root textarea {
+  background-color: #202024 !important;
+  color: #f4f4f5 !important;
+  border-color: #3f3f46 !important;
+}
+
+.dark .admin-portal-root input::placeholder,
+.dark .admin-portal-root textarea::placeholder {
+  color: #71717a !important;
+}
+

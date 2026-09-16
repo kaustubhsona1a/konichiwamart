@@ -12,7 +12,7 @@ export const INITIAL_REVIEWS: Review[] = [
     productName: 'Bioré UV Aqua Rich Watery Essence',
     skinType: 'Oily / Humid Climate',
     headline: 'Zero white cast in Mumbai humidity!',
-    comment: 'I was skeptical about ordering authentic Japanese sunscreen online, but Konichiwa_Mart delivered the authentic Tokyo batch with Japanese seals! The watery texture sinks in within 10 seconds. No sweating, zero white cast on my warm Indian skin tone, and layers flawlessly under makeup.',
+    comment: 'I was skeptical about ordering authentic Japanese sunscreen online, but Konichiwa_Mart delivered the authentic Japan batch with Japanese seals! The watery texture sinks in within 10 seconds. No sweating, zero white cast on my warm Indian skin tone, and layers flawlessly under makeup.',
     helpfulCount: 38
   },
   {
@@ -82,7 +82,7 @@ export const INITIAL_REVIEWS: Review[] = [
     productName: 'Senka Perfect Whip Face Wash',
     skinType: 'Oily T-Zone',
     headline: 'Cleanses deep without stripping the skin barrier',
-    comment: 'Gentle silk essence cushion prevents skin tugging. Even in Chennai heat, my skin stays fresh and balanced throughout the day. Authentic Tokyo dispensary quality.',
+    comment: 'Gentle silk essence cushion prevents skin tugging. Even in Chennai heat, my skin stays fresh and balanced throughout the day. Authentic Japan dispensary quality.',
     helpfulCount: 12
   },
   {

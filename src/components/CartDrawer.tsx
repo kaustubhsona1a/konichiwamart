@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { CartItem } from '../types';
 import { PROMO_CODES } from '../data/products';
-import { formatINR, lookupPincode } from '../data/pincodes';
+import { formatINR } from '../data/pincodes';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -37,8 +37,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [promoInput, setPromoInput] = useState('');
   const [appliedPromo, setAppliedPromo] = useState<string | null>('GLOW15');
   const [promoError, setPromoError] = useState('');
-  const [pincode, setPincode] = useState('400050');
-  const [pincodeInfo, setPincodeInfo] = useState(() => lookupPincode('400050'));
 
   if (!isOpen) return null;
 
@@ -76,11 +74,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     } else {
       setPromoError('Invalid coupon code. Try GLOW15 or FIRSTLUXE.');
     }
-  };
-
-  const handlePincodeCheck = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPincodeInfo(lookupPincode(pincode));
   };
 
   return (
@@ -213,37 +206,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               })
             )}
 
-            {/* Indian Pincode Delivery Check Inside Cart */}
+            {/* Delivery Estimation */}
             {items.length > 0 && (
-              <div className="p-3 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 space-y-1.5">
-                <div className="flex items-center justify-between text-xs font-semibold text-slate-800 dark:text-slate-200">
-                  <span className="flex items-center gap-1">
-                    <MapPin className="w-3.5 h-3.5 text-pink-500" />
-                    <span>Delivery Pincode:</span>
-                  </span>
-                </div>
-                <form onSubmit={handlePincodeCheck} className="flex items-center gap-1.5">
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={pincode}
-                    onChange={(e) => setPincode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="6-digit Pincode"
-                    className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:border-pink-500"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-medium cursor-pointer shadow-xs"
-                  >
-                    Check
-                  </button>
-                </form>
-                {pincodeInfo.isServiceable && (
-                  <div className="text-[11px] text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                    <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                    <span>Delivery in <strong>{pincodeInfo.estimatedDays} business days</strong> to {pincodeInfo.city}</span>
-                  </div>
-                )}
+              <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 flex items-center gap-2.5 text-xs text-slate-700 dark:text-zinc-300">
+                <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
+                <span className="font-medium text-slate-800 dark:text-zinc-200">3-5 day pan India delivery</span>
               </div>
             )}
 
@@ -326,8 +293,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   <span>{formatINR(cgst + sgst)}</span>
                 </div>
 
-                <div className="flex justify-between">
-                  <span>Shipping</span>
+                <div className="flex justify-between items-center">
+                  <div>
+                    <span>Shipping</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-zinc-400">Pan-India shipping within 3-5 days after ordering</span>
+                  </div>
                   <span>{shippingFee === 0 ? <strong className="text-emerald-700 dark:text-emerald-400">FREE</strong> : formatINR(shippingFee)}</span>
                 </div>
 

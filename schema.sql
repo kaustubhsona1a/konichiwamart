@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS public.customer_profiles (
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.customer_addresses (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  customer_id UUID NOT NULL REFERENCES public.customer_profiles(id) ON DELETE CASCADE,
+  customer_id UUID REFERENCES public.customer_profiles(id) ON DELETE CASCADE,
+  customer_email VARCHAR(255),
   tag VARCHAR(50) DEFAULT 'Home',                -- 'Home', 'Office', 'Other'
   full_name VARCHAR(150) NOT NULL,
   phone VARCHAR(20) NOT NULL,
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS public.customer_addresses (
 );
 
 CREATE INDEX IF NOT EXISTS idx_customer_addresses_customer ON public.customer_addresses(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_addresses_email ON public.customer_addresses(customer_email);
 
 -- ==============================================================================
 -- 4. CATEGORIES TABLE
@@ -261,10 +263,36 @@ CREATE POLICY "Customers can update their own profile"
   USING (auth.uid() = id);
 
 -- 10.2 Customer Addresses RLS
-CREATE POLICY "Customers can manage their own addresses"
+DROP POLICY IF EXISTS "Customers can manage their own addresses" ON public.customer_addresses;
+DROP POLICY IF EXISTS "Allow reading customer addresses" ON public.customer_addresses;
+DROP POLICY IF EXISTS "Allow inserting customer addresses" ON public.customer_addresses;
+DROP POLICY IF EXISTS "Allow modifying customer addresses" ON public.customer_addresses;
+
+CREATE POLICY "Allow reading customer addresses"
+  ON public.customer_addresses FOR SELECT
+  USING (
+    auth.uid() = customer_id OR 
+    customer_email = (auth.jwt() ->> 'email') OR
+    auth.role() = 'service_role' OR
+    auth.role() = 'anon'
+  );
+
+CREATE POLICY "Allow inserting customer addresses"
+  ON public.customer_addresses FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "Allow modifying customer addresses"
   ON public.customer_addresses FOR ALL
-  USING (auth.uid() = customer_id)
-  WITH CHECK (auth.uid() = customer_id);
+  USING (
+    auth.uid() = customer_id OR 
+    customer_email = (auth.jwt() ->> 'email') OR
+    auth.role() = 'service_role'
+  )
+  WITH CHECK (
+    auth.uid() = customer_id OR 
+    customer_email = (auth.jwt() ->> 'email') OR
+    auth.role() = 'service_role'
+  );
 
 -- 10.3 Catalog Public Read & Store Management
 DROP POLICY IF EXISTS "Active products are readable by everyone" ON public.products;
@@ -372,3 +400,20 @@ DROP TRIGGER IF EXISTS trg_orders_updated_at ON public.orders;
 CREATE TRIGGER trg_orders_updated_at
 BEFORE UPDATE ON public.orders
 FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+
+-- ==============================================================================
+-- 12. SEED DEFAULT CATEGORIES
+-- ==============================================================================
+INSERT INTO public.categories (name, slug, description, display_order)
+VALUES 
+  ('Face Wash', 'face-wash', 'Cleansers and gentle foaming face washes', 1),
+  ('Face Mask', 'face-mask', 'Sheet masks and wash-off treatments', 2),
+  ('Toner', 'toner', 'Hydrating skin conditioners and lotions', 3),
+  ('Sunscreen', 'sunscreen', 'Broad-spectrum Japanese UV protection', 4),
+  ('Lips', 'lips', 'Moisturizing lip tints and balms', 5),
+  ('Serum', 'serum', 'Targeted active serums and essences', 6),
+  ('Cleansing Oil', 'cleansing-oil', 'Deep oil cleansers and makeup removers', 7),
+  ('Moisturizer', 'moisturizer', 'Barrier creams and nourishing emulsions', 8),
+  ('Skincare', 'skincare', 'All-around Japanese beauty and skincare', 9)
+ON CONFLICT (slug) DO NOTHING;
+

@@ -10,112 +10,32 @@ import {
   Share2, 
   Check, 
   X,
-  MessageCircle
+  MessageCircle,
+  Video,
+  ExternalLink,
+  Instagram
 } from 'lucide-react';
-import { Product } from '../types';
+import { Product, ReelItem } from '../types';
 import { PRODUCTS } from '../data/products';
+import { INITIAL_REELS, extractInstagramCode } from '../data/reels';
 import { formatINR } from '../data/pincodes';
 
 interface InstagramReelFeedProps {
   onSelectProduct: (product: Product) => void;
   onAddToCart: (product: Product) => void;
   products?: Product[];
+  reels?: ReelItem[];
+  onOpenReelsManager?: () => void;
 }
-
-interface ReelItem {
-  id: string;
-  creatorHandle: string;
-  creatorName: string;
-  creatorAvatar: string;
-  location: string;
-  title: string;
-  caption: string;
-  views: string;
-  likes: number;
-  commentsCount: number;
-  audioTrack: string;
-  productId: string;
-  videoThumb: string;
-  videoUrl?: string;
-  tags: string[];
-}
-
-const REELS: ReelItem[] = [
-  {
-    id: 'reel_01',
-    creatorHandle: '@tokyo_daily_glow',
-    creatorName: 'Hana Tanaka',
-    creatorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-    location: 'Tokyo',
-    title: 'The Viral Whipped Foam Method',
-    caption: 'How to lather Senka Perfect Whip for that super-dense micro-foam pillow! ☁️ Zero friction on the skin and cleans pores so gently.',
-    views: '1.8M',
-    likes: 142800,
-    commentsCount: 942,
-    audioTrack: 'Gentle Lather ASMR - Tokyo Skincare',
-    productId: 'senka-perfect-whip',
-    videoThumb: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=800&q=80',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    tags: ['#SenkaPerfectWhip', '#JapaneseSkincare', '#FaceWash']
-  },
-  {
-    id: 'reel_02',
-    creatorHandle: '@glow_with_ria',
-    creatorName: 'Ria Sengupta',
-    creatorAvatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=200&q=80',
-    location: 'Mumbai',
-    title: 'Dark Spot Fading with Vitamin C',
-    caption: 'Testing the Rohto Melano CC Toner for 14 days. Look at the post-acne mark difference! 🍋 Active Vitamin C that actually absorbs quickly.',
-    views: '2.1M',
-    likes: 187400,
-    commentsCount: 1120,
-    audioTrack: 'Bright Morning - Acoustic Chill',
-    productId: 'melano-cc-brightening-toner',
-    videoThumb: 'https://images.unsplash.com/photo-1608248597359-009765369eb3?auto=format&fit=crop&w=800&q=80',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-    tags: ['#MelanoCC', '#VitaminCToner', '#DarkSpotCare']
-  },
-  {
-    id: 'reel_03',
-    creatorHandle: '@skincare_kenji',
-    creatorName: 'Kenji Sato',
-    creatorAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-    location: 'Kyoto',
-    title: 'Shiseido Fino Deep Nourish',
-    caption: 'Why Fino Premium Touch Mask sells out across Shibuya pharmacies. Royal jelly essence that seals intense moisture within 5 minutes.',
-    views: '3.4M',
-    likes: 312000,
-    commentsCount: 1850,
-    audioTrack: 'Tokyo Evening Ambient',
-    productId: 'fino-premium-touch-mask',
-    videoThumb: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=800&q=80',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-    tags: ['#FinoMask', '#JapaneseBeauty', '#FaceMask']
-  },
-  {
-    id: 'reel_04',
-    creatorHandle: '@delhi_skingirl',
-    creatorName: 'Ananya Sharma',
-    creatorAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80',
-    location: 'Delhi NCR',
-    title: 'Zero White Cast SPF in Indian Heat',
-    caption: 'Bioré UV Aqua Rich tested under harsh 42°C Delhi sun! Watery essence that melts invisible into all skin tones. No sweat streaks!',
-    views: '4.2M',
-    likes: 421000,
-    commentsCount: 2310,
-    audioTrack: 'Summer Breeze Tokyo Beats',
-    productId: 'biore-uv-aqua-rich-sunscreen',
-    videoThumb: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=800&q=80',
-    videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-    tags: ['#BioreUV', '#WateryEssence', '#NoWhiteCast']
-  }
-];
 
 export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
   onSelectProduct,
   onAddToCart,
-  products
+  products,
+  reels,
+  onOpenReelsManager
 }) => {
+  const displayReels = reels && reels.length > 0 ? reels : INITIAL_REELS;
   const catalog = products && products.length > 0 ? products : PRODUCTS;
   const [activeReelModal, setActiveReelModal] = useState<ReelItem | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -156,7 +76,7 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
     const { scrollLeft, clientWidth } = scrollContainerRef.current;
     if (clientWidth > 0) {
       const newIdx = Math.round(scrollLeft / (clientWidth * 0.78));
-      setActiveMobileIdx(Math.min(Math.max(newIdx, 0), REELS.length - 1));
+      setActiveMobileIdx(Math.min(Math.max(newIdx, 0), displayReels.length - 1));
     }
   };
 
@@ -168,6 +88,12 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
       behavior: 'smooth'
     });
     setActiveMobileIdx(idx);
+  };
+
+  // Helper to determine if a URL is an Instagram URL
+  const isInstagramUrl = (url?: string) => {
+    if (!url) return false;
+    return url.includes('instagram.com');
   };
 
   return (
@@ -214,19 +140,21 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
             </button>
           </div>
 
-          {/* Instagram Follow Pill */}
-          <a
-            href="https://instagram.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
-          >
-            <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-md bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 flex items-center justify-center text-white text-[9px] sm:text-[10px] font-bold">
-              IG
-            </div>
-            <span>Follow @konichiwa_mart</span>
-            <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-normal">• 124K</span>
-          </a>
+          <div className="flex items-center gap-2">
+            {/* Instagram Follow Pill */}
+            <a
+              href="https://www.instagram.com/konichiwa_mart?stkn=MTRrM3I1a21la2cwOQ%3D%3D&utm_source=qr"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold border border-slate-200 dark:border-slate-700 shadow-xs transition-all cursor-pointer"
+            >
+              <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-md bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 flex items-center justify-center text-white text-[9px] sm:text-[10px] font-bold">
+                IG
+              </div>
+              <span>Follow @konichiwa_mart</span>
+              <span className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 font-normal">• 124K</span>
+            </a>
+          </div>
         </div>
       </div>
 
@@ -240,8 +168,9 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
             : 'grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 lg:gap-5'
         }
       >
-        {REELS.map((reel) => {
+        {displayReels.map((reel) => {
           const featuredProduct = catalog.find(p => p.id === reel.productId) || catalog[0];
+          const hasInsta = !!reel.instagramUrl || isInstagramUrl(reel.videoUrl);
 
           return (
             <div
@@ -336,7 +265,7 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
       {/* MOBILE CAROUSEL DOT INDICATORS */}
       {mobileViewMode === 'carousel' && (
         <div className="flex sm:hidden items-center justify-center gap-1.5 pt-2">
-          {REELS.map((_, idx) => (
+          {displayReels.map((_, idx) => (
             <button
               key={idx}
               onClick={() => scrollToReel(idx)}
@@ -368,74 +297,134 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
           {/* Reel Container (9:16 vertical frame) */}
           <div className="relative w-full max-w-[380px] h-[88vh] max-h-[720px] rounded-3xl overflow-hidden bg-slate-950 shadow-2xl border border-pink-300/30 flex flex-col justify-between">
             
-            {/* Video Element */}
-            <div 
-              className="absolute inset-0 cursor-pointer"
-              onClick={() => setIsPlaying(!isPlaying)}
-            >
-              {activeReelModal.videoUrl ? (
-                <video
-                  ref={videoRef}
-                  src={activeReelModal.videoUrl}
-                  poster={activeReelModal.videoThumb}
-                  autoPlay={isPlaying}
-                  loop
-                  muted={isMuted}
-                  playsInline
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <img
-                  src={activeReelModal.videoThumb}
-                  alt={activeReelModal.title}
-                  className="w-full h-full object-cover"
-                  referrerPolicy="no-referrer"
-                />
-              )}
+            {/* Video Element & Instagram Embed/Player */}
+            {(() => {
+              const reelInstaUrl = activeReelModal.instagramUrl || (isInstagramUrl(activeReelModal.videoUrl) ? activeReelModal.videoUrl : undefined);
+              const isDirectVideo = activeReelModal.videoUrl && !isInstagramUrl(activeReelModal.videoUrl);
 
-              {/* Gradient Overlays */}
-              <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-transparent to-black/90 pointer-events-none" />
+              return (
+                <div 
+                  className="absolute inset-0 cursor-pointer"
+                  onClick={() => setIsPlaying(!isPlaying)}
+                >
+                  {isDirectVideo ? (
+                    <video
+                      ref={videoRef}
+                      src={activeReelModal.videoUrl}
+                      poster={activeReelModal.videoThumb}
+                      autoPlay={isPlaying}
+                      loop
+                      muted={isMuted}
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <img
+                      src={activeReelModal.videoThumb}
+                      alt={activeReelModal.title}
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
 
-              {/* Paused State Indicator Overlay */}
-              {!isPlaying && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/30">
-                  <div className="w-16 h-16 rounded-full bg-white/35 backdrop-blur-md border border-white/60 flex items-center justify-center text-white">
-                    <Play className="w-8 h-8 fill-white ml-1" />
+                  {/* Gradient Overlays */}
+                  <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/20 to-black/90 pointer-events-none" />
+
+                  {/* If direct video paused indicator */}
+                  {isDirectVideo && !isPlaying && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <div className="w-16 h-16 rounded-full bg-white/35 backdrop-blur-md border border-white/60 flex items-center justify-center text-white">
+                        <Play className="w-8 h-8 fill-white ml-1" />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* If Instagram URL without direct video, show interactive Watch on IG button */}
+                  {!isDirectVideo && reelInstaUrl && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-10">
+                      <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 flex items-center justify-center text-white shadow-2xl mb-3.5">
+                        <Instagram className="w-8 h-8" />
+                      </div>
+                      <div className="text-white font-bold text-sm drop-shadow-md mb-1 max-w-[260px]">
+                        {activeReelModal.title}
+                      </div>
+                      <p className="text-pink-100 text-xs drop-shadow mb-4 max-w-[260px] line-clamp-2">
+                        {activeReelModal.caption}
+                      </p>
+                      <a
+                        href={reelInstaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="px-5 py-2.5 rounded-full bg-gradient-to-r from-pink-600 via-rose-500 to-amber-500 hover:from-pink-500 hover:to-amber-400 text-white text-xs font-bold tracking-wide flex items-center gap-2 shadow-xl shadow-pink-900/40 hover:scale-105 active:scale-95 transition-all"
+                      >
+                        <Instagram className="w-4 h-4" />
+                        <span>Watch on Instagram Reel</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* TOP BAR: Creator Details & Actions */}
+            {(() => {
+              const reelInstaUrl = activeReelModal.instagramUrl || (isInstagramUrl(activeReelModal.videoUrl) ? activeReelModal.videoUrl : undefined);
+              const isDirectVideo = activeReelModal.videoUrl && !isInstagramUrl(activeReelModal.videoUrl);
+
+              return (
+                <div className="relative z-20 p-4 flex items-center justify-between text-white">
+                  <div className="flex items-center gap-2.5">
+                    <img
+                      src={activeReelModal.creatorAvatar}
+                      alt={activeReelModal.creatorName}
+                      className="w-9 h-9 rounded-full object-cover border-2 border-white/80"
+                      referrerPolicy="no-referrer"
+                    />
+                    <div className="text-left">
+                      <div className="text-xs font-semibold flex items-center gap-1.5">
+                        <span>{activeReelModal.creatorHandle}</span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-pink-400" />
+                      </div>
+                      <div className="text-[10px] text-pink-100">{activeReelModal.location}</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Direct Instagram Link Button */}
+                    {reelInstaUrl && (
+                      <a
+                        href={reelInstaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="px-2.5 py-1 rounded-full bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 text-white text-[10px] font-bold flex items-center gap-1 shadow-xs hover:opacity-90 transition-opacity"
+                        title="Open in Instagram"
+                      >
+                        <Instagram className="w-3 h-3" />
+                        <span>Watch on IG</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    )}
+
+                    {/* Sound Toggle Button (only when direct video is playing) */}
+                    {isDirectVideo && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsMuted(!isMuted);
+                        }}
+                        className="w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-black/60 transition-colors cursor-pointer"
+                        title={isMuted ? 'Unmute audio' : 'Mute audio'}
+                      >
+                        {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                      </button>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
-
-            {/* TOP BAR: Creator Details */}
-            <div className="relative z-20 p-4 flex items-center justify-between text-white">
-              <div className="flex items-center gap-2.5">
-                <img
-                  src={activeReelModal.creatorAvatar}
-                  alt={activeReelModal.creatorName}
-                  className="w-9 h-9 rounded-full object-cover border-2 border-white/80"
-                  referrerPolicy="no-referrer"
-                />
-                <div className="text-left">
-                  <div className="text-xs font-semibold flex items-center gap-1.5">
-                    <span>{activeReelModal.creatorHandle}</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-pink-400" />
-                  </div>
-                  <div className="text-[10px] text-pink-100">{activeReelModal.location}</div>
-                </div>
-              </div>
-
-              {/* Sound Toggle Button */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsMuted(!isMuted);
-                }}
-                className="w-8 h-8 rounded-full bg-black/40 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-black/60 transition-colors cursor-pointer"
-                title={isMuted ? 'Unmute audio' : 'Mute audio'}
-              >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-            </div>
+              );
+            })()}
 
             {/* RIGHT SIDE FLOATING SOCIAL INTERACTIONS */}
             <div className="relative z-20 self-end pr-4 pb-24 flex flex-col items-center gap-5 text-white">
@@ -472,7 +461,10 @@ export const InstagramReelFeed: React.FC<InstagramReelFeedProps> = ({
               <button 
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigator.clipboard?.writeText(window.location.href);
+                  const shareUrl = activeReelModal.instagramUrl || activeReelModal.videoUrl || window.location.href;
+                  navigator.clipboard?.writeText(shareUrl);
+                  setAddedItemNotice('Reel link copied to clipboard!');
+                  setTimeout(() => setAddedItemNotice(null), 2500);
                 }}
                 className="flex flex-col items-center gap-1 text-white cursor-pointer"
                 title="Share Reel Link"
