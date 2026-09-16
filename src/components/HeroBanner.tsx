@@ -142,7 +142,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   return (
     <section 
       id="hero-banner" 
-      className="relative w-full overflow-hidden bg-[#0d0d0f]"
+      className="relative w-full overflow-hidden bg-[#0d0d0f] pt-[52px] sm:pt-[64px]"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -190,7 +190,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                   setImageLoaded(false);
                 }
               }}
-              className="w-full h-auto min-h-[360px] sm:min-h-[500px] md:min-h-[calc(100vh-64px)] max-h-[calc(100vh-64px)] object-cover object-center select-none block align-bottom transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
+              className="w-full h-[60vh] sm:h-[calc(100vh-64px)] min-h-[380px] object-cover object-center select-none block transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
             />
           </picture>
 

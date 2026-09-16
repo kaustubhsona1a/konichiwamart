@@ -228,7 +228,6 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
       name: 'Konichiwa Mart',
       description: 'Authentic Japanese Skincare Dispensary',
       image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=200&q=80',
-      order_id: orderIdToUse,
       handler: async function (response: RazorpayPaymentSuccessPayload) {
         try {
           const payloadToVerify: RazorpayPaymentSuccessPayload = {
@@ -264,6 +263,10 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
         }
       }
     };
+
+    if (orderIdToUse && orderIdToUse.startsWith('order_') && !orderIdToUse.startsWith('order_client_') && !orderIdToUse.startsWith('order_test_') && !orderIdToUse.startsWith('order_simulated_') && !orderIdToUse.startsWith('sandbox_')) {
+      rzpOptions.order_id = orderIdToUse;
+    }
 
     const rzp = new (window as any).Razorpay(rzpOptions);
 

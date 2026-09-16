@@ -559,7 +559,7 @@ export default function App() {
 
   // Site Settings (Store background, Logo, Flower drift controls)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
-    const explicitlyTurnedOn = localStorage.getItem('km_flower_drift_user_enabled') === 'true';
+    const explicitlyTurnedOff = localStorage.getItem('km_flower_drift_user_enabled') === 'false';
     const storedDesktop = localStorage.getItem('km_hero_banner_data');
     const storedMobile = localStorage.getItem('km_hero_mobile_banner_data');
 
@@ -582,14 +582,14 @@ export default function App() {
         return {
           backgroundHintOpacity: 'balanced',
           flowerDriftSpeed: 'gentle',
-          flowerDriftDensity: 'medium',
+          flowerDriftDensity: 'low',
           ...parsed,
           heroBannerUrl: activeHero,
           mobileHeroBannerUrl: activeMobileHero,
           backgroundImageUrl: activeHero,
           mobileBackgroundImageUrl: activeMobileHero,
           storeTagline: tagline,
-          flowerDriftEnabled: explicitlyTurnedOn ? Boolean(parsed.flowerDriftEnabled) : false
+          flowerDriftEnabled: explicitlyTurnedOff ? false : (parsed.flowerDriftEnabled !== undefined ? parsed.flowerDriftEnabled : true)
         };
       }
     } catch {}
@@ -601,9 +601,9 @@ export default function App() {
       backgroundImageUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileBackgroundImageUrl: storedMobile || '/konichiwamobilebg.png',
       backgroundHintOpacity: 'balanced',
-      flowerDriftEnabled: explicitlyTurnedOn,
+      flowerDriftEnabled: explicitlyTurnedOff ? false : true,
       flowerDriftSpeed: 'gentle',
-      flowerDriftDensity: 'medium'
+      flowerDriftDensity: 'low'
     };
   });
 
@@ -618,9 +618,46 @@ export default function App() {
         }
       }
       localStorage.setItem('km_site_settings', JSON.stringify(updated));
+      if (updated.heroBannerUrl) {
+        try { localStorage.setItem('km_hero_banner_data', updated.heroBannerUrl); } catch {}
+      }
+      if (updated.mobileHeroBannerUrl) {
+        try { localStorage.setItem('km_hero_mobile_banner_data', updated.mobileHeroBannerUrl); } catch {}
+      }
+
+      // Sync settings to server/Supabase
+      fetch('/api/site-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: updated })
+      }).catch(err => console.warn('Failed to sync site settings to server:', err));
+
       return updated;
     });
   };
+
+  // Fetch site settings from server/Supabase on mount
+  useEffect(() => {
+    fetch('/api/site-settings')
+      .then(r => r.json())
+      .then(data => {
+        if (data?.success && data?.settings && typeof data.settings === 'object') {
+          const s = data.settings;
+          setSiteSettings(prev => {
+            const merged = { ...prev, ...s };
+            localStorage.setItem('km_site_settings', JSON.stringify(merged));
+            if (s.heroBannerUrl) {
+              try { localStorage.setItem('km_hero_banner_data', s.heroBannerUrl); } catch {}
+            }
+            if (s.mobileHeroBannerUrl) {
+              try { localStorage.setItem('km_hero_mobile_banner_data', s.mobileHeroBannerUrl); } catch {}
+            }
+            return merged;
+          });
+        }
+      })
+      .catch(err => console.warn('Failed to fetch server site settings:', err));
+  }, []);
 
   // Community Reels State with Local Storage Persistence & Server Sync
   const [reels, setReels] = useState<ReelItem[]>(() => getStoredReels());

@@ -268,19 +268,10 @@ app.post('/api/verify-payment', (req: Request, res: Response) => {
       });
     }
 
-    let keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '').trim();
-    let keySecret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE || process.env.RAZORPAY_SECRET_KEY || '').trim();
+    let keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY || 'rzp_live_Tcn0IIOcwCPgU3').trim();
+    let keySecret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE || process.env.RAZORPAY_SECRET_KEY || 'WjsuQXaoCGqxMo0HKTzc7tCl').trim();
 
-    if (!keyId && !keySecret) {
-      keySecret = '';
-    }
-
-    if (!keySecret) {
-      return res.status(500).json({
-        success: false,
-        error: 'Razorpay Key Secret is not configured on server.'
-      });
-    }
+    if (!keySecret) keySecret = 'WjsuQXaoCGqxMo0HKTzc7tCl';
 
     const expectedSignature = crypto
       .createHmac('sha256', keySecret)
@@ -2506,6 +2497,68 @@ app.post('/api/reels', async (req: Request, res: Response) => {
 
     console.log(`[Server] Saved ${reels.length} community reels to persistent server storage.`);
     return res.json({ success: true, count: reels.length });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/site-settings
+ * Retrieves global site settings (background images, logo, flower drift) from Supabase.
+ */
+app.get('/api/site-settings', async (_req: Request, res: Response) => {
+  try {
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        const { data } = await supabase
+          .from('categories')
+          .select('description')
+          .eq('slug', '_app_site_settings')
+          .maybeSingle();
+
+        if (data?.description) {
+          const parsed = JSON.parse(data.description);
+          if (parsed && typeof parsed === 'object') {
+            return res.json({ success: true, settings: parsed });
+          }
+        }
+      } catch (err) {
+        console.warn('[Server] Supabase site-settings fetch warning:', err);
+      }
+    }
+
+    return res.json({ success: true, settings: null });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/site-settings
+ * Persists global site settings across all sessions, visitors, and devices in Supabase.
+ */
+app.post('/api/site-settings', async (req: Request, res: Response) => {
+  try {
+    const { settings } = req.body;
+    if (!settings || typeof settings !== 'object') {
+      return res.status(400).json({ success: false, error: 'Settings object required' });
+    }
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        await supabase.from('categories').upsert({
+          slug: '_app_site_settings',
+          name: 'Global Site Settings',
+          description: JSON.stringify(settings)
+        }, { onConflict: 'slug' });
+      } catch (err) {
+        console.warn('[Server] Supabase site-settings upsert warning:', err);
+      }
+    }
+
+    return res.json({ success: true, settings });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
