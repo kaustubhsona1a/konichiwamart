@@ -35,13 +35,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onProceedToCheckout
 }) => {
   const [promoInput, setPromoInput] = useState('');
-  const [appliedPromo, setAppliedPromo] = useState<string | null>('GLOW15');
+  const [appliedPromo, setAppliedPromo] = useState<string | null>(null);
   const [promoError, setPromoError] = useState('');
 
   if (!isOpen) return null;
 
   const subtotal = items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
-  const freeShippingThreshold = 999;
+  const freeShippingThreshold = 1500;
   const progressToFree = Math.min(100, (subtotal / freeShippingThreshold) * 100);
   const amountNeededForFree = Math.max(0, freeShippingThreshold - subtotal);
   const shippingFee = subtotal >= freeShippingThreshold || subtotal === 0 ? 0 : 99;
@@ -232,7 +232,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <form onSubmit={handleApplyPromo} className="flex items-center gap-1.5">
                   <input
                     type="text"
-                    placeholder="Enter code (e.g. GLOW15)"
+                    placeholder="Enter coupon code"
                     value={promoInput}
                     onChange={(e) => setPromoInput(e.target.value)}
                     className="flex-1 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 uppercase font-medium tracking-wide outline-none focus:border-pink-500"
@@ -248,23 +248,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 {promoError && (
                   <p className="text-[11px] text-rose-600 dark:text-rose-400">{promoError}</p>
                 )}
-
-                {/* Quick chip buttons for promo */}
-                <div className="flex items-center gap-1.5 pt-0.5">
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400">Available:</span>
-                  <button 
-                    onClick={() => { setAppliedPromo('GLOW15'); setPromoError(''); }}
-                    className="text-[10px] bg-white dark:bg-slate-800 hover:bg-pink-50/50 dark:hover:bg-slate-700 text-pink-700 dark:text-pink-400 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 cursor-pointer shadow-xs"
-                  >
-                    GLOW15 (15% off)
-                  </button>
-                  <button 
-                    onClick={() => { setAppliedPromo('FIRSTLUXE'); setPromoError(''); }}
-                    className="text-[10px] bg-white dark:bg-slate-800 hover:bg-pink-50/50 dark:hover:bg-slate-700 text-pink-700 dark:text-pink-400 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 cursor-pointer shadow-xs"
-                  >
-                    FIRSTLUXE (20% off)
-                  </button>
-                </div>
               </div>
             )}
 

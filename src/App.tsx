@@ -830,7 +830,7 @@ export default function App() {
 
   // Active Promo applied from Cart
   const [checkoutDiscount, setCheckoutDiscount] = useState<{ promoCode?: string; discountAmount: number }>({
-    promoCode: 'GLOW15',
+    promoCode: undefined,
     discountAmount: 0
   });
 
@@ -1058,7 +1058,7 @@ export default function App() {
 
   const totalCartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
   const cartSubtotal = cart.reduce((sum, i) => sum + (i.product.price * i.quantity), 0);
-  const shippingFee = cartSubtotal >= 999 || cartSubtotal === 0 ? 0 : 99;
+  const shippingFee = cartSubtotal >= 1500 || cartSubtotal === 0 ? 0 : 99;
   const defaultAddress: UserAddress = userProfile.addresses.find(a => a.isDefault) || userProfile.addresses[0];
 
   return (

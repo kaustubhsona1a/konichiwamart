@@ -119,30 +119,9 @@
   border-color: rgba(244, 114, 182, 0.4);
 }
 
-/* Custom scrollbar in baby pink / sakura blush */
-::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
-}
-::-webkit-scrollbar-track {
-  background: #FFF0F3;
-}
-.dark ::-webkit-scrollbar-track {
-  background: #09090b;
-}
-::-webkit-scrollbar-thumb {
-  background: #FBCFE8;
-  border-radius: 9999px;
-}
-.dark ::-webkit-scrollbar-thumb {
-  background: #27272a;
-  border-radius: 9999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #F472B6;
-}
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #ec4899;
+/* Standard scrollbar */
+html {
+  scrollbar-width: thin;
 }
 
 @keyframes floatSlow {

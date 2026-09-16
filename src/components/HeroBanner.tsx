@@ -142,7 +142,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   return (
     <section 
       id="hero-banner" 
-      className="relative w-full overflow-hidden bg-[#0d0d0f] pt-[52px] sm:pt-[64px]"
+      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b]"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -169,7 +169,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       {/* FULL-VIEWPORT LAPTOP & DESKTOP HERO BANNER CONTAINER */}
       <div className="relative w-full max-w-[1920px] mx-auto overflow-hidden">
         {/* Banner image representation with responsive Mobile & Laptop art-direction */}
-        <div className="relative w-full overflow-hidden flex items-center justify-center bg-[#0d0d0f]">
+        <div className="relative w-full overflow-hidden flex items-center justify-center bg-transparent">
           <picture className="w-full h-auto block align-bottom">
             {/* Desktop / Laptop Layout: show laptop background */}
             <source media="(min-width: 640px)" srcSet={bannerUrl} />
@@ -190,7 +190,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                   setImageLoaded(false);
                 }
               }}
-              className="w-full h-[60vh] sm:h-[calc(100vh-64px)] min-h-[380px] object-cover object-center select-none block transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
+              className="w-full h-auto block select-none align-bottom transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
             />
           </picture>
 
@@ -199,7 +199,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 
           {/* EXACT POSITIONED CLICKABLE [SHOP NOW →] BUTTON OVERLAY */}
           {/* Centered on mobile for maximum visibility, docked left on tablet/desktop */}
-          <div className="absolute left-1/2 -translate-x-1/2 sm:left-[8%] sm:translate-x-0 md:left-[10%] bottom-[8%] sm:bottom-[15%] md:bottom-[18%] z-20 w-auto text-center">
+          <div className="absolute left-1/2 -translate-x-1/2 sm:left-[8%] sm:translate-x-0 md:left-[10%] bottom-[5%] sm:bottom-[8%] md:bottom-[10%] z-20 w-auto text-center">
             <button
               id="hero-shop-now-button"
               onClick={handleShopNowClick}
