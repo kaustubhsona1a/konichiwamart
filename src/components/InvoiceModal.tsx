@@ -228,12 +228,6 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
               <div>
                 <span className="text-[#64748B] dark:text-zinc-400 print:text-[#64748B]">Transaction ID:</span> <span className="font-mono text-[11px]">{order.paymentId}</span>
               </div>
-              <div>
-                <span className="text-[#64748B] dark:text-zinc-400 print:text-[#64748B]">Courier Assigned:</span> <strong>{order.courierPartner}</strong>
-              </div>
-              <div>
-                <span className="text-[#64748B] dark:text-zinc-400 print:text-[#64748B]">Air Waybill (AWB):</span> <span className="font-mono text-[#0969DA] dark:text-sky-400 font-semibold print:text-[#0969DA]">{order.awbNumber}</span>
-              </div>
             </div>
           </div>
 

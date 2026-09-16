@@ -2,16 +2,6 @@ import { createShiprocketOrder } from './src/lib/shiprocketServer';
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
 
-// Ensure Razorpay test credentials from user prompt are active if not overridden
-if (!process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID.includes('TcdmYNVatNNtib') || process.env.RAZORPAY_KEY_ID.includes('Tcee2HHdmelkYl')) {
-  process.env.RAZORPAY_KEY_ID = 'rzp_test_Tcekx5QwJakhWA';
-}
-if (!process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRET.includes('6ascU0BXz3Ag7JA8BPK9KALL') || process.env.RAZORPAY_KEY_SECRET.includes('QRMxZ5Weq10kATLGoQUj6tQ1')) {
-  process.env.RAZORPAY_KEY_SECRET = 'GJV6GY1DWuCd4kRWeTihGgzv';
-}
-if (!process.env.VITE_RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID.includes('TcdmYNVatNNtib') || process.env.VITE_RAZORPAY_KEY_ID.includes('Tcee2HHdmelkYl')) {
-  process.env.VITE_RAZORPAY_KEY_ID = 'rzp_test_Tcekx5QwJakhWA';
-}
 
 import express, { Request, Response } from 'express';
 import path from 'path';
@@ -54,13 +44,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
  * Never hardcodes secrets.
  */
 function getRazorpayInstance(): Razorpay {
-  let key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
-  let key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+  let key_id = (process.env.RAZORPAY_KEY_ID || '').replace(/['\"\s]/g, '').trim();
+  let key_secret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').replace(/['\"\s]/g, '').trim();
 
-  if (!key_id && !key_secret) {
-    key_id = 'rzp_test_Tcekx5QwJakhWA';
-    key_secret = 'GJV6GY1DWuCd4kRWeTihGgzv';
-  }
 
   if (!key_id || !key_secret) {
     throw new Error('Both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be provided in environment variables.');
@@ -80,8 +66,8 @@ let razorpayAuthCache = {
 };
 
 export async function isRazorpayLiveAndValid(forceRefresh = false): Promise<boolean> {
-  const key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
-  const key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+  const key_id = (process.env.RAZORPAY_KEY_ID || '').replace(/['\"\s]/g, '').trim();
+  const key_secret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').replace(/['\"\s]/g, '').trim();
 
   if (!key_id || !key_secret) {
     return false;
@@ -113,7 +99,7 @@ export async function isRazorpayLiveAndValid(forceRefresh = false): Promise<bool
 
 // Health check endpoint
 app.get('/api/health', (_req: Request, res: Response) => {
-  const keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_Tcekx5QwJakhWA').trim();
+  const keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || '').trim();
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
@@ -124,18 +110,13 @@ app.get('/api/health', (_req: Request, res: Response) => {
 // Endpoint to retrieve public Razorpay Key ID (never exposes Key Secret!)
 app.get('/api/razorpay-key', (_req: Request, res: Response) => {
   let keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
-  let keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+  let keySecret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').trim();
 
-  let isSandboxFallback = false;
-  if (!keyId && !keySecret) {
-    keyId = 'rzp_test_Tcekx5QwJakhWA';
-    isSandboxFallback = true;
-  }
 
   res.json({ 
     key_id: keyId, 
     isConfigured: Boolean(process.env.RAZORPAY_KEY_ID),
-    isSandboxFallback
+    isSandboxFallback: false
   });
 });
 
@@ -246,16 +227,8 @@ app.post('/api/create-order', async (req: Request, res: Response) => {
       });
     } catch (rzpErr: any) {
       console.error('Razorpay API Error in /api/create-order:', rzpErr);
-      if (
-        rzpErr?.statusCode === 401 ||
-        rzpErr?.error?.code === 'BAD_REQUEST_ERROR' && rzpErr?.error?.description?.includes('Authentication failed')
-      ) {
-        return res.status(401).json({
-          error: 'Razorpay authentication failed. Invalid Key ID or Secret.'
-        });
-      }
-      return res.status(500).json({
-        error: rzpErr?.error?.description || rzpErr?.message || 'Failed to create order on Razorpay.'
+      return res.status(400).json({
+        error: rzpErr?.error?.description || rzpErr?.message || 'Razorpay order creation failed.'
       });
     }
   } catch (err: any) {
@@ -297,10 +270,10 @@ app.post('/api/verify-payment', (req: Request, res: Response) => {
     }
 
     let keyId = (process.env.RAZORPAY_KEY_ID || '').trim();
-    let keySecret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+    let keySecret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').trim();
 
     if (!keyId && !keySecret) {
-      keySecret = 'GJV6GY1DWuCd4kRWeTihGgzv';
+      keySecret = '';
     }
 
     if (!keySecret) {

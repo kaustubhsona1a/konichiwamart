@@ -1086,7 +1086,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </div>
                           <div className="flex items-center justify-between text-[11px] text-slate-600">
                             <span>{o.customerName} ({o.shippingAddress.city})</span>
-                            <span className="text-[10px] font-mono text-slate-400">AWB: {o.awbNumber || '88492019482'}</span>
                           </div>
                           <button
                             onClick={() => onViewInvoice(o)}
@@ -1107,7 +1106,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <th className="py-2.5 px-3">Customer</th>
                             <th className="py-2.5 px-3">Destination</th>
                             <th className="py-2.5 px-3">Amount</th>
-                            <th className="py-2.5 px-3">Courier / AWB</th>
+                            <th className="py-2.5 px-3">Delivery</th>
                             <th className="py-2.5 px-3 text-right">Invoice</th>
                           </tr>
                         </thead>
@@ -1115,7 +1114,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           {orders.slice(0, 4).map((o) => (
                             <tr key={o.id} className="text-slate-700 hover:bg-pink-50/30 transition-colors">
                               <td className="py-3 px-3 font-mono font-bold text-slate-900">{o.orderNumber}</td>
-                              <td className="py-3 px-3">
+                              <td className="py-3 px-3 text-[10px] text-slate-500">Manual Delivery
                                 <div className="font-semibold text-slate-900">{o.customerName}</div>
                                 <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
                               </td>
@@ -1123,9 +1122,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 {o.shippingAddress.city}, {o.shippingAddress.state}
                               </td>
                               <td className="py-3 px-3 font-bold text-slate-900">{formatINR(o.totalAmount)}</td>
-                              <td className="py-3 px-3">
-                                <div className="font-semibold text-slate-800">{o.courierPartner || 'Blue Dart'}</div>
-                                <div className="text-[10px] text-slate-400 font-mono">AWB: {o.awbNumber || '88492019482'}</div>
+                              <td className="py-3 px-3 text-[10px] text-slate-500">Manual Delivery
                               </td>
                               <td className="py-3 px-3 text-right">
                                 <button
@@ -1739,7 +1736,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <th className="p-3.5">Shipping Address</th>
                             <th className="p-3.5">Amount</th>
                             <th className="p-3.5">Payment</th>
-                            <th className="p-3.5">Courier / AWB</th>
+                            <th className="p-3.5">Delivery</th>
                             <th className="p-3.5 text-right">Tax Invoice</th>
                           </tr>
                         </thead>
@@ -1761,8 +1758,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 </span>
                               </td>
                               <td className="p-3.5">
-                                <div className="font-semibold text-slate-800">{o.courierPartner || 'Blue Dart Express'}</div>
-                                <div className="text-[10px] text-slate-400 font-mono">AWB: {o.awbNumber || '88492019482'}</div>
                               </td>
                               <td className="p-3.5 text-right">
                                 <button

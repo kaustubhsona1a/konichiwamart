@@ -310,7 +310,7 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
               <div className="text-center py-12 space-y-2">
                 <Package className="w-12 h-12 text-slate-400 dark:text-zinc-500 mx-auto stroke-1" />
                 <h4 className="font-serif text-lg text-slate-900 dark:text-white">No Past Orders Found</h4>
-                <p className="text-xs text-slate-500 dark:text-zinc-400">When you place an order, your official Tax Invoice and Shiprocket AWB live tracking will appear here.</p>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">When you place an order, your official Tax Invoice will appear here.</p>
               </div>
             ) : (
               profile.orders.map((order) => (
@@ -346,16 +346,6 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
                   {/* Shiprocket Live Tracking Status Timeline */}
                   <div className="p-3.5 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-2 text-xs">
                     <div className="flex flex-wrap items-center justify-between text-slate-700 dark:text-zinc-300 gap-2">
-                      <div className="flex items-center gap-1.5 font-medium">
-                        <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400" />
-                        <span>Courier: <strong className="text-slate-900 dark:text-white">{order.courierPartner}</strong></span>
-                      </div>
-                      <div className="font-mono text-[11px]">
-                        AWB: <strong className="text-sky-600 dark:text-sky-400">{order.awbNumber}</strong>
-                      </div>
-                      <div>
-                        Est. Delivery: <strong className="text-slate-900 dark:text-white">{order.estimatedDeliveryDate}</strong>
-                      </div>
                     </div>
 
                     {/* Milestone progress dots */}

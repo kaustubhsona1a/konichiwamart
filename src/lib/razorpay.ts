@@ -76,7 +76,7 @@ export const getRazorpayKeyId = async (): Promise<string> => {
     // if the user updates .env after the build.
     const res = await fetch('/api/razorpay-key');
     if (res.ok) {
-      const data = await res.json();
+      let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
       if (data?.key_id && typeof data.key_id === 'string' && data.key_id.trim().length > 0) {
         return data.key_id.trim();
       }
@@ -86,7 +86,7 @@ export const getRazorpayKeyId = async (): Promise<string> => {
   }
 
   // Fallback to a safe test key if everything else fails
-  return 'rzp_test_Tcekx5QwJakhWA';
+  return import.meta.env.VITE_RAZORPAY_KEY_ID || '';
 };
 
 /**
@@ -96,10 +96,10 @@ export const checkRazorpayConfig = async (): Promise<{ isConfigured: boolean; ke
   try {
     const res = await fetch('/api/razorpay-key');
     if (res.ok) {
-      const data = await res.json();
-      const k = data?.key_id || 'rzp_test_Tcekx5QwJakhWA';
+      let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
+      const k = data?.key_id || '';
       return {
-        isConfigured: true,
+        isConfigured: data?.isConfigured || false,
         keyId: k
       };
     }
@@ -107,7 +107,7 @@ export const checkRazorpayConfig = async (): Promise<{ isConfigured: boolean; ke
     console.warn('Could not check razorpay config status:', err);
   }
 
-  return { isConfigured: true, keyId: 'rzp_test_Tcekx5QwJakhWA' };
+  return { isConfigured: false, keyId: '' };
 };
 
 /**
@@ -130,7 +130,7 @@ export const createBackendOrder = async (
     })
   });
 
-  const data = await res.json();
+  let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
   if (!res.ok) {
     throw new Error(data.error || `Failed to create order (HTTP ${res.status})`);
   }
@@ -152,7 +152,7 @@ export const verifyPaymentSignature = async (
     body: JSON.stringify(payload)
   });
 
-  const data = await res.json();
+  let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Payment signature verification failed.');
   }
@@ -188,7 +188,7 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
 
     // Ensure real Razorpay order ID is created on backend if not supplied
     let orderIdToUse = options.orderId;
-    if (!orderIdToUse || orderIdToUse.startsWith('order_test_') || orderIdToUse.startsWith('sandbox_')) {
+    if (!orderIdToUse || orderIdToUse.startsWith('order_test_') || orderIdToUse.startsWith('sandbox_') || orderIdToUse.startsWith('order_simulated_')) {
       try {
         const createdOrder = await createBackendOrder(orderAmount, orderCurrency, options.receipt);
         orderIdToUse = createdOrder.order_id;
@@ -271,7 +271,7 @@ export const sendOtpToPhone = async (phone: string): Promise<{ success: boolean;
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone })
     });
-    const data = await res.json();
+    let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
     if (!res.ok) {
       throw new Error(data.error || 'Failed to send OTP.');
     }
@@ -291,7 +291,7 @@ export const verifyOtpCode = async (phone: string, otp: string): Promise<{ succe
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, otp })
     });
-    const data = await res.json();
+    let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
     if (!res.ok || !data.verified) {
       throw new Error(data.error || 'Verification code is invalid.');
     }
@@ -317,7 +317,7 @@ export const dispatchInvoiceEmail = async (params: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params)
     });
-    const data = await res.json();
+    let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
     if (!res.ok) {
       throw new Error(data.error || 'Failed to dispatch invoice email.');
     }
@@ -344,7 +344,7 @@ export const createValidatedCheckoutOrder = async (payload: {
     body: JSON.stringify(payload)
   });
 
-  const data = await res.json();
+  let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }
   if (!res.ok || !data.success) {
     throw new Error(data.error || 'Failed to create order on server.');
   }

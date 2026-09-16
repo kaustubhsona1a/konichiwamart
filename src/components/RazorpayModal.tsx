@@ -544,8 +544,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       status: 'CONFIRMED',
       shippingAddress: targetAddress,
       awbNumber: awb,
-      courierPartner: pinInfo.couriers[0] || 'Blue Dart Air Express',
-      estimatedDeliveryDate: 'Pan-India shipping within 3-5 days after ordering',
+      courierPartner: "Manual Delivery",
+      estimatedDeliveryDate: '3-5 business days for delivery',
       trackingHistory: [
         {
           time: 'Just Now',
@@ -610,6 +610,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       return;
     }
 
+
+
     setIsProcessing(true);
     setPaymentError(null);
     setStatusMessage('Preparing secure Razorpay payment...');
@@ -631,7 +633,10 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         items: items.map(i => ({
           productId: i.product.id,
           variantId: i.selectedShade?.id,
-          quantity: i.quantity
+          quantity: i.quantity,
+          title: i.product.title,
+          price: i.product.price,
+          image: i.product.image
         })),
         customer: {
           fullName: (fullName || 'Valued Customer').trim(),
@@ -647,6 +652,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         },
         discountCode
       });
+
+
 
       setStatusMessage('Order verified! Initiating secure Razorpay checkout...');
 
@@ -720,9 +727,9 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
           setIsProcessing(false);
           setStatusMessage('');
           if (err && (err.toLowerCase().includes('auth') || err.toLowerCase().includes('bad_request'))) {
-            setPaymentError('Razorpay Notice: Authentication failed with your Razorpay Key ID & Secret. You can complete this order right away with "Test Mode Checkout" below.');
+            setPaymentError('Razorpay Notice: Authentication failed. Your Razorpay Key ID & Secret were rejected by the Razorpay API. Please generate a fresh pair of live keys in your Razorpay dashboard and update them in your AI Studio secrets.');
           } else {
-            setPaymentError(err || 'Payment transaction encountered an issue. Please try again or test in Sandbox mode.');
+            setPaymentError(err || 'Payment transaction encountered an issue. Please try again.');
           }
         }
       });
@@ -733,7 +740,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       setStatusMessage('');
       const msg = serverErr?.message || '';
       if (msg.toLowerCase().includes('auth') || msg.toLowerCase().includes('bad_request')) {
-        setPaymentError('Razorpay Notice: Authentication failed with your Razorpay Key ID & Secret. You can complete this order right away with "Test Mode Checkout" below.');
+        setPaymentError('Razorpay Notice: Authentication failed. Your Razorpay Key ID & Secret were rejected by the Razorpay API. Please generate a fresh pair of live keys in your Razorpay dashboard and update them in your AI Studio secrets.');
       } else {
         setPaymentError("Vercel Server Timeout or Backend Error: " + (msg || 'API Failed'));
       }
@@ -1088,7 +1095,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 text-xs flex items-center gap-2">
               <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
               <span className="font-semibold text-xs">
-                3-5 day pan India delivery
+                3-5 business days for delivery
               </span>
             </div>
 
@@ -1223,8 +1230,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
 
               <div className="flex justify-between items-center">
                 <div>
-                  <span>Express Air Shipping</span>
-                  <span className="block text-[10px] text-slate-500 dark:text-zinc-400">Pan-India shipping within 3-5 days after ordering</span>
+                  <span>Delivery details would be sent through email</span>
+                  <span className="block text-[10px] text-slate-500 dark:text-zinc-400">3-5 business days for delivery</span>
                 </div>
                 <span>{shippingFee === 0 ? <strong className="text-emerald-700 dark:text-emerald-400">FREE</strong> : formatINR(shippingFee)}</span>
               </div>
@@ -1235,260 +1242,6 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
               </div>
             </div>
 
-            {/* Payment Method Selector (100% Prepaid via Razorpay - UPI Apps & Cards) */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-900 dark:text-zinc-100 block">
-                  Select Payment Method
-                </label>
-                <span className="text-[10px] text-pink-600 dark:text-pink-400 font-medium flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3" />
-                  Razorpay 256-Bit Encrypted
-                </span>
-              </div>
-
-              {/* Payment Mode Selector Tabs */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedPaymentMode('UPI')}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    selectedPaymentMode === 'UPI'
-                      ? 'border-pink-600 bg-pink-50/70 dark:bg-pink-950/40 ring-2 ring-pink-500/30'
-                      : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-slate-300 dark:hover:border-zinc-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${selectedPaymentMode === 'UPI' ? 'bg-pink-600 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400'}`}>
-                        <Smartphone className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-xs font-bold text-slate-900 dark:text-zinc-100">UPI Apps & QR</span>
-                    </div>
-                    {selectedPaymentMode === 'UPI' && (
-                      <span className="w-2 h-2 rounded-full bg-pink-600"></span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1.5">
-                    GPay, PhonePe, Paytm, BHIM, QR
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedPaymentMode('CARDS_NETBANKING')}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    selectedPaymentMode === 'CARDS_NETBANKING'
-                      ? 'border-pink-600 bg-pink-50/70 dark:bg-pink-950/40 ring-2 ring-pink-500/30'
-                      : 'border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-slate-300 dark:hover:border-zinc-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${selectedPaymentMode === 'CARDS_NETBANKING' ? 'bg-pink-600 text-white' : 'bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400'}`}>
-                        <CreditCard className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-xs font-bold text-slate-900 dark:text-zinc-100">Cards & Banking</span>
-                    </div>
-                    {selectedPaymentMode === 'CARDS_NETBANKING' && (
-                      <span className="w-2 h-2 rounded-full bg-pink-600"></span>
-                    )}
-                  </div>
-                  <span className="text-[10px] text-slate-500 dark:text-zinc-400 mt-1.5">
-                    Visa, Master, RuPay, 50+ Banks
-                  </span>
-                </button>
-              </div>
-
-              {/* UPI Options Details */}
-              {selectedPaymentMode === 'UPI' && (
-                <div className="p-3.5 rounded-xl border border-pink-200/80 dark:border-pink-900/60 bg-gradient-to-br from-pink-50/40 via-white to-pink-50/20 dark:from-pink-950/20 dark:via-zinc-900 dark:to-zinc-900 space-y-3">
-                  <div>
-                    <span className="text-[11px] font-semibold text-slate-700 dark:text-zinc-300 block mb-2">
-                      Choose Your Preferred UPI App:
-                    </span>
-
-                    {/* App selector pills */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                      {/* Google Pay */}
-                      <button
-                        type="button"
-                        onClick={() => { setSelectedUpiApp('google_pay'); setShowQrCode(false); }}
-                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
-                          selectedUpiApp === 'google_pay' && !showQrCode
-                            ? 'border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/40 ring-1 ring-emerald-500'
-                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="w-6 h-6 rounded-full bg-white flex items-center justify-center shadow-2xs border border-slate-100 flex-shrink-0">
-                          <span className="text-[11px] font-black text-emerald-600">G</span>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">Google Pay</div>
-                          <div className="text-[9px] text-slate-500 truncate">GPay Intent</div>
-                        </div>
-                      </button>
-
-                      {/* PhonePe */}
-                      <button
-                        type="button"
-                        onClick={() => { setSelectedUpiApp('phonepe'); setShowQrCode(false); }}
-                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
-                          selectedUpiApp === 'phonepe' && !showQrCode
-                            ? 'border-purple-500 bg-purple-50/60 dark:bg-purple-950/40 ring-1 ring-purple-500'
-                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="w-6 h-6 rounded-full bg-purple-700 text-white flex items-center justify-center shadow-2xs flex-shrink-0">
-                          <span className="text-[11px] font-black">पे</span>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">PhonePe</div>
-                          <div className="text-[9px] text-slate-500 truncate">Fast UPI</div>
-                        </div>
-                      </button>
-
-                      {/* Paytm UPI */}
-                      <button
-                        type="button"
-                        onClick={() => { setSelectedUpiApp('paytm'); setShowQrCode(false); }}
-                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
-                          selectedUpiApp === 'paytm' && !showQrCode
-                            ? 'border-sky-500 bg-sky-50/60 dark:bg-sky-950/40 ring-1 ring-sky-500'
-                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="w-6 h-6 rounded-full bg-sky-600 text-white flex items-center justify-center shadow-2xs flex-shrink-0">
-                          <span className="text-[10px] font-black">Pay</span>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">Paytm</div>
-                          <div className="text-[9px] text-slate-500 truncate">Instant UPI</div>
-                        </div>
-                      </button>
-
-                      {/* BHIM / Other UPI */}
-                      <button
-                        type="button"
-                        onClick={() => { setSelectedUpiApp('bhim'); setShowQrCode(false); }}
-                        className={`p-2 rounded-lg border text-left flex items-center gap-2 cursor-pointer transition-all ${
-                          selectedUpiApp === 'bhim' && !showQrCode
-                            ? 'border-amber-500 bg-amber-50/60 dark:bg-amber-950/40 ring-1 ring-amber-500'
-                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:border-slate-300'
-                        }`}
-                      >
-                        <div className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center shadow-2xs flex-shrink-0">
-                          <span className="text-[10px] font-black">BH</span>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-bold text-slate-900 dark:text-zinc-100 truncate">BHIM / Any</div>
-                          <div className="text-[9px] text-slate-500 truncate">Cred, Axis, etc.</div>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* QR Code Toggle and Display */}
-                  <div className="pt-2 border-t border-slate-200 dark:border-zinc-800 flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => setShowQrCode(!showQrCode)}
-                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-pink-600 dark:text-pink-400 hover:underline cursor-pointer"
-                      >
-                        <QrCode className="w-3.5 h-3.5" />
-                        <span>{showQrCode ? 'Hide QR Code' : 'Scan & Pay via UPI QR Code on Screen'}</span>
-                      </button>
-                      <span className="text-[10px] text-slate-400 dark:text-zinc-500">
-                        Works with any camera or UPI app
-                      </span>
-                    </div>
-
-                    {showQrCode && (
-                      <div className="p-3 bg-white dark:bg-zinc-800 rounded-xl border border-slate-200 dark:border-zinc-700 flex flex-col sm:flex-row items-center gap-4 animate-in fade-in zoom-in-95">
-                        {qrCodeDataUrl ? (
-                          <div className="p-1.5 bg-white rounded-lg border border-slate-200 shadow-xs flex-shrink-0">
-                            <img src={qrCodeDataUrl} alt="UPI Payment QR Code" className="w-32 h-32 object-contain" />
-                          </div>
-                        ) : (
-                          <div className="w-32 h-32 bg-slate-100 dark:bg-zinc-700 rounded-lg flex items-center justify-center">
-                            <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
-                          </div>
-                        )}
-                        <div className="space-y-1.5 text-center sm:text-left">
-                          <div className="text-xs font-bold text-slate-900 dark:text-zinc-100 flex items-center justify-center sm:justify-start gap-1.5">
-                            <span>Scan with Google Pay, PhonePe or Paytm</span>
-                          </div>
-                          <p className="text-[11px] text-slate-600 dark:text-zinc-300 leading-relaxed">
-                            Amount: <strong className="text-slate-900 dark:text-zinc-100">{formatINR(grandTotal)}</strong> to Konichiwa Mart.
-                          </p>
-                          <div className="pt-1 flex flex-wrap gap-1.5 justify-center sm:justify-start text-[10px]">
-                            <button
-                              type="button"
-                              onClick={handleStartRazorpayCheckout}
-                              className="px-2.5 py-1 rounded-md bg-pink-600 hover:bg-pink-500 text-white font-semibold cursor-pointer shadow-2xs"
-                            >
-                              Open Razorpay QR Modal
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Optional UPI ID / VPA field */}
-                  <div className="pt-2 border-t border-slate-200 dark:border-zinc-800">
-                    <label className="text-[11px] font-medium text-slate-600 dark:text-zinc-400 block mb-1">
-                      Or Enter UPI ID / VPA (Optional):
-                    </label>
-                    <div className="flex gap-1.5">
-                      <input
-                        type="text"
-                        value={userVpa}
-                        onChange={(e) => setUserVpa(e.target.value)}
-                        placeholder="e.g. yourname@okhdfcbank or 9876543210@paytm"
-                        className="flex-1 px-3 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-pink-500"
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-1 mt-1.5 text-[10px]">
-                      {['@okhdfcbank', '@okaxis', '@paytm', '@ybl'].map((suf) => (
-                        <button
-                          key={suf}
-                          type="button"
-                          onClick={() => {
-                            const current = userVpa.split('@')[0];
-                            setUserVpa((current || 'user') + suf);
-                          }}
-                          className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 hover:text-pink-600 cursor-pointer font-mono"
-                        >
-                          {suf}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Cards & NetBanking Details */}
-              {selectedPaymentMode === 'CARDS_NETBANKING' && (
-                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-slate-900 dark:text-zinc-100">
-                    <CreditCard className="w-4 h-4 text-pink-600" />
-                    <span>Credit / Debit Cards, NetBanking & Wallets</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 dark:text-zinc-300">
-                    Supports Visa, MasterCard, RuPay, Maestro, 50+ NetBanking Indian banks (HDFC, ICICI, SBI, Axis, Kotak), and Wallets.
-                  </p>
-                  <div className="pt-2 flex flex-wrap gap-1.5 text-[10px] font-medium text-slate-600 dark:text-zinc-300">
-                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-700">Visa / Master / RuPay</span>
-                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-700">HDFC / ICICI / SBI / Axis</span>
-                    <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-700">MobiKwik / Airtel Money</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Action Buttons */}
             <div className="pt-2 space-y-2">
               <button
                 onClick={handleStartRazorpayCheckout}
@@ -1504,7 +1257,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                   <>
                     <Lock className="w-4 h-4" />
                     <span>
-                      Pay {formatINR(grandTotal)} {!isRazorpayConfigured ? '(Instant Checkout)' : `via ${selectedPaymentMode === 'UPI' ? (selectedUpiApp === 'google_pay' ? 'Google Pay' : selectedUpiApp === 'phonepe' ? 'PhonePe' : selectedUpiApp === 'paytm' ? 'Paytm UPI' : selectedUpiApp === 'bhim' ? 'BHIM UPI' : 'UPI') : 'Cards / NetBanking'} (Razorpay)`}
+                      Pay {formatINR(grandTotal)} via Razorpay
                     </span>
                   </>
                 )}

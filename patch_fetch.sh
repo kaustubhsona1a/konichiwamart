@@ -1,0 +1,1 @@
+sed -i 's/const data = await res.json();/let data; try { data = await res.json(); } catch(e) { const txt = await res.text(); throw new Error("Vercel HTTP " + res.status + " Error: " + txt.substring(0, 50)); }/g' src/lib/razorpay.ts

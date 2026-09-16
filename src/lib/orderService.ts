@@ -96,16 +96,9 @@ export const orderStore = new Map<string, ValidatedOrder>();
  * Lazy helper for Razorpay instance with env check
  */
 function getRazorpayClient(): Razorpay {
-  let key_id = (process.env.RAZORPAY_KEY_ID || '').trim();
-  let key_secret = (process.env.RAZORPAY_KEY_SECRET || '').trim();
+  let key_id = (process.env.RAZORPAY_KEY_ID || '').replace(/['\"\s]/g, '').trim();
+  let key_secret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').replace(/['\"\s]/g, '').trim();
 
-  // If both are missing, use the sandbox fallback credentials so the app doesn't break.
-  // If the user provided one but not the other, we must let it fail naturally 
-  // or throw so they know they missed an env var.
-  if (!key_id && !key_secret) {
-    key_id = 'rzp_test_Tcekx5QwJakhWA';
-    key_secret = 'GJV6GY1DWuCd4kRWeTihGgzv';
-  }
 
   if (!key_id || !key_secret) {
     throw new Error('Both RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must be provided in environment variables.');
@@ -228,8 +221,8 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
   let razorpayOrderId: string | undefined;
   let isRazorpayConfigured = false;
   try {
-    const key_id = (process.env.RAZORPAY_KEY_ID || 'rzp_test_Tcekx5QwJakhWA').trim();
-    const key_secret = (process.env.RAZORPAY_KEY_SECRET || 'GJV6GY1DWuCd4kRWeTihGgzv').trim();
+    const key_id = (process.env.RAZORPAY_KEY_ID || '').replace(/['\"\s]/g, '').trim();
+    const key_secret = ((process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE) || '').replace(/['\"\s]/g, '').trim();
 
     if (key_id && key_secret) {
       const razorpay = getRazorpayClient();
@@ -240,9 +233,9 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
         notes: {
           orderNumber,
           invoiceNumber,
-          customerName: customer.fullName,
-          customerPhone: customer.phone,
-          state: shippingAddress.state
+          customerName: customer.fullName || "Guest",
+          customerPhone: customer.phone || "0000000000",
+          state: shippingAddress.state || "N/A"
         }
       });
       razorpayOrderId = rzpOrder.id;
@@ -250,7 +243,7 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
     }
   } catch (rzpErr: any) {
     console.error('Failed to create Razorpay order in orderService:', rzpErr);
-    throw new Error(rzpErr?.error?.description || rzpErr?.message || 'Failed to initialize payment gateway order with Razorpay.');
+    throw new Error('Razorpay API Rejected your keys: ' + (rzpErr?.error?.description || rzpErr?.message || 'Authentication failed.'));
   }
 
   // 7. SAVE ORDER TO STORE
@@ -271,7 +264,7 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
     shippingFee,
     totalAmount: grandTotal,
     currency: 'INR',
-    razorpayOrderId: razorpayOrderId || `sandbox_${orderNumber}`,
+    razorpayOrderId: razorpayOrderId || undefined,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
