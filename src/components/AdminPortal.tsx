@@ -1148,6 +1148,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <tr>
                             <th className="py-2.5 px-3">Order ID</th>
                             <th className="py-2.5 px-3">Customer</th>
+                            <th className="py-2.5 px-3">Ordered Items</th>
                             <th className="py-2.5 px-3">Destination</th>
                             <th className="py-2.5 px-3">Amount</th>
                             <th className="py-2.5 px-3">Delivery</th>
@@ -1158,9 +1159,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           {orders.slice(0, 4).map((o) => (
                             <tr key={o.id} className="text-slate-700 hover:bg-pink-50/30 transition-colors">
                               <td className="py-3 px-3 font-mono font-bold text-slate-900">{o.orderNumber}</td>
-                              <td className="py-3 px-3 text-[10px] text-slate-500">Manual Delivery
-                                <div className="font-semibold text-slate-900">{o.customerName}</div>
-                                <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
+                              <td className="py-3 px-3 text-[10px] text-slate-500">
+                                <div className="font-semibold text-slate-900 text-xs">{o.customerName}</div>
+                                <div>{o.customerEmail}</div>
+                                <div className="text-slate-400">{o.customerPhone}</div>
+                              </td>
+                              <td className="py-3 px-3 text-slate-600 max-w-[150px]">
+                                <ul className="space-y-1 text-[10px]">
+                                  {(o.items || []).map((item, idx) => (
+                                    <li key={idx} className="truncate" title={item.title}>
+                                      {item.quantity}x {item.title}
+                                    </li>
+                                  ))}
+                                </ul>
                               </td>
                               <td className="py-3 px-3 text-slate-600">
                                 {o.shippingAddress.city}, {o.shippingAddress.state}
@@ -1734,13 +1745,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                         {/* Customer & Address Details */}
                         <div className="text-xs space-y-1">
-                          <div className="flex items-center justify-between">
+                          <div className="flex flex-col">
                             <span className="font-bold text-slate-800">{o.customerName}</span>
+                            <span className="text-[11px] text-slate-500">{o.customerEmail}</span>
                             <span className="text-[11px] text-slate-500">{o.customerPhone}</span>
                           </div>
                           <p className="text-[11px] text-slate-600 leading-snug">
                             {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})
                           </p>
+                        </div>
+
+                        {/* Ordered Items */}
+                        <div className="pt-2 border-t border-stone-100">
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Ordered Items</span>
+                          <ul className="space-y-1">
+                            {(o.items || []).map((item, idx) => (
+                              <li key={idx} className="flex justify-between text-[11px]">
+                                <span className="text-slate-700 max-w-[180px] truncate" title={item.title}>
+                                  {item.quantity}x {item.title} {item.shade ? `(${item.shade})` : ''}
+                                </span>
+                                <span className="text-slate-900 font-medium">{formatINR(item.price * item.quantity)}</span>
+                              </li>
+                            ))}
+                          </ul>
                         </div>
 
                         {/* Order Status & Courier Partner */}
@@ -1789,6 +1816,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <tr>
                             <th className="p-3.5">Order ID</th>
                             <th className="p-3.5">Customer</th>
+                            <th className="p-3.5">Ordered Items</th>
                             <th className="p-3.5">Shipping Address</th>
                             <th className="p-3.5">Amount</th>
                             <th className="p-3.5">Payment</th>
@@ -1802,7 +1830,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               <td className="p-3.5 font-mono font-bold text-slate-900">{o.orderNumber}</td>
                               <td className="p-3.5">
                                 <div className="font-semibold text-slate-900">{o.customerName}</div>
+                                <div className="text-[10px] text-slate-500">{o.customerEmail}</div>
                                 <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
+                              </td>
+                              <td className="p-3.5 text-slate-600 max-w-[200px]">
+                                <ul className="space-y-1 text-[10px]">
+                                  {(o.items || []).map((item, idx) => (
+                                    <li key={idx} className="flex justify-between truncate" title={item.title}>
+                                      <span className="truncate">{item.quantity}x {item.title} {item.shade ? `(${item.shade})` : ''}</span>
+                                    </li>
+                                  ))}
+                                </ul>
                               </td>
                               <td className="p-3.5 text-slate-600">
                                 {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})

@@ -2824,3 +2824,5 @@ async function startServer() {
 
 if (!process.env.VERCEL) { startServer(); }
 export default app;
+// @ts-ignore
+export const handler = app;
