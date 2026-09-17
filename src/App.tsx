@@ -55,6 +55,7 @@ import { ReviewsSection } from './components/ReviewsSection';
 import { AboutUsModal } from './components/AboutUsModal';
 import { AboutUsPage } from './components/AboutUsPage';
 import { ContactUsModal } from './components/ContactUsModal';
+import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { 
   saveOrderToSupabase, 
   getStoredOperatorSession, 
@@ -138,18 +139,6 @@ export default function App() {
     } catch {}
     return [];
   });
-
-  // Hydrate store orders from Supabase on load
-  useEffect(() => {
-    fetchAllOrdersFromSupabase().then(fetched => {
-      if (Array.isArray(fetched) && fetched.length > 0) {
-        setStoreOrders(fetched);
-        try {
-          localStorage.setItem('km_store_orders', JSON.stringify(fetched));
-        } catch {}
-      }
-    });
-  }, []);
 
   // Customer Profile (isolated strictly to active customer session)
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
@@ -260,6 +249,18 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // Hydrate store orders from Supabase on load and whenever Operator Portal is opened
+  useEffect(() => {
+    fetchAllOrdersFromSupabase().then(fetched => {
+      if (Array.isArray(fetched)) {
+        setStoreOrders(fetched);
+        try {
+          localStorage.setItem('km_store_orders', JSON.stringify(fetched));
+        } catch {}
+      }
+    });
+  }, [isAdminOpen]);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [operatorSession, setOperatorSession] = useState<OperatorSession | null>(() => getStoredOperatorSession());
   const [customerSession, setCustomerSession] = useState<{ id: string; email: string; name: string; phone?: string } | null>(() => getActiveCustomerSession());
@@ -270,6 +271,18 @@ export default function App() {
   const [activeInvoiceOrder, setActiveInvoiceOrder] = useState<Order | null>(null);
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+
+  // Check URL parameters on mount for recovery link redirect
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+      if (hash.includes('type=recovery') || hash.includes('access_token=') || search.includes('action=reset-password')) {
+        setIsResetPasswordOpen(true);
+      }
+    }
+  }, []);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       const savedTheme = localStorage.getItem('km_theme');
@@ -322,9 +335,11 @@ export default function App() {
       console.warn('[Supabase Auth] Session verification notice:', err);
     });
 
-    // Listen for real-time auth changes (sign in, sign out, token refresh)
+    // Listen for real-time auth changes (sign in, sign out, token refresh, password recovery)
     const { data: authSubscription } = client.auth.onAuthStateChange((event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsResetPasswordOpen(true);
+      } else if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
         const userRole = session.user.user_metadata?.role;
         if (userRole === 'operator' || userRole === 'admin') {
           const liveSession: OperatorSession = {
@@ -1415,6 +1430,27 @@ export default function App() {
         onClose={() => setIsContactOpen(false)}
         instagramHandle={KONICHIWA_INSTAGRAM_HANDLE}
         instagramUrl={KONICHIWA_INSTAGRAM_URL}
+      />
+
+      {/* 12. Password Reset Modal */}
+      <ResetPasswordModal
+        isOpen={isResetPasswordOpen}
+        onClose={() => {
+          setIsResetPasswordOpen(false);
+          if (typeof window !== 'undefined' && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+        }}
+        onPasswordUpdated={(email) => {
+          setIsResetPasswordOpen(false);
+          if (typeof window !== 'undefined' && window.history.replaceState) {
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+          if (email) {
+            const current = getActiveCustomerSession();
+            if (current) setCustomerSession(current);
+          }
+        }}
       />
 
     </div>

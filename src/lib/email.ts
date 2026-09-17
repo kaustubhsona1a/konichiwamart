@@ -47,7 +47,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData): Promise<EmailDis
 
     const response = await client.emails.send({
       from: fromAddress,
-      replyTo: 'support@konichiwamart.com',
+      replyTo: 'info@konichiwamart.com',
       to: [data.customerEmail],
       subject: `Order Confirmed: #${data.orderNumber} - Your Tax Invoice from Konichiwa Mart`,
       html: `
@@ -177,5 +177,74 @@ export async function sendTestEmail(toEmail: string): Promise<EmailDispatchResul
     return { success: true, messageId: response.data?.id };
   } catch (err: any) {
     return { success: false, error: err.message || 'Failed to send test email.' };
+  }
+}
+
+/**
+ * Sends a custom branded Password Reset email to the customer using Resend
+ */
+export async function sendPasswordResetEmail(toEmail: string, resetLink: string): Promise<EmailDispatchResult> {
+  const client = getResendClient();
+  if (!client) {
+    return {
+      success: false,
+      error: 'RESEND_API_KEY environment variable is not configured.'
+    };
+  }
+
+  try {
+    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <orders@konichiwamart.com>';
+    const response = await client.emails.send({
+      from: fromAddress,
+      replyTo: 'info@konichiwamart.com',
+      to: [toEmail],
+      subject: '🔒 Reset Your Konichiwa Mart Account Password',
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b; max-width: 520px; margin: 0 auto; padding: 24px; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 36px;">🌸</span>
+            <h2 style="color: #e11d48; margin: 8px 0 4px 0; font-size: 20px; font-weight: 700;">Konichiwa Mart</h2>
+            <p style="color: #64748b; font-size: 13px; margin: 0;">Password Reset Request</p>
+          </div>
+          
+          <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+            Hello,
+          </p>
+          <p style="font-size: 14px; line-height: 1.6; color: #334155;">
+            We received a request to reset the password for your Konichiwa Mart account (<strong>${toEmail}</strong>).
+          </p>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetLink}" target="_blank" style="background-color: #e11d48; color: #ffffff; padding: 12px 28px; border-radius: 9999px; text-decoration: none; font-size: 14px; font-weight: 600; display: inline-block; box-shadow: 0 4px 12px rgba(225, 29, 72, 0.25);">
+              Reset Password
+            </a>
+          </div>
+
+          <p style="font-size: 12px; line-height: 1.5; color: #64748b;">
+            If the button above does not work, copy and paste this link into your browser:<br>
+            <a href="${resetLink}" style="color: #e11d48; word-break: break-all;">${resetLink}</a>
+          </p>
+
+          <p style="font-size: 12px; color: #94a3b8; margin-top: 24px;">
+            If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged.
+          </p>
+
+          <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;">
+          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0;">
+            ${SELLER_DETAILS.tradeName} • ${SELLER_DETAILS.supportEmail}
+          </p>
+        </div>
+      `
+    });
+
+    if (response.error) {
+      console.error('[Resend Password Reset Error]:', response.error);
+      return { success: false, error: response.error.message };
+    }
+
+    return { success: true, messageId: response.data?.id };
+  } catch (err: any) {
+    console.error('[Resend Password Reset Exception]:', err);
+    return { success: false, error: err.message || 'Failed to send reset email.' };
   }
 }

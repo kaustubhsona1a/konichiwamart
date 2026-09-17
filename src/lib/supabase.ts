@@ -4,26 +4,40 @@ import { Product, Order } from '../types';
 import { PRODUCTS } from '../data/products';
 
 const env = (import.meta as any).env || {};
-const supabaseUrl: string | undefined = 
+let activeSupabaseUrl: string | undefined = 
   env.VITE_SUPABASE_URL || env.SUPABASE_URL || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL : undefined);
-const supabaseAnonKey: string | undefined = 
+let activeSupabaseAnonKey: string | undefined = 
   env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY : undefined);
 
 export const isSupabaseConfigured = (): boolean => {
-  return Boolean(supabaseUrl && supabaseAnonKey && supabaseUrl.startsWith('http'));
+  return Boolean(activeSupabaseUrl && activeSupabaseAnonKey && activeSupabaseUrl.startsWith('http'));
 };
 
 let clientInstance: SupabaseClient | null = null;
 
 export const getSupabaseClient = (): SupabaseClient | null => {
-  if (!isSupabaseConfigured()) {
-    return null;
+  if (isSupabaseConfigured()) {
+    if (!clientInstance && activeSupabaseUrl && activeSupabaseAnonKey) {
+      clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
+    }
+    return clientInstance;
   }
-  if (!clientInstance) {
-    clientInstance = createClient(supabaseUrl, supabaseAnonKey);
-  }
-  return clientInstance;
+  return null;
 };
+
+// Initialize client asynchronously if credentials arrive from /api/config
+if (typeof window !== 'undefined' && !isSupabaseConfigured()) {
+  fetch('/api/config')
+    .then(r => r.json())
+    .then(cfg => {
+      if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
+        activeSupabaseUrl = cfg.supabaseUrl;
+        activeSupabaseAnonKey = cfg.supabaseAnonKey;
+        clientInstance = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+      }
+    })
+    .catch(() => {});
+}
 
 export interface OperatorSession {
   email: string;
@@ -652,9 +666,12 @@ export const fetchAllOrdersFromSupabase = async (): Promise<Order[]> => {
   try {
     const res = await fetch('/api/admin/orders');
     if (res.ok) {
-      const data = await res.json();
-      if (data && data.success && Array.isArray(data.orders)) {
-        return data.orders;
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.orders)) {
+          return data.orders;
+        }
       }
     }
   } catch {}

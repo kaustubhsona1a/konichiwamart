@@ -12,7 +12,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createServer as createViteServer } from 'vite';
 import { createValidatedOrder, orderStore } from './src/lib/orderService';
 import { processRazorpayWebhook } from './src/lib/webhookHandler';
-import { sendOrderInvoiceEmail, sendTestEmail } from './src/lib/email';
+import { sendOrderInvoiceEmail, sendTestEmail, sendPasswordResetEmail } from './src/lib/email';
 import { PRODUCTS } from './src/data/products';
 import { Product } from './src/types';
 
@@ -922,22 +922,42 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const client = getSupabaseServerClient();
+    // Always use the official production domain for professional branding in reset links
+    const siteDomain = process.env.PUBLIC_SITE_URL || process.env.SITE_URL || 'https://konichiwamart.com';
+    const redirectUrl = `${siteDomain.replace(/\/$/, '')}/?action=reset-password`;
 
-    if (!client) {
-      return res.status(200).json({
-        success: true,
-        message: `If an account exists for ${cleanEmail}, password reset instructions have been generated.`
-      });
+    const client = getSupabaseServerClient();
+    let resetUrl = redirectUrl;
+
+    if (client) {
+      try {
+        const { data: linkData, error: linkErr } = await client.auth.admin.generateLink({
+          type: 'recovery',
+          email: cleanEmail,
+          options: { redirectTo: redirectUrl }
+        });
+
+        if (!linkErr && linkData?.properties?.action_link) {
+          resetUrl = linkData.properties.action_link;
+        } else {
+          const { error: resetErr } = await client.auth.resetPasswordForEmail(cleanEmail, { redirectTo: redirectUrl });
+          if (resetErr) {
+            console.warn('[Server] Supabase resetPasswordForEmail warning:', resetErr.message);
+          }
+        }
+      } catch (authErr: any) {
+        console.warn('[Server] Supabase reset exception:', authErr?.message);
+      }
     }
 
-    try {
-      const { error } = await client.auth.resetPasswordForEmail(cleanEmail);
-      if (error) {
-        console.warn('[Server] Supabase resetPasswordForEmail warning:', error.message);
+    // Direct Resend email dispatch if RESEND_API_KEY is active
+    if (process.env.RESEND_API_KEY) {
+      const dispatchResult = await sendPasswordResetEmail(cleanEmail, resetUrl);
+      if (!dispatchResult.success) {
+        console.warn('[Server] Resend reset email dispatch warning:', dispatchResult.error);
+      } else {
+        console.log('[Server] Successfully dispatched password reset email via Resend to:', cleanEmail);
       }
-    } catch (authErr: any) {
-      console.warn('[Server] Supabase reset exception:', authErr?.message);
     }
 
     return res.status(200).json({
@@ -947,6 +967,80 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
   } catch (error: any) {
     console.error('[Server] Customer forgot-password error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to process password reset.' });
+  }
+});
+
+/**
+ * Endpoint to serve client configuration (Supabase public credentials)
+ */
+app.get('/api/config', (_req: Request, res: Response) => {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+  res.json({
+    supabaseUrl,
+    supabaseAnonKey,
+    siteUrl: process.env.PUBLIC_SITE_URL || 'https://konichiwamart.com'
+  });
+});
+
+/**
+ * Secure Customer Password Update Handler (server-side proxy for password recovery)
+ */
+app.post('/api/customer/update-password', async (req: Request, res: Response) => {
+  try {
+    const { password, accessToken, refreshToken } = req.body;
+    if (!password || typeof password !== 'string' || password.length < 6) {
+      return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
+    }
+
+    const client = getSupabaseServerClient();
+    if (!client) {
+      return res.status(500).json({ success: false, error: 'Database service is currently unavailable.' });
+    }
+
+    // Option 1: Handle token pair provided in request body
+    if (accessToken) {
+      const { data: sessionData, error: sessionErr } = await client.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken || ''
+      });
+
+      if (!sessionErr && sessionData?.user) {
+        const { error: updateErr } = await client.auth.admin.updateUserById(sessionData.user.id, { password });
+        if (!updateErr) {
+          return res.json({
+            success: true,
+            message: 'Password updated successfully!',
+            user: { email: sessionData.user.email, id: sessionData.user.id }
+          });
+        }
+      }
+    }
+
+    // Option 2: Check Authorization Bearer header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7);
+      const { data: userData, error: userErr } = await client.auth.getUser(token);
+      if (!userErr && userData?.user) {
+        const { error: updateErr } = await client.auth.admin.updateUserById(userData.user.id, { password });
+        if (!updateErr) {
+          return res.json({
+            success: true,
+            message: 'Password updated successfully!',
+            user: { email: userData.user.email, id: userData.user.id }
+          });
+        }
+      }
+    }
+
+    return res.status(400).json({
+      success: false,
+      error: 'Password reset link has expired or is invalid. Please request a new password reset email.'
+    });
+  } catch (error: any) {
+    console.error('[Server] Update password error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to update password.' });
   }
 });
 
@@ -1689,6 +1783,138 @@ app.get('/api/customer/orders', async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, orders });
   } catch (err: any) {
     console.error('[Server Customer Orders Exception]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/admin/orders
+ * Returns all store orders for Operator Portal using Supabase service role
+ */
+app.get('/api/admin/orders', async (_req: Request, res: Response) => {
+  try {
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(200).json({ success: true, orders: [] });
+    }
+
+    const { data: rows, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.warn('[Supabase Admin Orders Error]:', error.message);
+      return res.status(200).json({ success: true, orders: [] });
+    }
+
+    const orders = (rows || []).map((row: any) => {
+      const items = (row.order_items || []).map((item: any) => ({
+        productId: item.sku || 'KM-ITEM',
+        title: item.title,
+        volume: 'Standard',
+        price: Number(item.unit_price || 0),
+        quantity: Number(item.quantity || 1),
+        shade: item.shade_name || undefined,
+        image: item.image_url || 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&q=80&w=800'
+      }));
+
+      const dateStr = new Date(row.created_at || Date.now()).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      const rawStatus = (row.status || '').toUpperCase();
+      let mappedStatus = 'CONFIRMED';
+      if (['DISPATCHED', 'SHIPPED'].includes(rawStatus)) mappedStatus = 'DISPATCHED';
+      else if (['IN_TRANSIT', 'IN TRANSIT'].includes(rawStatus)) mappedStatus = 'IN_TRANSIT';
+      else if (['OUT_FOR_DELIVERY', 'OUT FOR DELIVERY'].includes(rawStatus)) mappedStatus = 'OUT_FOR_DELIVERY';
+      else if (['DELIVERED'].includes(rawStatus)) mappedStatus = 'DELIVERED';
+      else if (['CANCELLED'].includes(rawStatus)) mappedStatus = 'CANCELLED';
+
+      return {
+        id: row.id,
+        orderNumber: row.order_number,
+        invoiceNumber: row.invoice_number,
+        date: dateStr,
+        createdAt: row.created_at,
+        customerName: row.customer_name,
+        customerEmail: row.customer_email,
+        customerPhone: row.customer_phone,
+        items,
+        subtotal: Number(row.subtotal || 0),
+        cgst: Number(row.cgst || 0),
+        sgst: Number(row.sgst || 0),
+        shippingFee: Number(row.shipping_fee || 0),
+        discountAmount: Number(row.discount_amount || 0),
+        discountCode: row.discount_code || undefined,
+        totalAmount: Number(row.total_amount || 0),
+        paymentMethod: row.payment_method || 'RAZORPAY',
+        paymentId: row.razorpay_payment_id || 'N/A',
+        signature: row.razorpay_signature || undefined,
+        status: mappedStatus,
+        shippingAddress: {
+          id: `addr_${row.id}`,
+          fullName: row.customer_name,
+          phone: row.customer_phone,
+          addressLine1: row.shipping_address_line1,
+          addressLine2: row.shipping_address_line2 || undefined,
+          city: row.city,
+          state: row.state,
+          pincode: row.pincode,
+          tag: 'Home',
+          isDefault: false
+        },
+        awbNumber: row.awb_number || '',
+        courierPartner: row.courier_partner || 'Pending Dispatch',
+        estimatedDeliveryDate: row.estimated_delivery_date || '3-5 Business Days',
+        trackingHistory: [
+          {
+            time: dateStr,
+            location: 'Konichiwa Mart Central Fulfillment, Mumbai (MH)',
+            activity: `Order Verified. Status: ${mappedStatus}.`
+          }
+        ]
+      };
+    });
+
+    return res.status(200).json({ success: true, orders });
+  } catch (err: any) {
+    console.error('[Server Admin Orders Exception]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/update-order-status
+ * Updates status of an order in Supabase
+ */
+app.post('/api/admin/update-order-status', async (req: Request, res: Response) => {
+  try {
+    const { orderId, status } = req.body || {};
+    if (!orderId || !status) {
+      return res.status(400).json({ success: false, error: 'Order ID and status are required.' });
+    }
+
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(500).json({ success: false, error: 'Database client not connected.' });
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: String(status).toLowerCase() })
+      .or(`id.eq.${orderId},order_number.eq.${orderId}`);
+
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    return res.status(200).json({ success: true, message: 'Status updated successfully.' });
+  } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });

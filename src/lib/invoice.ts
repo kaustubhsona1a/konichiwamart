@@ -49,7 +49,7 @@ export const SELLER_DETAILS = {
   stateCode: '27',
   pincode: '400013',
   country: 'India',
-  supportEmail: 'care@konichiwamart.in',
+  supportEmail: 'info@konichiwamart.com',
   supportPhone: '+91 (022) 4890 2341'
 };
 
