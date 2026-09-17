@@ -1118,8 +1118,8 @@ export const deleteProductFromStore = async (productId: string): Promise<boolean
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
     Promise.resolve(
       isUuid
-        ? client.from('products').delete().eq('id', productId)
-        : client.from('products').delete().eq('slug', productId)
+        ? client.from('products').update({ is_active: false }).eq('id', productId)
+        : client.from('products').update({ is_active: false }).eq('slug', productId)
     ).catch(() => {});
   }
 

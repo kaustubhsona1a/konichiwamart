@@ -2519,9 +2519,9 @@ app.delete('/api/products/:id', async (req: Request, res: Response) => {
     try {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       if (isUuid) {
-        await supabase.from('products').delete().eq('id', id);
+        await supabase.from('products').update({ is_active: false }).eq('id', id);
       } else {
-        await supabase.from('products').delete().eq('slug', id);
+        await supabase.from('products').update({ is_active: false }).eq('slug', id);
       }
     } catch (err: any) {
       console.warn('[Server] Supabase delete warning:', err?.message || err);
