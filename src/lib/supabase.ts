@@ -1399,17 +1399,28 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
   }
 
   // 3. Local Cache / Default Seed Fallback
+  const LEGACY_MOCK_IDS = new Set([
+    'dhc-lip-cream',
+    'lululun-precious-moist',
+    'lululun-precious-balance',
+    'senka-perfect-whip-collagen',
+    'biore-uv-aqua-rich',
+    'rohto-melano-cc-toner',
+    'derma-laser-retinol'
+  ]);
+
   try {
     const saved = localStorage.getItem('km_custom_products');
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.filter((p: Product) => !localDeletedIds.has(p.id));
+        const valid = parsed.filter((p: Product) => !localDeletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
+        if (valid.length > 0) return valid;
       }
     }
   } catch {}
 
-  return PRODUCTS.filter((p) => !localDeletedIds.has(p.id));
+  return PRODUCTS.filter((p) => !localDeletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
 };
 
 /**

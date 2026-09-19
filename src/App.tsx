@@ -104,6 +104,17 @@ const cleanLegacyData = (addresses: UserAddress[] = [], orders: Order[] = []) =>
   return { cleanAddrs, cleanOrds };
 };
 
+// Legacy mock IDs that were part of the initial template and must never be loaded
+const LEGACY_MOCK_IDS = new Set([
+  'dhc-lip-cream',
+  'lululun-precious-moist',
+  'lululun-precious-balance',
+  'senka-perfect-whip-collagen',
+  'biore-uv-aqua-rich',
+  'rohto-melano-cc-toner',
+  'derma-laser-retinol'
+]);
+
 export default function App() {
   // Storefront Dynamic Products State (persists operator changes in localStorage)
   const [productsList, setProductsList] = useState<Product[]>(() => {
@@ -114,7 +125,10 @@ export default function App() {
       if (saved) {
         const parsed: Product[] = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.filter((p) => !deletedIds.has(p.id));
+          const cleaned = parsed.filter((p) => !deletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
+          if (cleaned.length > 0) {
+            return cleaned;
+          }
         }
       } else if (deletedIds.size > 0) {
         return PRODUCTS.filter((p) => !deletedIds.has(p.id));
@@ -278,6 +292,13 @@ export default function App() {
   const [dbCategories, setDbCategories] = useState<Array<{ id: string; name: string; slug: string }>>([]);
 
   useEffect(() => {
+    // Hydrate products directly from Supabase / live store on mount
+    fetchProductsFromStore().then((prods) => {
+      if (Array.isArray(prods) && prods.length > 0) {
+        setProductsList(prods);
+      }
+    });
+
     fetchCategoriesFromStore().then((cats) => {
       if (Array.isArray(cats) && cats.length > 0) {
         setDbCategories(cats.map(c => ({ id: c.name, name: c.name, slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') })));
