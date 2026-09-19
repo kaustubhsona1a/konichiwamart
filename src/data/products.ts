@@ -340,20 +340,107 @@ export const PRODUCTS: Product[] = [
     usageHowTo: 'Mix 3 heaped teaspoons (17g) with 140ml of hot or cold water or milk. Add ice for a refreshing iced matcha latte.',
     isBestSeller: true,
     stock: 150
+  },
+  {
+    id: 'rohto-melano-cc-toner',
+    title: 'Rohto Melano CC Vitamin C Brightening Lotion Toner',
+    subtitle: 'Deep Conditioning Lotion with Pure Vitamin C & Dipotassium Glycyrrhizate',
+    price: 890,
+    originalPrice: 1050,
+    rating: 4.92,
+    reviewsCount: 460,
+    category: 'Toner',
+    skinTypes: ['All', 'Combination', 'Oily', 'Normal'],
+    skinConcerns: ['Glow & Dullness', 'Blemishes & Texture', 'Barrier Repair'],
+    routine: 'AM/PM',
+    volume: '170ml',
+    badges: ['Bestseller', 'Dark Spot Essential'],
+    image: '/products/capsule-serum-vitamin-c.jpg',
+    accentColor: '#f59e0b',
+    bgGradient: 'from-amber-50 to-orange-100',
+    keyActives: [
+      { name: 'Pure Vitamin C (Ascorbic Acid)', purpose: 'Suppresses melanin production & clears dark spots' },
+      { name: 'Dipotassium Glycyrrhizate', purpose: 'Calms redness, acne, and irritation' },
+      { name: 'Alpinia White & Lemon Extract', purpose: 'Restores translucent skin radiance' }
+    ],
+    fullIngredients: 'Water, Butylene Glycol, Glycerin, 3-O-Ethyl Ascorbic Acid, Dipotassium Glycyrrhizate, Alpinia Katsumadai Seed Extract, Citrus Limon (Lemon) Fruit Extract, Menthol, PEG-50 Hydrogenated Castor Oil.',
+    description: 'Japan’s premier brightening toner. A light, watery conditioning lotion packed with active Vitamin C that penetrates deep into pores to fight discoloration, prevent acne blemishes, and balance uneven skin texture.',
+    benefits: ['Fades stubborn post-acne marks and pigmentation', 'Tightens enlarged pores and regulates sebum', 'Refreshing citrus essence absorbs with zero stickiness'],
+    usageHowTo: 'After cleansing, pour 4-5 drops onto palms or a cotton pad and gently pat into face until fully absorbed. Follow with serum or moisturizer.',
+    isBestSeller: true,
+    stock: 65
+  },
+  {
+    id: 'biore-uv-aqua-rich',
+    title: 'Bioré UV Aqua Rich Watery Essence SPF50+ PA++++',
+    subtitle: 'Micro Defense Broad-Spectrum Weightless Japanese Sunscreen',
+    price: 950,
+    originalPrice: 1150,
+    rating: 4.96,
+    reviewsCount: 1120,
+    category: 'Sunscreen',
+    skinTypes: ['All', 'Oily', 'Combination', 'Normal', 'Sensitive'],
+    skinConcerns: ['Anti-Aging', 'Barrier Repair', 'Hydration'],
+    routine: 'AM',
+    volume: '50g',
+    badges: ['#1 In Japan', 'SPF50+ PA++++'],
+    image: '/products/senka-perfect-whip.jpg',
+    accentColor: '#0ea5e9',
+    bgGradient: 'from-sky-50 to-blue-100',
+    keyActives: [
+      { name: 'Micro Defense Formula', purpose: 'Provides seamless microscopic UV protection' },
+      { name: 'Hyaluronic Acid & Royal Jelly', purpose: 'Maintains all-day skin hydration' },
+      { name: 'Watery Capsule Essence', purpose: 'Dissolves instantly with zero white cast' }
+    ],
+    fullIngredients: 'Water, Alcohol, Ethylhexyl Methoxycinnamate, Lauryl Methacrylate/Sodium Methacrylate Crosspolymer, Diethylamino Hydroxybenzoyl Hexyl Benzoate, Sodium Hyaluronate, Royal Jelly Extract.',
+    description: 'The world-famous Japanese sunscreen formulation powered by Kao’s proprietary Micro Defense technology. Delivers broad-spectrum SPF 50+ PA++++ protection in a sheer watery gel that blends invisible across every skin tone.',
+    benefits: ['Zero white cast on Indian and deeper skin tones', 'Feels like a cooling splash of water, never greasy', 'Very water-resistant for up to 80 minutes'],
+    usageHowTo: 'Apply generously to face and neck as the final step of morning skincare at least 15 minutes before sun exposure. Reapply after heavy sweating or swimming.',
+    isBestSeller: true,
+    stock: 90
+  },
+  {
+    id: 'dhc-lip-cream',
+    title: 'DHC Extra Moisture Lip Cream',
+    subtitle: 'Nourishing Japanese Virgin Olive Oil & Vitamin E Balm',
+    price: 650,
+    originalPrice: 780,
+    rating: 4.89,
+    reviewsCount: 540,
+    category: 'Lips',
+    skinTypes: ['All', 'Dry', 'Sensitive'],
+    skinConcerns: ['Hydration', 'Barrier Repair'],
+    routine: 'AM/PM',
+    volume: '1.5g',
+    badges: ['Cult Favorite', 'Virgin Olive Oil'],
+    image: '/products/lululun-moist.jpg',
+    accentColor: '#fb7185',
+    bgGradient: 'from-rose-50 to-pink-100',
+    keyActives: [
+      { name: 'Organic Olive Virgin Oil', purpose: 'Neutralizes free radicals and locks in moisture' },
+      { name: 'Aloe Leaf Extract', purpose: 'Soothes chapped, cracked, and irritated lips' },
+      { name: 'Vitamin E', purpose: 'Strengthens fragile lip barrier against environmental dryness' }
+    ],
+    fullIngredients: 'Lanolin Oil, Caprylic/Capric Triglyceride, Euphorbia Cerifera (Candelilla) Wax, Beeswax, Olea Europaea (Olive) Fruit Oil, Squalane, Stearic Acid, Tocopherol, Aloe Barbadensis Leaf Extract.',
+    description: 'An iconic Japanese staple formulated with 100% pure organic virgin olive oil, aloe, and squalane. Glides on effortlessly to quench dry, chapped lips with a smooth, glass-like non-sticky protective shield.',
+    benefits: ['Instant relief for severely dry and cracked lips', 'Fragrance-free and colorant-free gentle formula', 'Can be used alone or under lipstick as a smooth primer'],
+    usageHowTo: 'Glide evenly over lips as often as needed throughout the day or apply a generous layer before bedtime as an overnight lip sleeping mask.',
+    isBestSeller: true,
+    stock: 110
   }
 ];
 
 export const PROMO_CODES: Record<string, { discountPercent: number; minAmount: number; discount: number; type: 'PERCENTAGE' | 'FIXED'; minOrderValue?: number }> = {};
 
 export const CATEGORIES = [
-  { id: 'cat-all', name: 'All', slug: 'all' },
-  { id: 'cat-face-wash', name: 'Face Wash', slug: 'face-wash' },
-  { id: 'cat-face-mask', name: 'Face Mask', slug: 'face-mask' },
-  { id: 'cat-toner', name: 'Toner', slug: 'toner' },
-  { id: 'cat-sunscreen', name: 'Sunscreen', slug: 'sunscreen' },
-  { id: 'cat-lips', name: 'Lips', slug: 'lips' },
-  { id: 'cat-serum', name: 'Serum', slug: 'serum' },
-  { id: 'cat-hair-care', name: 'Hair Care', slug: 'hair-care' },
-  { id: 'cat-home', name: 'Home & Living', slug: 'home-and-living' },
-  { id: 'cat-food', name: 'Food & Drink', slug: 'food-and-drink' }
+  { id: 'All', name: 'All', slug: 'all' },
+  { id: 'Face Wash', name: 'Face Wash', slug: 'face-wash' },
+  { id: 'Face Mask', name: 'Face Mask', slug: 'face-mask' },
+  { id: 'Toner', name: 'Toner', slug: 'toner' },
+  { id: 'Sunscreen', name: 'Sunscreen', slug: 'sunscreen' },
+  { id: 'Lips', name: 'Lips', slug: 'lips' },
+  { id: 'Serum', name: 'Serum', slug: 'serum' },
+  { id: 'Hair Care', name: 'Hair Care', slug: 'hair-care' },
+  { id: 'Home & Living', name: 'Home & Living', slug: 'home-and-living' },
+  { id: 'Food & Drink', name: 'Food & Drink', slug: 'food-and-drink' }
 ];

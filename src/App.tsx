@@ -863,12 +863,55 @@ export default function App() {
     discountAmount: 0
   });
 
+  // Dynamic categories combined from preset list and products list
+  const displayCategories = useMemo(() => {
+    const existing = new Set<string>();
+    const list: { id: string; name: string; slug: string }[] = [];
+
+    // Always include 'All' first
+    list.push({ id: 'All', name: 'All', slug: 'all' });
+    existing.add('all');
+
+    // Add preset categories
+    CATEGORIES.forEach((c) => {
+      const lower = c.name.toLowerCase();
+      if (lower !== 'all' && !existing.has(lower)) {
+        existing.add(lower);
+        list.push({ id: c.name, name: c.name, slug: c.slug || lower.replace(/[^a-z0-9]/g, '-') });
+      }
+    });
+
+    // Also include any categories present on current active products
+    productsList.forEach((p) => {
+      if (p.category) {
+        const lower = p.category.toLowerCase();
+        if (!existing.has(lower)) {
+          existing.add(lower);
+          list.push({
+            id: p.category,
+            name: p.category,
+            slug: lower.replace(/[^a-z0-9]/g, '-')
+          });
+        }
+      }
+    });
+
+    return list;
+  }, [productsList]);
+
   // Filtered Products Logic
   const filteredProducts = useMemo(() => {
     return productsList.filter((p) => {
-      // Category filter
-      if (selectedCategory !== 'All' && p.category !== selectedCategory) {
-        return false;
+      // Category filter (handles display names, IDs, slugs, and case-insensitivity)
+      if (selectedCategory && selectedCategory !== 'All' && selectedCategory !== 'cat-all') {
+        const normSelected = selectedCategory.toLowerCase().replace(/^cat-/, '').replace(/[^a-z0-9]/g, '');
+        const normCat = (p.category || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const matchesExact = p.category === selectedCategory;
+        const matchesCaseInsensitive = p.category?.toLowerCase() === selectedCategory.toLowerCase();
+        const matchesNorm = normCat === normSelected;
+        if (!matchesExact && !matchesCaseInsensitive && !matchesNorm) {
+          return false;
+        }
       }
       // Concern filter
       if (selectedConcern !== 'All' && !p.skinConcerns.includes(selectedConcern as SkinConcern)) {
@@ -1216,20 +1259,29 @@ export default function App() {
 
             {/* Clean Category Pills */}
             <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-2.5 sm:pb-4 mb-3 sm:mb-6 scrollbar-none">
-              {CATEGORIES.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedCategory(cat.id as ProductCategory)}
-                  className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer border ${
-                    selectedCategory === cat.id
-                      ? 'bg-pink-600 hover:bg-pink-500 text-white border-pink-500 shadow-md shadow-pink-600/30 font-semibold'
-                      : 'bg-white dark:bg-zinc-900/90 hover:bg-pink-50/40 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 border-slate-200 dark:border-zinc-800 font-medium shadow-xs'
-                  }`}
-                >
-                  {cat.name}
-                </button>
-              ))}
-              {selectedCategory !== 'All' && (
+              {displayCategories.map((cat) => {
+                const isSelected =
+                  selectedCategory === cat.name ||
+                  selectedCategory === cat.id ||
+                  (selectedCategory === 'All' && (cat.name === 'All' || cat.id === 'All' || cat.id === 'cat-all')) ||
+                  (selectedCategory !== 'All' &&
+                    selectedCategory.toLowerCase().replace(/^cat-/, '').replace(/[^a-z0-9]/g, '') ===
+                      cat.name.toLowerCase().replace(/[^a-z0-9]/g, ''));
+                return (
+                  <button
+                    key={cat.id || cat.name}
+                    onClick={() => setSelectedCategory(cat.name as ProductCategory)}
+                    className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer border ${
+                      isSelected
+                        ? 'bg-pink-600 hover:bg-pink-500 text-white border-pink-500 shadow-md shadow-pink-600/30 font-semibold'
+                        : 'bg-white dark:bg-zinc-900/90 hover:bg-pink-50/40 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200 border-slate-200 dark:border-zinc-800 font-medium shadow-xs'
+                    }`}
+                  >
+                    {cat.name}
+                  </button>
+                );
+              })}
+              {selectedCategory !== 'All' && selectedCategory !== 'cat-all' && (
                 <button
                   onClick={() => setSelectedCategory('All')}
                   className="text-xs text-pink-600 dark:text-pink-400 hover:underline px-2 cursor-pointer font-medium"
