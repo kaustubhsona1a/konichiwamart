@@ -49,7 +49,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Wet your hands and face. Squeeze about 2 cm onto your palm, lather thoroughly with cool or lukewarm water to create a rich foam cushion, gently wash your face, and rinse thoroughly.",
     "isBestSeller": true,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "fino-premium-touch-mask",
@@ -103,7 +103,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "After cleansing, smooth an even layer over face avoiding immediate eye area. Leave on for 5 to 10 minutes to allow deep absorption, then rinse gently with lukewarm water. Use 1–2 times weekly.",
     "isBestSeller": true,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "melano-cc-brightening-toner",
@@ -158,7 +158,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "After cleansing with Senka Perfect Whip, pour 4–5 drops onto palms or a soft cotton pad. Gently pat across the face and neck until fully absorbed.",
     "isBestSeller": true,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "biore-uv-aqua-rich-sunscreen",
@@ -211,7 +211,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Apply an appropriate amount evenly onto face and neck as the final step of your morning skincare routine. Reapply every 2 to 3 hours when outdoors.",
     "isBestSeller": true,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "capsule-serum-vitamin-c",
@@ -272,7 +272,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "After cleansing and toning, dispense 1 to 2 pumps into palms. Gently smooth and press across face, allowing the fresh micro-capsules to dissolve into the skin. Follow with your favorite moisturizer or sunscreen.",
     "isBestSeller": true,
     "isNew": true,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "quality-1st-derma-laser-super-retinol-100",
@@ -333,7 +333,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Use at night after cleansing. Take out one sheet and place it firmly over the face, smoothing out air bubbles. Leave on for 3 minutes (up to 5 minutes for extra dry skin), then remove and fold the sheet to gently wipe remaining essence across the neck and décolleté.",
     "isBestSeller": true,
     "isNew": true,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "derma-laser-glutathione",
@@ -388,7 +388,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Apply mask to cleansed face for 3 to 10 minutes. Remove and pat remaining concentrated essence into face and neck.",
     "isBestSeller": false,
     "isNew": true,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "keana-rice-mask",
@@ -442,7 +442,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Apply after cleansing for 5 minutes. Remove and pat remaining excess essence into face and neck.",
     "isBestSeller": true,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "lululun-precious-clear",
@@ -492,7 +492,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Replace your daily toner with this mask. Apply for 5-10 minutes, then fold sheet and pat serum onto face.",
     "isBestSeller": false,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "honey-melty-hair-pack",
@@ -544,7 +544,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "After shampooing, squeeze out excess water. Apply hair pack through hair lengths, leave for 1 minute, then rinse or layer conditioner directly on top.",
     "isBestSeller": true,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "vitamin-c-capsule-serum",
@@ -600,7 +600,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Apply 2-3 drops onto clean skin before moisturizer. Gently massage until micro-capsules fully dissolve.",
     "isBestSeller": false,
     "isNew": true,
-    "stock": 50
+    "stock": 15
   },
   {
     "id": "km-1789596639792",
@@ -640,7 +640,7 @@ export const PRODUCTS: Product[] = [
     "usageHowTo": "Apply onto cleansed skin. Gently pat with palms until absorbed.",
     "isBestSeller": false,
     "isNew": false,
-    "stock": 50
+    "stock": 15
   }
 ];
 

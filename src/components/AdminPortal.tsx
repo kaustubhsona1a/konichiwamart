@@ -24,11 +24,12 @@ import { X,
   Video,
   FolderPlus,
   Loader2,
+  RefreshCw,
   Mail, Edit3 } from 'lucide-react';
 import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
-import { getSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore } from '../lib/supabase';
+import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore } from '../lib/supabase';
 import { ReelsManager } from './admin/ReelsManager';
 
 // Client-side image optimizer to compress direct photos into fast-loading web images
@@ -85,11 +86,11 @@ interface AdminPortalProps {
   onModifyOrder?: (orderId: string, updates: Partial<Order>) => void;
   onViewInvoice: (order: Order) => void;
   products: Product[];
-  onUpdateProductStock: (productId: string, inStock: boolean, stockCount?: number) => void;
-  onUpdateProductPrice?: (productId: string, newPrice: number) => void;
-  onAddProduct: (product: Product) => void;
-  onEditProduct?: (product: Product) => void;
-  onRemoveProduct?: (productId: string) => void;
+  onUpdateProductStock: (productId: string, inStock: boolean, stockCount?: number) => void | Promise<any>;
+  onUpdateProductPrice?: (productId: string, newPrice: number) => void | Promise<any>;
+  onAddProduct: (product: Product) => void | Promise<any>;
+  onEditProduct?: (product: Product) => void | Promise<any>;
+  onRemoveProduct?: (productId: string) => void | Promise<any>;
   onResetDefaultProducts?: () => void;
   onLogout: () => void;
   operatorEmail?: string;
@@ -173,6 +174,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Add Product Modal / State inside Portal
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newSubtitle, setNewSubtitle] = useState('');
   const [newCategory, setNewCategory] = useState<ProductCategory>('Face Wash');
@@ -296,7 +298,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       let bannerUrlToUse = optimizedBase64;
 
       // 2. Try Supabase Storage upload for permanent CDN public URL
-      const supabase = getSupabaseClient();
+      const supabase = await ensureSupabaseClient() || getSupabaseClient();
       if (supabase) {
         try {
           const ext = file.name.split('.').pop() || 'jpg';
@@ -356,7 +358,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       let bannerUrlToUse = optimizedBase64;
 
       // 2. Try Supabase Storage upload for permanent CDN public URL
-      const supabase = getSupabaseClient();
+      const supabase = await ensureSupabaseClient() || getSupabaseClient();
       if (supabase) {
         try {
           const ext = file.name.split('.').pop() || 'jpg';
@@ -438,7 +440,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       }
 
       const filesToProcess: File[] = (Array.from(files) as File[]).slice(0, remainingSlots);
-      const supabase = getSupabaseClient();
+      const supabase = await ensureSupabaseClient() || getSupabaseClient();
       
       const processedUrls: string[] = [];
 
@@ -499,8 +501,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     });
   };
 
-  // Handle Add Product submit
-  const handleCreateProduct = (e: React.FormEvent) => {
+  // Handle Add / Edit Product submit
+  const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !newPrice) return;
 
@@ -513,67 +515,77 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const parsedOriginal = parseInt(newOriginalPrice, 10) || parsedPrice;
     const parsedStock = parseInt(newStock, 10) || 20;
 
-    const mainCover = newPhotos[0];
+    const mainCover = newPhotos[0] || '/products/keana-rice-mask.png';
     const secondary = newPhotos[1] || undefined;
 
-    if (editingProduct) {
-      const updatedProduct: Product = {
-        ...editingProduct,
-        title: newTitle.trim(),
-        subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
-        price: parsedPrice,
-        originalPrice: parsedOriginal,
-        category: newCategory,
-        volume: newVolume || '100ml',
-        image: mainCover,
-        secondaryImage: secondary,
-        images: newPhotos,
-        stock: parsedStock
-      };
+    setIsSavingProduct(true);
+    setPhotoUploadError(null);
+    setProductFormMsg(null);
 
-      if (onEditProduct) {
-        onEditProduct(updatedProduct);
+    try {
+      if (editingProduct) {
+        const updatedProduct: Product = {
+          ...editingProduct,
+          title: newTitle.trim(),
+          subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
+          price: parsedPrice,
+          originalPrice: parsedOriginal,
+          category: newCategory,
+          volume: newVolume || '100ml',
+          image: mainCover,
+          secondaryImage: secondary,
+          images: newPhotos,
+          stock: parsedStock
+        };
+
+        if (onEditProduct) {
+          await onEditProduct(updatedProduct);
+        }
+        setProductFormMsg(`Product "${newTitle}" updated & synced to Supabase database!`);
+      } else {
+        const newProduct: Product = {
+          id: `km-${Date.now()}`,
+          title: newTitle.trim(),
+          subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
+          price: parsedPrice,
+          originalPrice: parsedOriginal,
+          rating: 4.9,
+          reviewsCount: 1,
+          category: newCategory,
+          skinTypes: ['All'],
+          skinConcerns: ['Hydration', 'Glow & Dullness'],
+          routine: 'AM/PM',
+          volume: newVolume || '100ml',
+          badges: ['Japan Arrival', 'Authentic Import'],
+          image: mainCover,
+          secondaryImage: secondary,
+          images: newPhotos,
+          accentColor: '#C52857',
+          bgGradient: 'from-pink-50 to-rose-100',
+          stock: parsedStock,
+          keyActives: [
+            { name: 'Japanese Botanical Extract', purpose: 'Restores skin barrier & luminosity' }
+          ],
+          fullIngredients: 'Water, Glycerin, Butylene Glycol, Sodium Hyaluronate.',
+          description: 'Official direct imported Japanese skincare formulation.',
+          benefits: ['Deep hydration', 'Authentic import', 'Skin gentle'],
+          usageHowTo: 'Apply onto cleansed skin. Gently pat with palms until absorbed.'
+        };
+
+        await onAddProduct(newProduct);
+        setProductFormMsg(`Product "${newTitle}" saved & synced to Supabase database!`);
       }
-      setProductFormMsg(`Product "${newTitle}" updated successfully!`);
-    } else {
-      const newProduct: Product = {
-        id: `km-${Date.now()}`,
-        title: newTitle.trim(),
-        subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
-        price: parsedPrice,
-        originalPrice: parsedOriginal,
-        rating: 4.9,
-        reviewsCount: 1,
-        category: newCategory,
-        skinTypes: ['All'],
-        skinConcerns: ['Hydration', 'Glow & Dullness'],
-        routine: 'AM/PM',
-        volume: newVolume || '100ml',
-        badges: ['Japan Arrival', 'Authentic Import'],
-        image: mainCover,
-        secondaryImage: secondary,
-        images: newPhotos,
-        accentColor: '#C52857',
-        bgGradient: 'from-pink-50 to-rose-100',
-        stock: parsedStock,
-        keyActives: [
-          { name: 'Japanese Botanical Extract', purpose: 'Restores skin barrier & luminosity' }
-        ],
-        fullIngredients: 'Water, Glycerin, Butylene Glycol, Sodium Hyaluronate.',
-        description: 'Official direct imported Japanese skincare formulation.',
-        benefits: ['Deep hydration', 'Authentic import', 'Skin gentle'],
-        usageHowTo: 'Apply onto cleansed skin. Gently pat with palms until absorbed.'
-      };
 
-      onAddProduct(newProduct);
-      setProductFormMsg(`Product "${newTitle}" added with ${newPhotos.length} photo${newPhotos.length > 1 ? 's' : ''}!`);
+      setTimeout(() => {
+        resetProductForm();
+        setShowAddProductModal(false);
+        setActiveTab('inventory');
+      }, 1000);
+    } catch (err: any) {
+      setPhotoUploadError(`Failed to save to database: ${err?.message || 'Connection error'}`);
+    } finally {
+      setIsSavingProduct(false);
     }
-
-    setTimeout(() => {
-      resetProductForm();
-      setShowAddProductModal(false);
-      setActiveTab('inventory');
-    }, 1200);
   };
 
   const handleOpenEditProduct = (product: Product) => {
@@ -2691,9 +2703,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-md shadow-pink-600/20"
+                  disabled={isSavingProduct}
+                  className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-md shadow-pink-600/20 flex items-center gap-2"
                 >
-                  {editingProduct ? 'Save Changes' : 'Publish Item'}
+                  {isSavingProduct && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  <span>
+                    {isSavingProduct
+                      ? 'Saving to Database...'
+                      : (editingProduct ? 'Save Changes' : 'Publish Item')}
+                  </span>
                 </button>
               </div>
             </form>

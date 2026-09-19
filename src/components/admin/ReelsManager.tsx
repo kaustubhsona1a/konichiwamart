@@ -174,7 +174,7 @@ export const ReelsManager: React.FC<ReelsManagerProps> = ({
       id: `reel_${Date.now()}`,
       creatorHandle: '@konichiwa_mart',
       creatorName: 'Konichiwa Team',
-      creatorAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+      creatorAvatar: defaultProduct?.image || '/products/keana-rice-mask.png',
       location: 'Japan',
       title: 'New Skincare Routine Spotlight',
       caption: 'Watch how this Japanese essential absorbs in seconds with real application steps.',
@@ -183,7 +183,7 @@ export const ReelsManager: React.FC<ReelsManagerProps> = ({
       commentsCount: 420,
       audioTrack: 'Gentle Glow ASMR - Japan Skincare',
       productId: defaultProduct ? defaultProduct.id : 'senka-perfect-whip',
-      videoThumb: defaultProduct ? defaultProduct.image : 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=800&q=80',
+      videoThumb: defaultProduct ? defaultProduct.image : '/products/keana-rice-mask.png',
       videoUrl: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
       instagramUrl: KONICHIWA_INSTAGRAM_URL,
       tags: ['#JapaneseSkincare', '#AuthenticBeauty']

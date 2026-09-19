@@ -1842,7 +1842,7 @@ app.get('/api/customer/orders', async (req: Request, res: Response) => {
         price: Number(item.unit_price || 0),
         quantity: Number(item.quantity || 1),
         shade: item.shade_name || undefined,
-        image: item.image_url || 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&q=80&w=800'
+        image: item.image_url || '/products/keana-rice-mask.png'
       }));
 
       const dateStr = new Date(row.created_at || Date.now()).toLocaleDateString('en-IN', {
@@ -1938,7 +1938,7 @@ app.get('/api/admin/orders', async (_req: Request, res: Response) => {
         price: Number(item.unit_price || 0),
         quantity: Number(item.quantity || 1),
         shade: item.shade_name || undefined,
-        image: item.image_url || 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&q=80&w=800'
+        image: item.image_url || '/products/keana-rice-mask.png'
       }));
 
       const dateStr = new Date(row.created_at || Date.now()).toLocaleDateString('en-IN', {
@@ -2490,6 +2490,20 @@ async function updateSupabaseInventoryServer(supabase: SupabaseClient, productId
   try {
     const counts = await getSupabaseInventoryServer(supabase);
     counts[productId] = stock;
+    
+    // Also try to resolve and sync the exact Supabase UUID and slug
+    try {
+      const { data: row } = await supabase
+        .from('products')
+        .select('id, slug')
+        .or(`id.eq.${productId},slug.eq.${productId}`)
+        .maybeSingle();
+      if (row) {
+        if (row.id) counts[row.id] = stock;
+        if (row.slug) counts[row.slug] = stock;
+      }
+    } catch {}
+
     await supabase.from('categories').upsert({
       slug: '_app_inventory',
       name: 'Store Inventory Metadata',
@@ -2502,12 +2516,16 @@ async function updateSupabaseInventoryServer(supabase: SupabaseClient, productId
 
 function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>): Product {
   const productId = row.slug || row.id;
-  const stockValue = inventoryMap && (inventoryMap[productId] !== undefined || inventoryMap[row.id] !== undefined)
-    ? (inventoryMap[productId] ?? inventoryMap[row.id])
-    : 50;
+  const stockValue = inventoryMap && (
+    inventoryMap[row.slug] !== undefined || 
+    inventoryMap[row.id] !== undefined || 
+    inventoryMap[productId] !== undefined
+  ) ? (inventoryMap[row.slug] ?? inventoryMap[row.id] ?? inventoryMap[productId])
+    : 15;
 
   return {
     id: productId,
+    dbId: row.id,
     title: row.title,
     subtitle: row.subtitle || '',
     price: Number(row.base_price || 0),

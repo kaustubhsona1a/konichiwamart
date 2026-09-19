@@ -62,6 +62,7 @@ import {
   operatorLogout, 
   OperatorSession,
   getSupabaseClient,
+  ensureSupabaseClient,
   fetchProductsFromStore,
   deleteProductFromStore,
   updateProductInStore,
@@ -305,30 +306,41 @@ export default function App() {
       }
     });
 
-    const client = getSupabaseClient();
-    if (client) {
-      const channel = client
-        .channel('realtime_categories_and_products')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => {
-          fetchCategoriesFromStore().then(cats => {
-            if (Array.isArray(cats) && cats.length > 0) {
-              setDbCategories(cats.map(c => ({ id: c.name, name: c.name, slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') })));
-            }
-          });
-        })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-          fetchProductsFromStore().then(prods => {
-            if (Array.isArray(prods) && prods.length > 0) {
-              setProductsList(prods);
-            }
-          });
-        })
-        .subscribe();
+    let removeChannelFn: (() => void) | null = null;
+    ensureSupabaseClient().then(client => {
+      if (client) {
+        const channel = client
+          .channel('realtime_categories_and_products')
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => {
+            fetchCategoriesFromStore().then(cats => {
+              if (Array.isArray(cats) && cats.length > 0) {
+                setDbCategories(cats.map(c => ({ id: c.name, name: c.name, slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') })));
+              }
+            });
+            fetchProductsFromStore().then(prods => {
+              if (Array.isArray(prods) && prods.length > 0) {
+                setProductsList(prods);
+              }
+            });
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+            fetchProductsFromStore().then(prods => {
+              if (Array.isArray(prods) && prods.length > 0) {
+                setProductsList(prods);
+              }
+            });
+          })
+          .subscribe();
 
-      return () => {
-        client.removeChannel(channel);
-      };
-    }
+        removeChannelFn = () => {
+          client.removeChannel(channel);
+        };
+      }
+    });
+
+    return () => {
+      if (removeChannelFn) removeChannelFn();
+    };
   }, []);
 
   // Check URL parameters on mount for recovery link redirect
@@ -829,7 +841,7 @@ export default function App() {
   }, []);
 
   // Inventory & Stock Controls
-  const handleUpdateProductStock = (productId: string, inStock: boolean, stockCount?: number) => {
+  const handleUpdateProductStock = async (productId: string, inStock: boolean, stockCount?: number) => {
     const finalStock = stockCount !== undefined 
       ? Math.max(0, stockCount) 
       : (inStock ? 50 : 0);
@@ -848,10 +860,16 @@ export default function App() {
       return updated;
     });
 
-    updateProductInStore(productId, { stock: finalStock });
+    const target = productsList.find(p => p.id === productId);
+    const ok = await updateProductInStore(productId, { stock: finalStock, dbId: target?.dbId });
+    const fresh = await fetchProductsFromStore();
+    if (fresh && fresh.length > 0) {
+      setProductsList(fresh);
+    }
+    return ok;
   };
 
-  const handleUpdateProductPrice = (productId: string, newPrice: number) => {
+  const handleUpdateProductPrice = async (productId: string, newPrice: number) => {
     const validPrice = Math.max(1, newPrice);
     setProductsList((prev) => {
       const updated = prev.map((p) => {
@@ -867,31 +885,49 @@ export default function App() {
       return updated;
     });
 
-    updateProductInStore(productId, { price: validPrice });
+    const target = productsList.find(p => p.id === productId);
+    const ok = await updateProductInStore(productId, { price: validPrice, dbId: target?.dbId });
+    const fresh = await fetchProductsFromStore();
+    if (fresh && fresh.length > 0) {
+      setProductsList(fresh);
+    }
+    return ok;
   };
 
   // New Product Upload Handler
-  const handleAddProduct = (newProduct: Product) => {
+  const handleAddProduct = async (newProduct: Product) => {
     setProductsList((prev) => {
-      const updated = [newProduct, ...prev];
+      const updated = [newProduct, ...prev.filter(p => p.id !== newProduct.id)];
       localStorage.setItem('km_custom_products', JSON.stringify(updated));
       return updated;
     });
 
-    addProductToStore(newProduct);
+    const ok = await addProductToStore(newProduct);
+    const fresh = await fetchProductsFromStore();
+    if (fresh && fresh.length > 0) {
+      setProductsList(fresh);
+    }
+    return ok;
   };
 
-  const handleEditProduct = (updatedProduct: Product) => {
+  const handleEditProduct = async (updatedProduct: Product) => {
     setProductsList((prev) => {
       const updated = prev.map(p => p.id === updatedProduct.id ? updatedProduct : p);
       localStorage.setItem('km_custom_products', JSON.stringify(updated));
       return updated;
     });
-    updateProductInStore(updatedProduct.id, updatedProduct);
+
+    const ok = await updateProductInStore(updatedProduct.id, updatedProduct);
+    const fresh = await fetchProductsFromStore();
+    if (fresh && fresh.length > 0) {
+      setProductsList(fresh);
+    }
+    return ok;
   };
 
   // Remove Product Handler (Permanently deletes from Supabase, Server Storage, and Local state)
   const handleRemoveProduct = async (productId: string) => {
+    const target = productsList.find(p => p.id === productId);
     setProductsList((prev) => {
       const updated = prev.filter((p) => p.id !== productId);
       localStorage.setItem('km_custom_products', JSON.stringify(updated));
@@ -905,7 +941,12 @@ export default function App() {
     }
 
     // Sync deletion across Supabase and persistent backend storage
-    await deleteProductFromStore(productId);
+    const ok = await deleteProductFromStore(productId, target?.dbId);
+    const fresh = await fetchProductsFromStore();
+    if (fresh && fresh.length > 0) {
+      setProductsList(fresh);
+    }
+    return ok;
   };
 
   // Restore Original Catalog Handler

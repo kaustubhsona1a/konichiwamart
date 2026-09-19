@@ -236,7 +236,7 @@ export const launchRazorpayCheckout = async (options: CheckoutOptions): Promise<
       currency: orderCurrency,
       name: 'Konichiwa Mart',
       description: 'Authentic Japanese Skincare Dispensary',
-      image: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=200&q=80',
+      image: 'https://japanesetaste.com/cdn/shop/files/Senka-Perfect-Whip-Cleansing-Foam-120g-1-2025-08-25T00_18_50.384Z.jpg',
       handler: async function (response: RazorpayPaymentSuccessPayload) {
         try {
           const payloadToVerify: RazorpayPaymentSuccessPayload = {

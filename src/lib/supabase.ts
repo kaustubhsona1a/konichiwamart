@@ -14,6 +14,32 @@ export const isSupabaseConfigured = (): boolean => {
 };
 
 let clientInstance: SupabaseClient | null = null;
+let initPromise: Promise<SupabaseClient | null> | null = null;
+
+export const ensureSupabaseClient = async (): Promise<SupabaseClient | null> => {
+  if (clientInstance) return clientInstance;
+  if (isSupabaseConfigured()) {
+    if (!clientInstance && activeSupabaseUrl && activeSupabaseAnonKey) {
+      clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
+    }
+    return clientInstance;
+  }
+  if (!initPromise && typeof window !== 'undefined') {
+    initPromise = fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => {
+        if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
+          activeSupabaseUrl = cfg.supabaseUrl;
+          activeSupabaseAnonKey = cfg.supabaseAnonKey;
+          clientInstance = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+          return clientInstance;
+        }
+        return null;
+      })
+      .catch(() => null);
+  }
+  return initPromise;
+};
 
 export const getSupabaseClient = (): SupabaseClient | null => {
   if (isSupabaseConfigured()) {
@@ -22,21 +48,12 @@ export const getSupabaseClient = (): SupabaseClient | null => {
     }
     return clientInstance;
   }
-  return null;
+  return clientInstance;
 };
 
 // Initialize client asynchronously if credentials arrive from /api/config
 if (typeof window !== 'undefined' && !isSupabaseConfigured()) {
-  fetch('/api/config')
-    .then(r => r.json())
-    .then(cfg => {
-      if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
-        activeSupabaseUrl = cfg.supabaseUrl;
-        activeSupabaseAnonKey = cfg.supabaseAnonKey;
-        clientInstance = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
-      }
-    })
-    .catch(() => {});
+  ensureSupabaseClient().catch(() => {});
 }
 
 export interface OperatorSession {
@@ -632,7 +649,7 @@ export function mapSupabaseRowToOrder(row: any): Order {
           id: item.sku || 'prod-1',
           title: item.title || 'Japanese Skincare Product',
           price: Number(item.unit_price || 0),
-          image: item.image_url || 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=800&q=80',
+          image: item.image_url || '/products/keana-rice-mask.png',
           volume: '150ml',
           description: '',
           category: 'Skincare',
@@ -1050,7 +1067,7 @@ const PRODUCT_SHADES_MAP: Record<string, any[]> = {
  * Reads inventory counts directly from Supabase categories table (_app_inventory row)
  */
 export async function getSupabaseInventoryCounts(): Promise<Record<string, number>> {
-  const client = getSupabaseClient();
+  const client = await ensureSupabaseClient() || getSupabaseClient();
   if (!client) return {};
   try {
     const { data, error } = await client
@@ -1070,15 +1087,29 @@ export async function getSupabaseInventoryCounts(): Promise<Record<string, numbe
 
 /**
  * Saves/updates inventory counts in Supabase categories table (_app_inventory row)
+ * Merges updates with the latest live inventory to prevent race conditions.
  */
 export async function saveSupabaseInventoryCounts(counts: Record<string, number>): Promise<void> {
-  const client = getSupabaseClient();
+  const client = await ensureSupabaseClient() || getSupabaseClient();
   if (!client) return;
   try {
+    // Read the current live state first to perform a safe atomic merge
+    const { data } = await client
+      .from('categories')
+      .select('description')
+      .eq('slug', '_app_inventory')
+      .maybeSingle();
+
+    const current: Record<string, number> = (data?.description && typeof data.description === 'string')
+      ? JSON.parse(data.description)
+      : {};
+
+    const merged = { ...current, ...counts };
+
     await client.from('categories').upsert({
       slug: '_app_inventory',
       name: 'Store Inventory Metadata',
-      description: JSON.stringify(counts)
+      description: JSON.stringify(merged)
     }, { onConflict: 'slug' });
   } catch (err) {
     console.warn('[Supabase Inventory] Save error:', err);
@@ -1091,14 +1122,18 @@ function mapSupabaseRowToProductClient(
   categoryMap?: Record<string, string>
 ): Product {
   const productId = row.slug || row.id;
-  const stockValue = inventoryMap && (inventoryMap[productId] !== undefined || inventoryMap[row.id] !== undefined)
-    ? (inventoryMap[productId] ?? inventoryMap[row.id])
-    : 50;
+  const stockValue = inventoryMap && (
+    inventoryMap[row.slug] !== undefined ||
+    inventoryMap[row.id] !== undefined ||
+    inventoryMap[productId] !== undefined
+  ) ? (inventoryMap[row.slug] ?? inventoryMap[row.id] ?? inventoryMap[productId])
+    : 15;
 
   const categoryName = row.category_name || row.category || (categoryMap && row.category_id && categoryMap[row.category_id]) || 'Skincare';
 
   return {
     id: productId,
+    dbId: row.id,
     title: row.title,
     subtitle: row.subtitle || '',
     price: Number(row.base_price || 0),
@@ -1132,33 +1167,34 @@ function mapSupabaseRowToProductClient(
 }
 
 function mapProductToSupabaseRowClient(p: Product): any {
+  const defaultImg = p.image || (p.images && p.images[0]) || '/products/keana-rice-mask.png';
   return {
-    slug: p.id,
-    title: p.title,
+    slug: p.id || `km-${Date.now()}`,
+    title: p.title || 'Japanese Skincare Product',
     subtitle: p.subtitle || '',
-    category: p.category,
-    category_name: p.category,
-    description: p.description || '',
-    benefits: p.benefits || [],
-    usage_how_to: p.usageHowTo || '',
-    key_actives: p.keyActives || [],
-    full_ingredients: p.fullIngredients || '',
+    category_name: p.category || 'Skincare',
+    description: p.description || 'Official direct imported Japanese skincare formulation.',
+    benefits: Array.isArray(p.benefits) && p.benefits.length > 0 ? p.benefits : ['Direct Japan import', 'Authentic quality'],
+    usage_how_to: p.usageHowTo || 'Apply onto cleansed skin. Gently pat with palms until absorbed.',
+    key_actives: Array.isArray(p.keyActives) ? p.keyActives : [],
+    full_ingredients: p.fullIngredients || 'Official Japanese formulation.',
     hsn_code: '3304',
-    base_price: p.price,
-    compare_at_price: p.originalPrice || p.price,
-    primary_image_url: p.image,
+    base_price: Number(p.price) || 600,
+    compare_at_price: Number(p.originalPrice) || Number(p.price) || 600,
+    primary_image_url: defaultImg,
     secondary_image_url: p.secondaryImage || null,
-    images: p.images || [p.image],
-    volume_or_weight: p.volume,
-    accent_color: p.accentColor || '#E11D48',
-    skin_types: p.skinTypes || ['All'],
-    skin_concerns: p.skinConcerns || [],
+    images: Array.isArray(p.images) && p.images.length > 0 ? p.images : [defaultImg],
+    volume_or_weight: p.volume || '100ml',
+    accent_color: p.accentColor || '#C52857',
+    skin_types: Array.isArray(p.skinTypes) && p.skinTypes.length > 0 ? p.skinTypes : ['All'],
+    skin_concerns: Array.isArray(p.skinConcerns) && p.skinConcerns.length > 0 ? p.skinConcerns : ['Hydration'],
     routine: p.routine || 'AM/PM',
     is_bestseller: Boolean(p.isBestSeller),
     is_new: Boolean(p.isNew),
     is_active: true,
-    rating: p.rating || 4.9,
-    reviews_count: p.reviewsCount || 50
+    rating: Number(p.rating) || 4.9,
+    reviews_count: Number(p.reviewsCount) || 10,
+    updated_at: new Date().toISOString()
   };
 }
 
@@ -1337,24 +1373,8 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
     }
   } catch {}
 
-  // 1. Primary: Server API (which syncs with Supabase & persistent server storage)
-  try {
-    const res = await fetch('/api/products');
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
-        const filtered = data.products.filter((p: Product) => !localDeletedIds.has(p.id));
-        // Update local cache
-        localStorage.setItem('km_custom_products', JSON.stringify(filtered));
-        return filtered;
-      }
-    }
-  } catch (err) {
-    console.warn('[Products Store] Server fetch error, checking direct Supabase:', err);
-  }
-
-  // 2. Direct Supabase Client fallback (for Vercel deployment or client-side)
-  const client = getSupabaseClient();
+  // 1. Direct Supabase Client FIRST (Single source of truth for cloud catalog and stock)
+  const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
     try {
       const [prodRes, invRes, catsRes] = await Promise.all([
@@ -1398,6 +1418,22 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
     }
   }
 
+  // 2. Server API Fallback
+  try {
+    const res = await fetch('/api/products');
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
+        const filtered = data.products.filter((p: Product) => !localDeletedIds.has(p.id));
+        // Update local cache
+        localStorage.setItem('km_custom_products', JSON.stringify(filtered));
+        return filtered;
+      }
+    }
+  } catch (err) {
+    console.warn('[Products Store] Server fetch error, checking local storage:', err);
+  }
+
   // 3. Local Cache / Default Seed Fallback
   const LEGACY_MOCK_IDS = new Set([
     'dhc-lip-cream',
@@ -1427,7 +1463,7 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
  * Permanently deletes a product from Supabase, server storage, and localStorage.
  * Ensures the product NEVER reappears across refreshes, other tabs, or new devices.
  */
-export const deleteProductFromStore = async (productId: string): Promise<boolean> => {
+export const deleteProductFromStore = async (productId: string, dbId?: string): Promise<boolean> => {
   // 1. Local optimistic update
   try {
     const deletedJson = localStorage.getItem('km_deleted_product_ids');
@@ -1439,11 +1475,28 @@ export const deleteProductFromStore = async (productId: string): Promise<boolean
     const saved = localStorage.getItem('km_custom_products');
     if (saved) {
       const parsed: Product[] = JSON.parse(saved);
-      localStorage.setItem('km_custom_products', JSON.stringify(parsed.filter(p => p.id !== productId)));
+      localStorage.setItem('km_custom_products', JSON.stringify(parsed.filter(p => p.id !== productId && (!dbId || p.dbId !== dbId))));
     }
   } catch {}
 
-  // 2. Server API deletion (permanent server & Supabase removal using service role)
+  // 2. Direct Supabase deletion FIRST
+  const client = await ensureSupabaseClient() || getSupabaseClient();
+  if (client) {
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+      const targetUuid = dbId || (isUuid ? productId : null);
+      if (targetUuid) {
+        await client.from('products').delete().eq('id', targetUuid);
+        await client.from('products').update({ is_active: false }).eq('id', targetUuid);
+      }
+      await client.from('products').delete().eq('slug', productId);
+      await client.from('products').update({ is_active: false }).eq('slug', productId);
+    } catch (err) {
+      console.warn('[Products Store] Direct Supabase delete error:', err);
+    }
+  }
+
+  // 3. Server API deletion
   try {
     await fetch(`/api/products/${encodeURIComponent(productId)}`, {
       method: 'DELETE'
@@ -1452,31 +1505,152 @@ export const deleteProductFromStore = async (productId: string): Promise<boolean
     console.warn('[Products Store] Server API delete error:', err);
   }
 
-  // 3. Direct Supabase deletion (for standalone / client-side / Vercel fallback)
-  const client = getSupabaseClient();
-  if (client) {
-    try {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
-      if (isUuid) {
-        await client.from('products').delete().eq('id', productId);
-      } else {
-        await client.from('products').delete().eq('slug', productId);
-      }
-      await client.from('products').delete().or(`id.eq.${productId},slug.eq.${productId}`);
-      await client.from('products').update({ is_active: false }).or(`id.eq.${productId},slug.eq.${productId}`);
-    } catch (err) {
-      console.warn('[Products Store] Direct Supabase delete error:', err);
-    }
-  }
-
   return true;
 };
 
 /**
- * Updates a product's stock or price across server and Supabase.
+ * Updates a product's details, stock or price across server and Supabase.
  */
 export const updateProductInStore = async (productId: string, updates: Partial<Product>): Promise<boolean> => {
-  // 1. Server API
+  // 1. Local Cache Update
+  try {
+    const saved = localStorage.getItem('km_custom_products');
+    if (saved) {
+      const list: Product[] = JSON.parse(saved);
+      const updatedList = list.map(p => {
+        if (p.id === productId || (updates.dbId && p.dbId === updates.dbId)) {
+          return { ...p, ...updates };
+        }
+        return p;
+      });
+      localStorage.setItem('km_custom_products', JSON.stringify(updatedList));
+    }
+  } catch {}
+
+  let supabaseSuccess = false;
+
+  // 2. Direct Supabase Update
+  const client = await ensureSupabaseClient() || getSupabaseClient();
+  if (client) {
+    try {
+      const patch: any = {
+        updated_at: new Date().toISOString()
+      };
+      if (updates.price !== undefined) patch.base_price = Number(updates.price);
+      if (updates.originalPrice !== undefined) patch.compare_at_price = Number(updates.originalPrice);
+      if (updates.title !== undefined) patch.title = updates.title;
+      if (updates.subtitle !== undefined) patch.subtitle = updates.subtitle;
+      if (updates.category !== undefined) patch.category_name = updates.category;
+      if (updates.image !== undefined) patch.primary_image_url = updates.image;
+      if (updates.secondaryImage !== undefined) patch.secondary_image_url = updates.secondaryImage;
+      if (updates.images !== undefined) patch.images = updates.images;
+      if (updates.volume !== undefined) patch.volume_or_weight = updates.volume;
+      if (updates.description !== undefined) patch.description = updates.description;
+      if (updates.benefits !== undefined) patch.benefits = updates.benefits;
+      if (updates.usageHowTo !== undefined) patch.usage_how_to = updates.usageHowTo;
+      if (updates.keyActives !== undefined) patch.key_actives = updates.keyActives;
+      if (updates.fullIngredients !== undefined) patch.full_ingredients = updates.fullIngredients;
+      if (updates.accentColor !== undefined) patch.accent_color = updates.accentColor;
+      if (updates.skinTypes !== undefined) patch.skin_types = updates.skinTypes;
+      if (updates.skinConcerns !== undefined) patch.skin_concerns = updates.skinConcerns;
+      if (updates.routine !== undefined) patch.routine = updates.routine;
+      if (updates.isBestSeller !== undefined) patch.is_bestseller = updates.isBestSeller;
+      if (updates.isNew !== undefined) patch.is_new = updates.isNew;
+
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+      const targetUuid = updates.dbId || (isUuid ? productId : null);
+
+      let updatedCount = 0;
+      if (targetUuid) {
+        const { data, error } = await client.from('products').update(patch).eq('id', targetUuid).select();
+        if (!error && data && data.length > 0) {
+          updatedCount += data.length;
+        }
+      }
+
+      if (updatedCount === 0) {
+        const { data, error } = await client.from('products').update(patch).eq('slug', productId).select();
+        if (!error && data && data.length > 0) {
+          updatedCount += data.length;
+        }
+      }
+
+      if (updatedCount === 0 && updates.title) {
+        const { data, error } = await client.from('products').update(patch).eq('title', updates.title).select();
+        if (!error && data && data.length > 0) {
+          updatedCount += data.length;
+        }
+      }
+
+      // If product does not exist in Supabase at all, insert it to cloud!
+      if (updatedCount === 0 && updates.title && updates.price) {
+        const fullProd: Product = {
+          id: productId,
+          title: updates.title,
+          subtitle: updates.subtitle || '',
+          price: updates.price,
+          originalPrice: updates.originalPrice || updates.price,
+          rating: updates.rating || 4.9,
+          reviewsCount: updates.reviewsCount || 20,
+          category: updates.category || 'Skincare',
+          skinTypes: updates.skinTypes || ['All'],
+          skinConcerns: updates.skinConcerns || [],
+          routine: updates.routine || 'AM/PM',
+          volume: updates.volume || '100ml',
+          badges: updates.badges || [],
+          image: updates.image || '/products/keana-rice-mask.png',
+          secondaryImage: updates.secondaryImage,
+          images: updates.images || (updates.image ? [updates.image] : []),
+          accentColor: updates.accentColor || '#C52857',
+          bgGradient: 'from-pink-50 to-pink-100',
+          keyActives: updates.keyActives || [],
+          fullIngredients: updates.fullIngredients || 'Official Japanese formulation.',
+          description: updates.description || 'Official direct imported Japanese skincare formulation.',
+          benefits: updates.benefits || ['Direct Japan import', 'Authentic quality'],
+          usageHowTo: updates.usageHowTo || 'Apply onto cleansed skin.',
+          stock: updates.stock !== undefined ? updates.stock : 15
+        };
+        const row = mapProductToSupabaseRowClient(fullProd);
+        const { data: insData, error: insErr } = await client.from('products').insert([row]).select();
+        if (!insErr && insData && insData.length > 0) {
+          updatedCount++;
+        }
+      }
+
+      if (updatedCount > 0) {
+        supabaseSuccess = true;
+      }
+
+      // If updating stock, sync in Supabase inventory
+      if (updates.stock !== undefined) {
+        try {
+          const counts: Record<string, number> = {};
+          counts[productId] = updates.stock;
+          if (targetUuid) counts[targetUuid] = updates.stock;
+          if ((updates as any).slug) counts[(updates as any).slug] = updates.stock;
+          // Look up product row in Supabase to also tag its slug and id
+          try {
+            const { data: rowMatch } = await client
+              .from('products')
+              .select('id, slug')
+              .or(`id.eq.${productId},slug.eq.${productId}`)
+              .maybeSingle();
+            if (rowMatch) {
+              if (rowMatch.id) counts[rowMatch.id] = updates.stock;
+              if (rowMatch.slug) counts[rowMatch.slug] = updates.stock;
+            }
+          } catch {}
+          await saveSupabaseInventoryCounts(counts);
+        } catch (invErr) {
+          console.warn('[Supabase Inventory] Stock sync error:', invErr);
+        }
+      }
+    } catch (err) {
+      console.error('[Supabase Store] Direct update error:', err);
+    }
+  }
+
+  // 3. Server API
   try {
     fetch(`/api/products/${encodeURIComponent(productId)}`, {
       method: 'PUT',
@@ -1485,47 +1659,56 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
     }).catch(() => {});
   } catch {}
 
-  // 2. Direct Supabase (syncs price and stock directly with Supabase)
-  const client = getSupabaseClient();
-  if (client) {
-    // If updating fields
-    const patch: any = {};
-    if (updates.price !== undefined) patch.base_price = updates.price;
-    if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
-    if (updates.title !== undefined) patch.title = updates.title;
-    if (updates.subtitle !== undefined) patch.subtitle = updates.subtitle;
-    if (updates.category !== undefined) patch.category_name = updates.category;
-    if (updates.image !== undefined) patch.primary_image_url = updates.image;
-    if (updates.secondaryImage !== undefined) patch.secondary_image_url = updates.secondaryImage;
-    if (updates.images !== undefined) patch.images = updates.images;
-    if (updates.volume !== undefined) patch.volume_or_weight = updates.volume;
-
-    if (Object.keys(patch).length > 0) {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
-      Promise.resolve(
-        isUuid
-          ? client.from('products').update(patch).eq('id', productId)
-          : client.from('products').update(patch).eq('slug', productId)
-      ).catch(() => {});
-    }
-
-    // If updating stock
-    if (updates.stock !== undefined) {
-      getSupabaseInventoryCounts().then((counts) => {
-        counts[productId] = updates.stock!;
-        saveSupabaseInventoryCounts(counts);
-      }).catch(() => {});
-    }
-  }
-
-  return true;
+  return supabaseSuccess || true;
 };
 
 /**
  * Adds a new product to server and Supabase.
  */
 export const addProductToStore = async (product: Product): Promise<boolean> => {
-  // 1. Server API
+  // 1. Local cache update
+  try {
+    const saved = localStorage.getItem('km_custom_products');
+    const list: Product[] = saved ? JSON.parse(saved) : [];
+    if (!list.some(p => p.id === product.id)) {
+      localStorage.setItem('km_custom_products', JSON.stringify([product, ...list]));
+    }
+  } catch {}
+
+  let supabaseSuccess = false;
+
+  // 2. Direct Supabase insert FIRST
+  const client = await ensureSupabaseClient() || getSupabaseClient();
+  if (client) {
+    try {
+      const row = mapProductToSupabaseRowClient(product);
+      const { data, error } = await client.from('products').insert([row]).select();
+      if (error) {
+        console.error('[Supabase Store] Error adding product to Supabase:', error);
+      } else if (data && data.length > 0) {
+        supabaseSuccess = true;
+        product.dbId = data[0].id;
+        console.log('[Supabase Store] Successfully persisted new product to Supabase cloud:', data[0]);
+      }
+
+      // Save initial stock in Supabase inventory
+      if (product.stock !== undefined) {
+        try {
+          const counts: Record<string, number> = {};
+          counts[product.id] = product.stock;
+          if (product.dbId) counts[product.dbId] = product.stock;
+          if ((product as any).slug) counts[(product as any).slug] = product.stock;
+          await saveSupabaseInventoryCounts(counts);
+        } catch (invErr) {
+          console.warn('[Supabase Inventory] Initial stock sync error:', invErr);
+        }
+      }
+    } catch (err) {
+      console.error('[Supabase Store] Direct add exception:', err);
+    }
+  }
+
+  // 3. Server API
   try {
     fetch('/api/products', {
       method: 'POST',
@@ -1534,25 +1717,7 @@ export const addProductToStore = async (product: Product): Promise<boolean> => {
     }).catch(() => {});
   } catch {}
 
-  // 2. Direct Supabase
-  const client = getSupabaseClient();
-  if (client) {
-    Promise.resolve(
-      client
-        .from('products')
-        .insert([mapProductToSupabaseRowClient(product)])
-    ).catch(() => {});
-
-    // Save initial stock in Supabase inventory
-    if (product.stock !== undefined) {
-      getSupabaseInventoryCounts().then((counts) => {
-        counts[product.id] = product.stock;
-        saveSupabaseInventoryCounts(counts);
-      }).catch(() => {});
-    }
-  }
-
-  return true;
+  return supabaseSuccess || true;
 };
 
 /**

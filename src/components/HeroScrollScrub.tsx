@@ -61,7 +61,6 @@ export const HeroScrollScrub: React.FC<HeroScrollScrubProps> = ({
       description: 'Produces a microscopic foam cushion that lifts sebum and impurities from pores without stripping natural hydration.',
       keyHighlight: 'Silk Essence + Double Hyaluronic Acid',
       badge: 'Japan #1 Cleanser',
-      bgImage: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=1600&q=80',
       glowColor: 'rgba(244, 114, 182, 0.24)',
       callouts: [
         { label: 'Micro-Whip Foam', desc: 'Dense 0.1mm micro-cushion eliminates skin friction', pos: 'top-right' },
@@ -79,7 +78,6 @@ export const HeroScrollScrub: React.FC<HeroScrollScrubProps> = ({
       description: 'Penetrates deep into the stratum corneum to fade dark spots, inhibit melanin production, and balance skin texture.',
       keyHighlight: 'Pure Active Vitamin C + Glycyrrhizate',
       badge: 'Dark Spot Essential',
-      bgImage: 'https://images.unsplash.com/photo-1608248597359-009765369eb3?auto=format&fit=crop&w=1600&q=80',
       glowColor: 'rgba(245, 158, 11, 0.22)',
       callouts: [
         { label: 'Active Vitamin C', desc: 'Targeted formulation to fade pigmentation & acne marks', pos: 'top-right' },
@@ -97,7 +95,6 @@ export const HeroScrollScrub: React.FC<HeroScrollScrubProps> = ({
       description: 'Delivers intensive beauty serum with Royal Jelly and PCA to restore damaged, dehydrated skin with velvety softness.',
       keyHighlight: 'Royal Jelly EX + Squalane + Trehalose',
       badge: 'Intensive Nourishment',
-      bgImage: 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?auto=format&fit=crop&w=1600&q=80',
       glowColor: 'rgba(225, 29, 72, 0.20)',
       callouts: [
         { label: 'Royal Jelly EX', desc: 'Rich in amino acids for intense barrier hydration', pos: 'top-right' },
@@ -115,7 +112,6 @@ export const HeroScrollScrub: React.FC<HeroScrollScrubProps> = ({
       description: 'Provides maximum SPF 50+ PA++++ broad-spectrum defense with a sheer watery capsule texture that leaves zero cast or grease.',
       keyHighlight: 'Micro Defense UV Formula + Hyaluronic Acid',
       badge: 'SPF 50+ PA++++',
-      bgImage: 'https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?auto=format&fit=crop&w=1600&q=80',
       glowColor: 'rgba(251, 146, 178, 0.24)',
       callouts: [
         { label: 'Zero White Cast', desc: 'Melts completely clear on all Indian skin tones', pos: 'top-right' },
@@ -242,27 +238,6 @@ export const HeroScrollScrub: React.FC<HeroScrollScrubProps> = ({
     >
       {/* FULL-SCREEN STICKY THEATER: Seamless Integrated Canvas */}
       <div className="sticky top-0 h-[100dvh] w-full flex flex-col justify-between overflow-hidden relative">
-        
-        {/* Dynamic Japanese Skincare Aesthetic Background Images per Routine Stage */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden z-0">
-          {STAGES.map((s, idx) => (
-            <div
-              key={s.step}
-              className={`absolute inset-0 transition-opacity duration-700 ease-in-out ${
-                activeStage === idx ? 'opacity-30 sm:opacity-35' : 'opacity-0'
-              }`}
-            >
-              <img
-                src={s.bgImage}
-                alt=""
-                className="w-full h-full object-cover filter blur-[1.5px] scale-105"
-                referrerPolicy="no-referrer"
-              />
-              <div className="absolute inset-0 bg-gradient-to-b from-[#FFF0F3]/75 via-[#FFF0F3]/35 to-[#FFF0F3]/85" />
-            </div>
-          ))}
-        </div>
-
         {/* Soft Ambient Dynamic Skincare Glow Behind Canvas */}
         <div 
           className="absolute inset-0 pointer-events-none transition-all duration-700 ease-out z-0"
