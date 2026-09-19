@@ -431,10 +431,13 @@ export const getActiveCustomerSession = () => {
  * Fetch Saved Addresses from Supabase (Server endpoint first, direct fallback)
  */
 export const fetchCustomerAddressesFromSupabase = async (customerId?: string, email?: string) => {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
   try {
     const params = new URLSearchParams();
     if (customerId) params.set('customerId', customerId);
-    if (email) params.set('email', email);
+    if (cleanEmail) params.set('email', cleanEmail);
 
     const res = await fetch(`/api/customer/addresses?${params.toString()}`);
     if (res.ok) {
@@ -448,25 +451,31 @@ export const fetchCustomerAddressesFromSupabase = async (customerId?: string, em
   }
 
   const client = getSupabaseClient();
-  if (!client || (!customerId && !email)) return [];
+  if (!client || (!customerId && !cleanEmail)) return [];
 
   try {
-    let resolvedId = customerId;
-    if (!resolvedId && email) {
+    let resolvedId: string | null = isUuid(customerId) ? customerId! : null;
+    if (!resolvedId && cleanEmail) {
       const { data: prof } = await client
         .from('customer_profiles')
         .select('id')
-        .ilike('email', email.trim().toLowerCase())
+        .ilike('email', cleanEmail)
         .maybeSingle();
-      if (prof?.id) resolvedId = prof.id;
+      if (prof?.id && isUuid(prof.id)) resolvedId = prof.id;
     }
 
-    if (!resolvedId) return [];
+    let query = client.from('customer_addresses').select('*');
+    if (resolvedId && cleanEmail) {
+      query = query.or(`customer_id.eq.${resolvedId},customer_email.eq.${cleanEmail}`);
+    } else if (resolvedId) {
+      query = query.eq('customer_id', resolvedId);
+    } else if (cleanEmail) {
+      query = query.eq('customer_email', cleanEmail);
+    } else {
+      return [];
+    }
 
-    const { data, error } = await client
-      .from('customer_addresses')
-      .select('*')
-      .eq('customer_id', resolvedId)
+    const { data, error } = await query
       .order('is_default', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -510,11 +519,14 @@ export const saveAddressToSupabase = async (
   },
   email?: string
 ) => {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
   try {
     const res = await fetch('/api/customer/address', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customerId, email, address })
+      body: JSON.stringify({ customerId, email: cleanEmail, address })
     });
     if (res.ok) {
       const json = await res.json();
@@ -530,34 +542,41 @@ export const saveAddressToSupabase = async (
   if (!client) return null;
 
   try {
-    let resolvedId = customerId;
-    if ((!resolvedId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(resolvedId)) && email) {
+    let resolvedId: string | null = isUuid(customerId) ? customerId : null;
+    if (!resolvedId && cleanEmail) {
       const { data: prof } = await client
         .from('customer_profiles')
         .select('id')
-        .ilike('email', email.trim().toLowerCase())
+        .ilike('email', cleanEmail)
         .maybeSingle();
-      if (prof?.id) resolvedId = prof.id;
+      if (prof?.id && isUuid(prof.id)) resolvedId = prof.id;
     }
 
-    if (!resolvedId) return null;
+    const isInterstate = (address.state || '').toLowerCase() !== 'maharashtra';
+
+    if (address.isDefault && resolvedId) {
+      await client.from('customer_addresses').update({ is_default: false }).eq('customer_id', resolvedId);
+    }
 
     const { data, error } = await client
       .from('customer_addresses')
       .insert({
-        customer_id: resolvedId,
+        customer_id: resolvedId || null,
+        customer_email: cleanEmail || null,
         full_name: address.fullName,
         phone: address.phone,
         address_line1: address.addressLine1,
         address_line2: address.addressLine2 || '',
         city: address.city,
         state: address.state,
+        state_code: isInterstate ? '99' : '27',
         pincode: address.pincode,
+        country: 'India',
         tag: address.tag || 'Home',
         is_default: Boolean(address.isDefault)
       })
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.warn('[Supabase] Error saving address:', error.message);
@@ -756,10 +775,13 @@ export const updateOrderStatusInSupabase = async (orderId: string, status: strin
 };
 
 export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email?: string) => {
+  const cleanEmail = (email || '').trim().toLowerCase();
+  const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
   try {
     const params = new URLSearchParams();
     if (customerId) params.set('customerId', customerId);
-    if (email) params.set('email', email);
+    if (cleanEmail) params.set('email', cleanEmail);
 
     const res = await fetch(`/api/customer/orders?${params.toString()}`);
     if (res.ok) {
@@ -776,17 +798,27 @@ export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email
   if (!client) return fetchAllOrdersFromSupabase();
 
   try {
+    let resolvedId: string | null = isUuid(customerId) ? customerId! : null;
+    if (!resolvedId && cleanEmail) {
+      const { data: prof } = await client
+        .from('customer_profiles')
+        .select('id')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+      if (prof?.id && isUuid(prof.id)) resolvedId = prof.id;
+    }
+
     let query = client
       .from('orders')
       .select('*, order_items(*)')
       .order('created_at', { ascending: false });
 
-    if (customerId && email) {
-      query = query.or(`customer_id.eq.${customerId},customer_email.eq.${email}`);
-    } else if (customerId) {
-      query = query.eq('customer_id', customerId);
-    } else if (email) {
-      query = query.eq('customer_email', email);
+    if (resolvedId && cleanEmail) {
+      query = query.or(`customer_id.eq.${resolvedId},customer_email.eq.${cleanEmail}`);
+    } else if (resolvedId) {
+      query = query.eq('customer_id', resolvedId);
+    } else if (cleanEmail) {
+      query = query.eq('customer_email', cleanEmail);
     }
 
     const { data, error } = await query;
@@ -805,19 +837,34 @@ export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email
  * Persist Verified Order to Supabase (calls authoritative server endpoint with direct fallback)
  */
 export const saveOrderToSupabase = async (order: any, customerId?: string): Promise<boolean> => {
+  const cleanEmail = (order.customerEmail || '').trim().toLowerCase();
+  const isInterstate = (order.shippingAddress?.state || '').toLowerCase() !== 'maharashtra';
+  const totalGst = Number(order.cgst || 0) + Number(order.sgst || 0);
+
+  // Format delivery date strictly to YYYY-MM-DD for Postgres DATE column
+  let deliveryDateFormatted: string | null = null;
+  if (order.estimatedDeliveryDate && /^\d{4}-\d{2}-\d{2}$/.test(order.estimatedDeliveryDate)) {
+    deliveryDateFormatted = order.estimatedDeliveryDate;
+  } else {
+    const days = parseInt(String(order.estimatedDeliveryDate || '').replace(/\D/g, '')) || 3;
+    deliveryDateFormatted = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  }
+
+  // 1. Try backend server-side proxy first (authoritative & bypasses browser CORS/policy restrictions)
   try {
-    // 1. Try backend server-side proxy first (authoritative & bypasses browser CORS/policy restrictions)
     const res = await fetch('/api/save-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order, customerId })
+      body: JSON.stringify({
+        order: { ...order, estimatedDeliveryDate: deliveryDateFormatted },
+        customerId
+      })
     });
 
     if (res.ok) {
       const result = await res.json();
       if (result.success) {
         console.log('[Order Sync] Successfully persisted order to Supabase via server API:', order.orderNumber);
-        return true;
       }
     }
   } catch (apiErr) {
@@ -829,17 +876,66 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
   if (!client) return false;
 
   try {
-    const isInterstate = (order.shippingAddress?.state || '').toLowerCase() !== 'maharashtra';
-    const totalGst = Number(order.cgst || 0) + Number(order.sgst || 0);
+    const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+    let resolvedCustomerId: string | null = isUuid(customerId) ? customerId! : null;
 
+    if (!resolvedCustomerId && cleanEmail) {
+      try {
+        const { data: prof } = await client
+          .from('customer_profiles')
+          .select('id')
+          .ilike('email', cleanEmail)
+          .maybeSingle();
+        if (prof?.id && isUuid(prof.id)) {
+          resolvedCustomerId = prof.id;
+        }
+      } catch (profErr) {
+        console.warn('[Direct Supabase] Profile resolution notice:', profErr);
+      }
+    }
+
+    // A) SAVE SHIPPING ADDRESS INTO customer_addresses TABLE IN SUPABASE!
+    if (order.shippingAddress?.addressLine1) {
+      try {
+        if (resolvedCustomerId) {
+          await client.from('customer_addresses').update({ is_default: false }).eq('customer_id', resolvedCustomerId);
+        }
+
+        const { error: addrErr } = await client.from('customer_addresses').insert({
+          customer_id: resolvedCustomerId || null,
+          customer_email: cleanEmail || null,
+          full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
+          phone: order.shippingAddress.phone || order.customerPhone || '',
+          address_line1: order.shippingAddress.addressLine1,
+          address_line2: order.shippingAddress.addressLine2 || '',
+          city: order.shippingAddress.city,
+          state: order.shippingAddress.state,
+          state_code: isInterstate ? '99' : '27',
+          pincode: order.shippingAddress.pincode,
+          country: 'India',
+          tag: order.shippingAddress.tag || 'Home',
+          is_default: true
+        });
+
+        if (addrErr) {
+          console.warn('[Direct Supabase] Address save note:', addrErr.message);
+        } else {
+          console.log('[Direct Supabase] Shipping address successfully saved to customer_addresses table!');
+        }
+      } catch (addrErr: any) {
+        console.warn('[Direct Supabase] Address save warning:', addrErr?.message || addrErr);
+      }
+    }
+
+    // B) SAVE ORDER INTO orders TABLE IN SUPABASE!
     const { data: insertedOrder, error: orderErr } = await client
       .from('orders')
       .insert({
         order_number: order.orderNumber,
         invoice_number: order.invoiceNumber,
-        customer_id: customerId || null,
+        customer_id: resolvedCustomerId || null,
         customer_name: order.shippingAddress?.fullName || 'Valued Customer',
-        customer_email: order.customerEmail || '',
+        customer_email: cleanEmail,
         customer_phone: order.customerPhone || order.shippingAddress?.phone || '',
         shipping_address_line1: order.shippingAddress?.addressLine1 || '',
         shipping_address_line2: order.shippingAddress?.addressLine2 || '',
@@ -864,7 +960,7 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
         razorpay_signature: order.signature || null,
         awb_number: order.awbNumber || null,
         courier_partner: order.courierPartner || 'Blue Dart Express',
-        estimated_delivery_date: order.estimatedDeliveryDate || null
+        estimated_delivery_date: deliveryDateFormatted
       })
       .select()
       .maybeSingle();
@@ -874,6 +970,7 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
       return false;
     }
 
+    // C) SAVE ORDER ITEMS INTO order_items TABLE IN SUPABASE!
     if (insertedOrder && order.items && order.items.length > 0) {
       const itemsRows = order.items.map((item: any) => ({
         order_id: insertedOrder.id,
@@ -962,11 +1059,17 @@ export async function saveSupabaseInventoryCounts(counts: Record<string, number>
   }
 }
 
-function mapSupabaseRowToProductClient(row: any, inventoryMap?: Record<string, number>): Product {
+function mapSupabaseRowToProductClient(
+  row: any,
+  inventoryMap?: Record<string, number>,
+  categoryMap?: Record<string, string>
+): Product {
   const productId = row.slug || row.id;
   const stockValue = inventoryMap && (inventoryMap[productId] !== undefined || inventoryMap[row.id] !== undefined)
     ? (inventoryMap[productId] ?? inventoryMap[row.id])
     : 50;
+
+  const categoryName = row.category_name || row.category || (categoryMap && row.category_id && categoryMap[row.category_id]) || 'Skincare';
 
   return {
     id: productId,
@@ -976,7 +1079,7 @@ function mapSupabaseRowToProductClient(row: any, inventoryMap?: Record<string, n
     originalPrice: Number(row.compare_at_price || row.base_price || 0),
     rating: Number(row.rating || 4.9),
     reviewsCount: Number(row.reviews_count || 120),
-    category: (row.category_name || 'Skincare') as any,
+    category: categoryName as any,
     skinTypes: row.skin_types || ['All'],
     skinConcerns: row.skin_concerns || [],
     routine: (row.routine as any) || 'AM/PM',
@@ -1007,6 +1110,7 @@ function mapProductToSupabaseRowClient(p: Product): any {
     slug: p.id,
     title: p.title,
     subtitle: p.subtitle || '',
+    category: p.category,
     category_name: p.category,
     description: p.description || '',
     benefits: p.benefits || [],
@@ -1031,6 +1135,167 @@ function mapProductToSupabaseRowClient(p: Product): any {
     reviews_count: p.reviewsCount || 50
   };
 }
+
+/**
+ * Fetches categories from server API and direct Supabase
+ */
+export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; name: string; slug: string; description?: string }>> => {
+  // 1. Try server API
+  try {
+    const res = await fetch('/api/categories');
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.categories) && data.categories.length > 0) {
+        return data.categories.filter((c: any) => c.slug !== '_app_inventory');
+      }
+    }
+  } catch (err) {
+    console.warn('[Categories Store] Server fetch error, checking direct Supabase:', err);
+  }
+
+  // 2. Direct Supabase
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client
+        .from('categories')
+        .select('id, name, slug, description')
+        .neq('slug', '_app_inventory')
+        .order('name', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    } catch (sbErr) {
+      console.warn('[Categories Store] Supabase fetch error:', sbErr);
+    }
+  }
+
+  // 3. Local fallback
+  try {
+    const local = localStorage.getItem('km_custom_categories');
+    if (local) {
+      const parsed = JSON.parse(local);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+
+  return [];
+};
+
+/**
+ * Saves a new category to server and Supabase
+ */
+export const saveCategoryToStore = async (name: string, description?: string): Promise<{ id: string; name: string; slug: string } | null> => {
+  const cleanName = name.trim();
+  if (!cleanName) return null;
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+  let resultCategory: any = null;
+
+  // 1. Server API
+  try {
+    const res = await fetch('/api/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: cleanName, description })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && data.category) {
+        resultCategory = data.category;
+      }
+    }
+  } catch (err) {
+    console.warn('[Category Save] Server error, trying direct Supabase:', err);
+  }
+
+  // 2. Direct Supabase fallback
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client
+        .from('categories')
+        .upsert({
+          name: cleanName,
+          slug,
+          description: description || null
+        }, { onConflict: 'slug' })
+        .select()
+        .maybeSingle();
+
+      if (!error && data) {
+        resultCategory = data;
+      }
+    } catch (sbErr) {
+      console.warn('[Category Save] Supabase error:', sbErr);
+    }
+  }
+
+  // 3. Local cache update
+  try {
+    const existing = await fetchCategoriesFromStore();
+    const updated = [...existing.filter(c => c.slug !== slug), resultCategory || { id: slug, name: cleanName, slug }];
+    localStorage.setItem('km_custom_categories', JSON.stringify(updated));
+  } catch {}
+
+  return resultCategory || { id: slug, name: cleanName, slug };
+};
+
+/**
+ * Updates an existing category in server and Supabase
+ */
+export const updateCategoryInStore = async (
+  idOrSlug: string,
+  updates: { name?: string; description?: string; slug?: string }
+): Promise<boolean> => {
+  // 1. Server API
+  try {
+    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+  } catch {}
+
+  // 2. Direct Supabase
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+      const query = isUuid
+        ? client.from('categories').update(updates).eq('id', idOrSlug)
+        : client.from('categories').update(updates).eq('slug', idOrSlug);
+      await query;
+    } catch {}
+  }
+
+  return true;
+};
+
+/**
+ * Deletes a category from server and Supabase
+ */
+export const deleteCategoryFromStore = async (idOrSlug: string): Promise<boolean> => {
+  // 1. Server API
+  try {
+    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, { method: 'DELETE' });
+  } catch {}
+
+  // 2. Direct Supabase
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+      const query = isUuid
+        ? client.from('categories').delete().eq('id', idOrSlug)
+        : client.from('categories').delete().eq('slug', idOrSlug);
+      await query;
+    } catch {}
+  }
+
+  return true;
+};
 
 /**
  * Fetches products from server API & Supabase.
@@ -1066,7 +1331,7 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
   const client = getSupabaseClient();
   if (client) {
     try {
-      const [prodRes, invRes] = await Promise.all([
+      const [prodRes, invRes, catsRes] = await Promise.all([
         client
           .from('products')
           .select('*')
@@ -1076,16 +1341,27 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
           .from('categories')
           .select('description')
           .eq('slug', '_app_inventory')
-          .maybeSingle()
+          .maybeSingle(),
+        client
+          .from('categories')
+          .select('id, name, slug')
       ]);
 
       const inventoryMap: Record<string, number> = invRes?.data?.description 
         ? JSON.parse(invRes.data.description) 
         : {};
 
+      const categoryMap: Record<string, string> = {};
+      if (catsRes?.data && Array.isArray(catsRes.data)) {
+        catsRes.data.forEach((c: any) => {
+          if (c.id && c.name) categoryMap[c.id] = c.name;
+          if (c.slug && c.name) categoryMap[c.slug] = c.name;
+        });
+      }
+
       if (!prodRes.error && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
         const mapped = prodRes.data
-          .map((row) => mapSupabaseRowToProductClient(row, inventoryMap))
+          .map((row) => mapSupabaseRowToProductClient(row, inventoryMap, categoryMap))
           .filter((p) => !localDeletedIds.has(p.id));
 
         localStorage.setItem('km_custom_products', JSON.stringify(mapped));

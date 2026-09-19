@@ -1185,32 +1185,32 @@ app.post('/api/save-order', async (req: Request, res: Response) => {
     }
 
     // 2. Automatically save shipping address to customer_addresses in Supabase
-    if (order.shippingAddress?.addressLine1 && (resolvedCustomerId || cleanEmail)) {
+    if (order.shippingAddress?.addressLine1) {
       try {
-        // Clear previous defaults for this customer if setting default
         if (resolvedCustomerId) {
           await supabase.from('customer_addresses').update({ is_default: false }).eq('customer_id', resolvedCustomerId);
+        }
 
-          const { data: savedAddr, error: addrErr } = await supabase.from('customer_addresses').insert({
-            customer_id: resolvedCustomerId,
-            full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
-            phone: order.shippingAddress.phone || order.customerPhone || '',
-            address_line1: order.shippingAddress.addressLine1,
-            address_line2: order.shippingAddress.addressLine2 || '',
-            city: order.shippingAddress.city,
-            state: order.shippingAddress.state,
-            state_code: isInterstate ? '99' : '27',
-            pincode: order.shippingAddress.pincode,
-            country: 'India',
-            tag: order.shippingAddress.tag || 'Home',
-            is_default: true
-          }).select().single();
+        const { data: savedAddr, error: addrErr } = await supabase.from('customer_addresses').insert({
+          customer_id: resolvedCustomerId || null,
+          customer_email: cleanEmail || null,
+          full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
+          phone: order.shippingAddress.phone || order.customerPhone || '',
+          address_line1: order.shippingAddress.addressLine1,
+          address_line2: order.shippingAddress.addressLine2 || '',
+          city: order.shippingAddress.city,
+          state: order.shippingAddress.state,
+          state_code: isInterstate ? '99' : '27',
+          pincode: order.shippingAddress.pincode,
+          country: 'India',
+          tag: order.shippingAddress.tag || 'Home',
+          is_default: true
+        }).select().maybeSingle();
 
-          if (addrErr) {
-            console.warn('[Server] Address insert notice:', addrErr.message);
-          } else {
-            console.log(`[Supabase SUCCESS] Shipping address saved to customer_addresses table! ID: ${savedAddr?.id}`);
-          }
+        if (addrErr) {
+          console.warn('[Server] Address insert notice:', addrErr.message);
+        } else {
+          console.log(`[Supabase SUCCESS] Shipping address saved to customer_addresses table! ID: ${savedAddr?.id}`);
         }
       } catch (addrErr: any) {
         console.warn('[Server] Address auto-save warning:', addrErr?.message || addrErr);
@@ -1422,83 +1422,90 @@ app.post('/api/customer/address', async (req: Request, res: Response) => {
           } catch (_) {}
         }
 
-        if (profileId) {
-          if (isDefault) {
-            await supabase
-              .from('customer_addresses')
-              .update({ is_default: false })
-              .eq('customer_id', profileId);
-          }
-
-          // Check for existing address with same line1 and pincode to prevent duplicates
-          const { data: existingAddr } = await supabase
+        if (isDefault && profileId) {
+          await supabase
             .from('customer_addresses')
-            .select('id')
-            .eq('customer_id', profileId)
-            .ilike('address_line1', (address.addressLine1 || '').trim())
-            .eq('pincode', (address.pincode || '').trim())
+            .update({ is_default: false })
+            .eq('customer_id', profileId);
+        }
+
+        // Check for existing address with same line1 and pincode to prevent duplicates
+        let existingQuery = supabase.from('customer_addresses').select('id');
+        if (profileId && cleanEmail) {
+          existingQuery = existingQuery.or(`customer_id.eq.${profileId},customer_email.eq.${cleanEmail}`);
+        } else if (profileId) {
+          existingQuery = existingQuery.eq('customer_id', profileId);
+        } else if (cleanEmail) {
+          existingQuery = existingQuery.eq('customer_email', cleanEmail);
+        }
+        existingQuery = existingQuery
+          .ilike('address_line1', (address.addressLine1 || '').trim())
+          .eq('pincode', (address.pincode || '').trim());
+
+        const { data: existingAddr } = await existingQuery.maybeSingle();
+
+        let dbSaved: any = null;
+        let addrErr: any = null;
+
+        if (existingAddr?.id) {
+          const res = await supabase
+            .from('customer_addresses')
+            .update({
+              customer_id: profileId || null,
+              customer_email: cleanEmail || null,
+              full_name: address.fullName,
+              phone: address.phone,
+              address_line2: address.addressLine2 || '',
+              city: address.city,
+              state: address.state,
+              state_code: isInterstate ? '99' : '27',
+              tag: address.tag || 'Home',
+              is_default: isDefault
+            })
+            .eq('id', existingAddr.id)
+            .select()
             .maybeSingle();
+          dbSaved = res.data;
+          addrErr = res.error;
+        } else {
+          const res = await supabase
+            .from('customer_addresses')
+            .insert({
+              customer_id: profileId || null,
+              customer_email: cleanEmail || null,
+              full_name: address.fullName,
+              phone: address.phone,
+              address_line1: (address.addressLine1 || '').trim(),
+              address_line2: address.addressLine2 || '',
+              city: address.city,
+              state: address.state,
+              state_code: isInterstate ? '99' : '27',
+              pincode: (address.pincode || '').trim(),
+              country: 'India',
+              tag: address.tag || 'Home',
+              is_default: isDefault
+            })
+            .select()
+            .maybeSingle();
+          dbSaved = res.data;
+          addrErr = res.error;
+        }
 
-          let dbSaved: any = null;
-          let addrErr: any = null;
-
-          if (existingAddr?.id) {
-            const res = await supabase
-              .from('customer_addresses')
-              .update({
-                full_name: address.fullName,
-                phone: address.phone,
-                address_line2: address.addressLine2 || '',
-                city: address.city,
-                state: address.state,
-                state_code: isInterstate ? '99' : '27',
-                tag: address.tag || 'Home',
-                is_default: isDefault
-              })
-              .eq('id', existingAddr.id)
-              .select()
-              .single();
-            dbSaved = res.data;
-            addrErr = res.error;
-          } else {
-            const res = await supabase
-              .from('customer_addresses')
-              .insert({
-                customer_id: profileId,
-                full_name: address.fullName,
-                phone: address.phone,
-                address_line1: (address.addressLine1 || '').trim(),
-                address_line2: address.addressLine2 || '',
-                city: address.city,
-                state: address.state,
-                state_code: isInterstate ? '99' : '27',
-                pincode: (address.pincode || '').trim(),
-                country: 'India',
-                tag: address.tag || 'Home',
-                is_default: isDefault
-              })
-              .select()
-              .single();
-            dbSaved = res.data;
-            addrErr = res.error;
-          }
-
-          if (!addrErr && dbSaved) {
-            savedAddrObj = {
-              id: dbSaved.id,
-              fullName: dbSaved.full_name,
-              phone: dbSaved.phone,
-              addressLine1: dbSaved.address_line1,
-              addressLine2: dbSaved.address_line2,
-              city: dbSaved.city,
-              state: dbSaved.state,
-              pincode: dbSaved.pincode,
-              tag: dbSaved.tag || 'Home',
-              isDefault: Boolean(dbSaved.is_default)
-            };
-          } else if (addrErr) {
-            console.warn('[Supabase Address Save Warning]:', addrErr.message);
-          }
+        if (!addrErr && dbSaved) {
+          savedAddrObj = {
+            id: dbSaved.id,
+            fullName: dbSaved.full_name,
+            phone: dbSaved.phone,
+            addressLine1: dbSaved.address_line1,
+            addressLine2: dbSaved.address_line2,
+            city: dbSaved.city,
+            state: dbSaved.state,
+            pincode: dbSaved.pincode,
+            tag: dbSaved.tag || 'Home',
+            isDefault: Boolean(dbSaved.is_default)
+          };
+        } else if (addrErr) {
+          console.warn('[Supabase Address Save Warning]:', addrErr.message);
         }
       } catch (sbErr: any) {
         console.warn('[Supabase Address Save Handled Error]:', sbErr?.message || sbErr);
@@ -2034,6 +2041,53 @@ app.post('/api/categories', async (req: Request, res: Response) => {
   saveLocalCategories(local);
 
   return res.status(200).json({ success: true, category: savedRecord });
+});
+
+/**
+ * PUT /api/categories/:idOrSlug
+ * Updates a category in Supabase and locally.
+ */
+app.put('/api/categories/:idOrSlug', async (req: Request, res: Response) => {
+  const { idOrSlug } = req.params;
+  const { name, description, slug: newSlug } = req.body;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ success: false, error: 'Category name is required.' });
+  }
+
+  const cleanName = name.trim();
+  const slug = (newSlug || cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')) || idOrSlug;
+
+  const patch: any = { name: cleanName, slug };
+  if (description !== undefined) patch.description = description;
+
+  const supabase = getSupabaseServerClient();
+  let updatedRecord: any = null;
+
+  if (supabase) {
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+      const query = isUuid
+        ? supabase.from('categories').update(patch).eq('id', idOrSlug)
+        : supabase.from('categories').update(patch).eq('slug', idOrSlug);
+
+      const { data, error } = await query.select().maybeSingle();
+      if (!error && data) {
+        updatedRecord = data;
+      }
+    } catch (err: any) {
+      console.warn('[Supabase] Category update warning:', err?.message || err);
+    }
+  }
+
+  const local = getLocalCategories();
+  const idx = local.findIndex((c: any) => c.id === idOrSlug || c.slug === idOrSlug);
+  if (idx >= 0) {
+    local[idx] = { ...local[idx], ...patch, ...(updatedRecord || {}) };
+    saveLocalCategories(local);
+    if (!updatedRecord) updatedRecord = local[idx];
+  }
+
+  return res.json({ success: true, category: updatedRecord || { id: idOrSlug, ...patch } });
 });
 
 /**
@@ -2586,7 +2640,15 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
       if (updates.originalPrice !== undefined) patch.compare_at_price = updates.originalPrice;
       if (updates.title !== undefined) patch.title = updates.title;
       if (updates.subtitle !== undefined) patch.subtitle = updates.subtitle;
-      if (updates.category !== undefined) patch.category_name = updates.category;
+      if (updates.category !== undefined) {
+        patch.category_name = updates.category;
+        try {
+          const { data: catData } = await supabase.from('categories').select('id').ilike('name', updates.category.trim()).maybeSingle();
+          if (catData?.id) {
+            patch.category_id = catData.id;
+          }
+        } catch {}
+      }
       if (updates.image !== undefined) patch.primary_image_url = updates.image;
       if (updates.secondaryImage !== undefined) patch.secondary_image_url = updates.secondaryImage;
       if (updates.images !== undefined) patch.images = updates.images;
@@ -2597,7 +2659,10 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
         if (isUuid) {
           await supabase.from('products').update(patch).eq('id', id);
         } else {
-          await supabase.from('products').update(patch).eq('slug', id);
+          const res = await supabase.from('products').update(patch).eq('slug', id);
+          if (res.error) {
+            await supabase.from('products').update(patch).eq('id', id);
+          }
         }
       }
 

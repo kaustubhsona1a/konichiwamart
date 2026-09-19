@@ -28,7 +28,7 @@ import { X,
 import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
-import { getSupabaseClient } from '../lib/supabase';
+import { getSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore } from '../lib/supabase';
 import { ReelsManager } from './admin/ReelsManager';
 
 // Client-side image optimizer to compress direct photos into fast-loading web images
@@ -200,11 +200,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Sync available categories from Supabase on load
   React.useEffect(() => {
-    fetch('/api/categories')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.categories) && data.categories.length > 0) {
-          const names = data.categories.map((c: any) => c.name);
+    fetchCategoriesFromStore()
+      .then((cats) => {
+        if (Array.isArray(cats) && cats.length > 0) {
+          const names = cats.map((c: any) => c.name);
           setCategoriesList((prev) => Array.from(new Set([...prev, ...names])));
         }
       })
@@ -223,13 +222,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setIsSavingCategory(true);
     setCategorySaveMsg(null);
     try {
-      const res = await fetch('/api/categories', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed })
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const saved = await saveCategoryToStore(trimmed);
+      if (saved) {
         setCategoriesList((prev) => Array.from(new Set([...prev, trimmed])));
         setNewCategory(trimmed);
         setCategorySaveMsg({ type: 'success', text: `Category "${trimmed}" saved to Supabase!` });
@@ -239,7 +233,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           setCategorySaveMsg(null);
         }, 1200);
       } else {
-        setCategorySaveMsg({ type: 'error', text: data.error || 'Failed to save category in Supabase.' });
+        setCategorySaveMsg({ type: 'error', text: 'Failed to save category in Supabase.' });
       }
     } catch (err: any) {
       setCategorySaveMsg({ type: 'error', text: err?.message || 'Error connecting to server.' });

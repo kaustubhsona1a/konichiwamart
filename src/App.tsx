@@ -73,7 +73,8 @@ import {
   fetchCustomerOrdersFromSupabase,
   fetchAllOrdersFromSupabase,
   updateOrderStatusInSupabase,
-  saveAddressToSupabase
+  saveAddressToSupabase,
+  fetchCategoriesFromStore
 } from './lib/supabase';
 import { FallingPetalsBackground } from './components/FallingPetalsBackground';
 import { formatINR } from './data/pincodes';
@@ -272,6 +273,42 @@ export default function App() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+
+  // Dynamic categories synced from Supabase and Server
+  const [dbCategories, setDbCategories] = useState<Array<{ id: string; name: string; slug: string }>>([]);
+
+  useEffect(() => {
+    fetchCategoriesFromStore().then((cats) => {
+      if (Array.isArray(cats) && cats.length > 0) {
+        setDbCategories(cats.map(c => ({ id: c.name, name: c.name, slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') })));
+      }
+    });
+
+    const client = getSupabaseClient();
+    if (client) {
+      const channel = client
+        .channel('realtime_categories_and_products')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => {
+          fetchCategoriesFromStore().then(cats => {
+            if (Array.isArray(cats) && cats.length > 0) {
+              setDbCategories(cats.map(c => ({ id: c.name, name: c.name, slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') })));
+            }
+          });
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+          fetchProductsFromStore().then(prods => {
+            if (Array.isArray(prods) && prods.length > 0) {
+              setProductsList(prods);
+            }
+          });
+        })
+        .subscribe();
+
+      return () => {
+        client.removeChannel(channel);
+      };
+    }
+  }, []);
 
   // Check URL parameters on mount for recovery link redirect
   useEffect(() => {
@@ -863,7 +900,7 @@ export default function App() {
     discountAmount: 0
   });
 
-  // Dynamic categories combined from preset list and products list
+  // Dynamic categories combined from Supabase, preset list, and active products
   const displayCategories = useMemo(() => {
     const existing = new Set<string>();
     const list: { id: string; name: string; slug: string }[] = [];
@@ -871,6 +908,17 @@ export default function App() {
     // Always include 'All' first
     list.push({ id: 'All', name: 'All', slug: 'all' });
     existing.add('all');
+
+    // Add Supabase categories
+    if (dbCategories.length > 0) {
+      dbCategories.forEach((c) => {
+        const lower = c.name.toLowerCase();
+        if (lower !== 'all' && !existing.has(lower)) {
+          existing.add(lower);
+          list.push({ id: c.name, name: c.name, slug: c.slug || lower.replace(/[^a-z0-9]/g, '-') });
+        }
+      });
+    }
 
     // Add preset categories
     CATEGORIES.forEach((c) => {
@@ -897,7 +945,7 @@ export default function App() {
     });
 
     return list;
-  }, [productsList]);
+  }, [dbCategories, productsList]);
 
   // Filtered Products Logic
   const filteredProducts = useMemo(() => {
@@ -909,7 +957,10 @@ export default function App() {
         const matchesExact = p.category === selectedCategory;
         const matchesCaseInsensitive = p.category?.toLowerCase() === selectedCategory.toLowerCase();
         const matchesNorm = normCat === normSelected;
-        if (!matchesExact && !matchesCaseInsensitive && !matchesNorm) {
+        const matchingCatObj = displayCategories.find(c => c.id === selectedCategory || c.slug === selectedCategory || c.name.toLowerCase() === selectedCategory.toLowerCase());
+        const matchesCatObj = matchingCatObj ? (p.category?.toLowerCase() === matchingCatObj.name.toLowerCase()) : false;
+
+        if (!matchesExact && !matchesCaseInsensitive && !matchesNorm && !matchesCatObj) {
           return false;
         }
       }
@@ -934,7 +985,7 @@ export default function App() {
       }
       return true;
     });
-  }, [productsList, selectedCategory, selectedConcern, selectedSkinType, searchQuery]);
+  }, [productsList, selectedCategory, selectedConcern, selectedSkinType, searchQuery, displayCategories]);
 
   // Cart operations
   const handleAddToCart = (product: Product, quantity = 1, shade?: ProductShade) => {
