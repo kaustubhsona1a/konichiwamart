@@ -267,32 +267,24 @@ DROP POLICY IF EXISTS "Customers can manage their own addresses" ON public.custo
 DROP POLICY IF EXISTS "Allow reading customer addresses" ON public.customer_addresses;
 DROP POLICY IF EXISTS "Allow inserting customer addresses" ON public.customer_addresses;
 DROP POLICY IF EXISTS "Allow modifying customer addresses" ON public.customer_addresses;
+DROP POLICY IF EXISTS "Allow deleting customer addresses" ON public.customer_addresses;
 
 CREATE POLICY "Allow reading customer addresses"
   ON public.customer_addresses FOR SELECT
-  USING (
-    auth.uid() = customer_id OR 
-    customer_email = (auth.jwt() ->> 'email') OR
-    auth.role() = 'service_role' OR
-    auth.role() = 'anon'
-  );
+  USING (true);
 
 CREATE POLICY "Allow inserting customer addresses"
   ON public.customer_addresses FOR INSERT
   WITH CHECK (true);
 
 CREATE POLICY "Allow modifying customer addresses"
-  ON public.customer_addresses FOR ALL
-  USING (
-    auth.uid() = customer_id OR 
-    customer_email = (auth.jwt() ->> 'email') OR
-    auth.role() = 'service_role'
-  )
-  WITH CHECK (
-    auth.uid() = customer_id OR 
-    customer_email = (auth.jwt() ->> 'email') OR
-    auth.role() = 'service_role'
-  );
+  ON public.customer_addresses FOR UPDATE
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY "Allow deleting customer addresses"
+  ON public.customer_addresses FOR DELETE
+  USING (true);
 
 -- 10.3 Catalog Public Read & Store Management
 DROP POLICY IF EXISTS "Active products are readable by everyone" ON public.products;

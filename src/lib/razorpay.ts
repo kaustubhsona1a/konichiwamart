@@ -340,9 +340,12 @@ export const verifyOtpCode = async (phone: string, otp: string): Promise<{ succe
  */
 export const dispatchInvoiceEmail = async (params: {
   email: string;
-  invoiceNumber: string;  orderNumber: string;
+  invoiceNumber: string;
+  orderNumber: string;
   customerName: string;
   totalAmount: number;
+  items?: any[];
+  address?: any;
 }): Promise<{ success: boolean; message: string }> => {
   try {
     const res = await fetch('/api/send-invoice-email', {

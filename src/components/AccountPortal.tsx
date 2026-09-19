@@ -650,7 +650,7 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
               </div>
 
               <div>
-                <label className="text-slate-600 dark:text-zinc-300 font-semibold block mb-1">Mobile Number (For Courier OTP & WhatsApp Updates)</label>
+                <label className="text-slate-600 dark:text-zinc-300 font-semibold block mb-1">Mobile Number (For Courier OTP & Delivery Updates)</label>
                 <input
                   type="text"
                   value={profile.phone}

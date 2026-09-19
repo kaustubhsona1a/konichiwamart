@@ -9,9 +9,7 @@ import {
   Package, 
   Info, 
   PhoneCall, 
-  MessageCircle,
   Sparkles,
-  ExternalLink,
   Sun,
   Moon,
   ShieldCheck,
@@ -403,20 +401,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                     >
                     </button>
                   )}
-
-                  <a
-                    id="dropdown-whatsapp-btn"
-                    href="https://wa.me/919820012345"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full h-8.5 px-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 flex items-center justify-between cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5 text-emerald-700 dark:text-emerald-400">
-                      <MessageCircle className="w-4 h-4 text-emerald-500" />
-                      <span>WhatsApp Support</span>
-                    </div>
-                    <ExternalLink className="w-3 h-3 text-emerald-500 opacity-60" />
-                  </a>
                 </div>
               </div>
             )}

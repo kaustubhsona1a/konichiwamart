@@ -897,30 +897,56 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
     // A) SAVE SHIPPING ADDRESS INTO customer_addresses TABLE IN SUPABASE!
     if (order.shippingAddress?.addressLine1) {
       try {
+        const cleanAddressLine1 = order.shippingAddress.addressLine1.trim();
+        const cleanPincode = (order.shippingAddress.pincode || '').trim();
+
+        // Check if identical address exists to avoid duplicate rows
+        let existingQuery = client.from('customer_addresses').select('id');
+        if (resolvedCustomerId) {
+          existingQuery = existingQuery.eq('customer_id', resolvedCustomerId);
+        }
+        existingQuery = existingQuery.ilike('address_line1', cleanAddressLine1);
+        if (cleanPincode) {
+          existingQuery = existingQuery.eq('pincode', cleanPincode);
+        }
+        const { data: existingAddr } = await existingQuery.maybeSingle();
+
         if (resolvedCustomerId) {
           await client.from('customer_addresses').update({ is_default: false }).eq('customer_id', resolvedCustomerId);
         }
 
-        const { error: addrErr } = await client.from('customer_addresses').insert({
-          customer_id: resolvedCustomerId || null,
-          customer_email: cleanEmail || null,
-          full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
-          phone: order.shippingAddress.phone || order.customerPhone || '',
-          address_line1: order.shippingAddress.addressLine1,
-          address_line2: order.shippingAddress.addressLine2 || '',
-          city: order.shippingAddress.city,
-          state: order.shippingAddress.state,
-          state_code: isInterstate ? '99' : '27',
-          pincode: order.shippingAddress.pincode,
-          country: 'India',
-          tag: order.shippingAddress.tag || 'Home',
-          is_default: true
-        });
-
-        if (addrErr) {
-          console.warn('[Direct Supabase] Address save note:', addrErr.message);
+        if (existingAddr?.id) {
+          await client.from('customer_addresses').update({
+            full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
+            phone: order.shippingAddress.phone || order.customerPhone || '',
+            address_line2: order.shippingAddress.addressLine2 || '',
+            city: order.shippingAddress.city,
+            state: order.shippingAddress.state,
+            state_code: isInterstate ? '99' : '27',
+            is_default: true
+          }).eq('id', existingAddr.id);
+          console.log(`[Direct Supabase] Existing address updated: ${existingAddr.id}`);
         } else {
-          console.log('[Direct Supabase] Shipping address successfully saved to customer_addresses table!');
+          const { error: addrErr } = await client.from('customer_addresses').insert({
+            customer_id: resolvedCustomerId || null,
+            full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
+            phone: order.shippingAddress.phone || order.customerPhone || '',
+            address_line1: cleanAddressLine1,
+            address_line2: order.shippingAddress.addressLine2 || '',
+            city: order.shippingAddress.city,
+            state: order.shippingAddress.state,
+            state_code: isInterstate ? '99' : '27',
+            pincode: cleanPincode,
+            country: 'India',
+            tag: order.shippingAddress.tag || 'Home',
+            is_default: true
+          });
+
+          if (addrErr) {
+            console.warn('[Direct Supabase] Address save note:', addrErr.message);
+          } else {
+            console.log('[Direct Supabase] Shipping address successfully saved to customer_addresses table!');
+          }
         }
       } catch (addrErr: any) {
         console.warn('[Direct Supabase] Address save warning:', addrErr?.message || addrErr);
@@ -1406,22 +1432,30 @@ export const deleteProductFromStore = async (productId: string): Promise<boolean
     }
   } catch {}
 
-  // 2. Server API deletion (permanent file storage on server)
+  // 2. Server API deletion (permanent server & Supabase removal using service role)
   try {
-    fetch(`/api/products/${encodeURIComponent(productId)}`, {
+    await fetch(`/api/products/${encodeURIComponent(productId)}`, {
       method: 'DELETE'
-    }).catch(() => {});
-  } catch {}
+    });
+  } catch (err) {
+    console.warn('[Products Store] Server API delete error:', err);
+  }
 
-  // 3. Direct Supabase deletion
+  // 3. Direct Supabase deletion (for standalone / client-side / Vercel fallback)
   const client = getSupabaseClient();
   if (client) {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
-    Promise.resolve(
-      isUuid
-        ? client.from('products').update({ is_active: false }).eq('id', productId)
-        : client.from('products').update({ is_active: false }).eq('slug', productId)
-    ).catch(() => {});
+    try {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
+      if (isUuid) {
+        await client.from('products').delete().eq('id', productId);
+      } else {
+        await client.from('products').delete().eq('slug', productId);
+      }
+      await client.from('products').delete().or(`id.eq.${productId},slug.eq.${productId}`);
+      await client.from('products').update({ is_active: false }).or(`id.eq.${productId},slug.eq.${productId}`);
+    } catch (err) {
+      console.warn('[Products Store] Direct Supabase delete error:', err);
+    }
   }
 
   return true;

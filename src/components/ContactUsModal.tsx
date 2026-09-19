@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { 
   X, 
   Mail, 
-  Phone, 
-  MessageCircle, 
   Clock, 
   MapPin, 
   Instagram, 
@@ -111,30 +109,12 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 text-left">
           
           {/* Quick Direct Channels Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            
-            {/* WhatsApp */}
-            <a
-              id="contact-channel-whatsapp"
-              href="https://wa.me/919820012345?text=Hi%20Konichiwa%20Mart%2C%20I%20have%20an%20inquiry%20regarding%20Japanese%20skincare%20products"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-900/60 transition-all flex items-start gap-3 group cursor-pointer"
-            >
-              <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center flex-shrink-0 shadow-xs group-hover:scale-105 transition-transform">
-                <MessageCircle className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">WhatsApp Chat</span>
-                <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 block truncate">+91 98200 12345</span>
-                <span className="text-[10px] text-slate-500 dark:text-zinc-400 block mt-0.5">Instant live response</span>
-              </div>
-            </a>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
             {/* Email */}
             <a
               id="contact-channel-email"
-              href="mailto:support@konichiwamart.in"
+              href="mailto:info@konichiwamart.com"
               className="p-3.5 rounded-2xl bg-rose-50/60 dark:bg-rose-950/40 hover:bg-rose-50 dark:hover:bg-rose-950/60 border border-rose-200/80 dark:border-rose-900/60 transition-all flex items-start gap-3 group cursor-pointer"
             >
               <div className="w-9 h-9 rounded-xl bg-pink-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs group-hover:scale-105 transition-transform">
@@ -142,7 +122,7 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
               </div>
               <div className="min-w-0">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-pink-700 dark:text-pink-400 block">Email Support</span>
-                <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 block truncate">support@konichiwamart.in</span>
+                <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 block truncate">info@konichiwamart.com</span>
                 <span className="text-[10px] text-slate-500 dark:text-zinc-400 block mt-0.5">Replies within 2 hours</span>
               </div>
             </a>
@@ -292,8 +272,8 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
         {/* Modal Footer */}
         <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-850/70 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
-            <Phone className="w-3.5 h-3.5 text-pink-500" />
-            <span>Direct Line: +91 98200 12345</span>
+            <Mail className="w-3.5 h-3.5 text-pink-500" />
+            <span>Support: info@konichiwamart.com</span>
           </div>
           <button
             onClick={onClose}

@@ -180,7 +180,7 @@ export const AboutUsModal: React.FC<AboutUsModalProps> = ({
                 <div>
                   <h4 className="text-xs font-bold text-slate-800 dark:text-zinc-100">Pan-India Express Dispatch</h4>
                   <p className="text-[11px] text-slate-600 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                    Dispatched within 3-5 days across 19,000+ Indian pincodes with GST invoices and WhatsApp support.
+                    Dispatched within 3-5 days across 19,000+ Indian pincodes with GST invoices and dedicated customer care.
                   </p>
                 </div>
               </div>

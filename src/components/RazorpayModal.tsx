@@ -589,7 +589,16 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
         invoiceNumber: demoOrder.invoiceNumber,
         orderNumber: demoOrder.orderNumber,
         customerName: fullName || 'Valued Customer',
-        totalAmount: grandTotal
+        totalAmount: grandTotal,
+        items: demoOrder.items.map(it => ({
+          name: it.title,
+          sku: 'JPN-BEAUTY',
+          hsn: '33049900',
+          quantity: it.quantity,
+          unitPrice: it.price,
+          totalPrice: it.price * it.quantity
+        })),
+        address: demoOrder.shippingAddress
       });
 
       setTimeout(() => {
@@ -704,7 +713,16 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
             invoiceNumber: createdOrder.invoiceNumber,
             orderNumber: createdOrder.orderNumber,
             customerName: fullName,
-            totalAmount: validatedServerOrder.grandTotal || grandTotal
+            totalAmount: validatedServerOrder.grandTotal || grandTotal,
+            items: createdOrder.items.map(it => ({
+              name: it.title,
+              sku: 'JPN-BEAUTY',
+              hsn: '33049900',
+              quantity: it.quantity,
+              unitPrice: it.price,
+              totalPrice: it.price * it.quantity
+            })),
+            address: createdOrder.shippingAddress
           });
 
           setTimeout(() => {

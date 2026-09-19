@@ -324,7 +324,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
           {/* Official Digital Seal */}
           <div className="pt-6 border-t border-[#E2E8F0] dark:border-zinc-800 print:border-[#E2E8F0] flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
             <div className="text-[11px] text-[#64748B] dark:text-zinc-400 print:text-[#64748B]">
-              Thank you for choosing Konichiwa_Mart K-Beauty Dispensary. For support, contact <strong>support@konichiwamart.in</strong>
+              Thank you for choosing Konichiwa_Mart K-Beauty Dispensary. For support, contact <strong>info@konichiwamart.com</strong>
             </div>
 
             <div className="p-3 rounded-xl border border-[#D1E0D7] dark:border-zinc-700 bg-[#F4FAF6] dark:bg-zinc-850 text-center sm:text-right print:bg-[#F4FAF6]">

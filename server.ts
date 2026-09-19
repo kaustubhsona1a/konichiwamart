@@ -408,7 +408,62 @@ app.post('/api/send-invoice-email', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Valid customer email is required.' });
     }
 
-    const order = orderNumber ? orderStore.get(orderNumber) : null;
+    let order = orderNumber ? orderStore.get(orderNumber) : null;
+    let fallbackItems = items;
+
+    // In serverless environments (Vercel), query Supabase to hydrate complete order & items
+    const supabase = getSupabaseServerClient();
+    if (!order && orderNumber && supabase) {
+      try {
+        const { data: dbOrder } = await supabase
+          .from('orders')
+          .select('*, order_items(*)')
+          .eq('order_number', orderNumber)
+          .maybeSingle();
+
+        if (dbOrder) {
+          order = {
+            orderNumber: dbOrder.order_number,
+            invoiceNumber: dbOrder.invoice_number,
+            customer: {
+              fullName: dbOrder.customer_name,
+              email: dbOrder.customer_email,
+              phone: dbOrder.customer_phone,
+            },
+            shippingAddress: {
+              addressLine1: dbOrder.shipping_address_line1,
+              addressLine2: dbOrder.shipping_address_line2,
+              city: dbOrder.city,
+              state: dbOrder.state,
+              pincode: dbOrder.pincode,
+            },
+            subtotal: Number(dbOrder.subtotal || 0),
+            cgst: Number(dbOrder.cgst || 0),
+            sgst: Number(dbOrder.sgst || 0),
+            igst: Number(dbOrder.igst || 0),
+            shippingFee: Number(dbOrder.shipping_fee || 0),
+            discountAmount: Number(dbOrder.discount_amount || 0),
+            totalAmount: Number(dbOrder.total_amount || 0),
+            razorpayPaymentId: dbOrder.razorpay_payment_id,
+            courierPartner: dbOrder.courier_partner,
+            awbNumber: dbOrder.awb_number,
+          } as any;
+
+          if (!fallbackItems && Array.isArray(dbOrder.order_items) && dbOrder.order_items.length > 0) {
+            fallbackItems = dbOrder.order_items.map((it: any) => ({
+              name: it.title || 'Authentic Japanese Cosmetics Item',
+              sku: it.sku || 'SKU-KM',
+              hsn: it.hsn_code || '3304',
+              quantity: it.quantity || 1,
+              unitPrice: Number(it.unit_price || 0),
+              totalPrice: Number(it.subtotal || 0)
+            }));
+          }
+        }
+      } catch (dbErr) {
+        console.warn('[Server Invoice] Supabase order hydration notice:', dbErr);
+      }
+    }
 
     // Dispatch via Resend
     const result = await sendOrderInvoiceEmail({
@@ -423,7 +478,7 @@ app.post('/api/send-invoice-email', async (req: Request, res: Response) => {
       city: address?.city || order?.shippingAddress?.city || 'City',
       state: address?.state || order?.shippingAddress?.state || 'State',
       pincode: address?.pincode || order?.shippingAddress?.pincode || '400001',
-      items: items || (order?.items ? order.items.map(it => ({
+      items: fallbackItems || (order?.items ? order.items.map(it => ({
         name: it.title,
         sku: it.sku,
         hsn: it.hsn,
@@ -1197,30 +1252,58 @@ app.post('/api/save-order', async (req: Request, res: Response) => {
     // 2. Automatically save shipping address to customer_addresses in Supabase
     if (order.shippingAddress?.addressLine1) {
       try {
+        const cleanAddressLine1 = order.shippingAddress.addressLine1.trim();
+        const cleanPincode = (order.shippingAddress.pincode || '').trim();
+
+        // Check for existing identical address to prevent duplicate rows
+        let existingQuery = supabase.from('customer_addresses').select('id');
+        if (resolvedCustomerId) {
+          existingQuery = existingQuery.eq('customer_id', resolvedCustomerId);
+        }
+        existingQuery = existingQuery.ilike('address_line1', cleanAddressLine1);
+        if (cleanPincode) {
+          existingQuery = existingQuery.eq('pincode', cleanPincode);
+        }
+        const { data: existingAddr } = await existingQuery.maybeSingle();
+
         if (resolvedCustomerId) {
           await supabase.from('customer_addresses').update({ is_default: false }).eq('customer_id', resolvedCustomerId);
         }
 
-        const { data: savedAddr, error: addrErr } = await supabase.from('customer_addresses').insert({
-          customer_id: resolvedCustomerId || null,
-          customer_email: cleanEmail || null,
-          full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
-          phone: order.shippingAddress.phone || order.customerPhone || '',
-          address_line1: order.shippingAddress.addressLine1,
-          address_line2: order.shippingAddress.addressLine2 || '',
-          city: order.shippingAddress.city,
-          state: order.shippingAddress.state,
-          state_code: isInterstate ? '99' : '27',
-          pincode: order.shippingAddress.pincode,
-          country: 'India',
-          tag: order.shippingAddress.tag || 'Home',
-          is_default: true
-        }).select().maybeSingle();
-
-        if (addrErr) {
-          console.warn('[Server] Address insert notice:', addrErr.message);
+        if (existingAddr?.id) {
+          // Update existing address instead of creating duplicate row
+          await supabase.from('customer_addresses').update({
+            full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
+            phone: order.shippingAddress.phone || order.customerPhone || '',
+            address_line2: order.shippingAddress.addressLine2 || '',
+            city: order.shippingAddress.city,
+            state: order.shippingAddress.state,
+            state_code: isInterstate ? '99' : '27',
+            is_default: true
+          }).eq('id', existingAddr.id);
+          console.log(`[Supabase] Existing shipping address updated (no duplicate created): ${existingAddr.id}`);
         } else {
-          console.log(`[Supabase SUCCESS] Shipping address saved to customer_addresses table! ID: ${savedAddr?.id}`);
+          // Insert new address (omit customer_email as it is not in the live DB table)
+          const { data: savedAddr, error: addrErr } = await supabase.from('customer_addresses').insert({
+            customer_id: resolvedCustomerId || null,
+            full_name: order.shippingAddress.fullName || order.customerName || 'Valued Customer',
+            phone: order.shippingAddress.phone || order.customerPhone || '',
+            address_line1: cleanAddressLine1,
+            address_line2: order.shippingAddress.addressLine2 || '',
+            city: order.shippingAddress.city,
+            state: order.shippingAddress.state,
+            state_code: isInterstate ? '99' : '27',
+            pincode: cleanPincode,
+            country: 'India',
+            tag: order.shippingAddress.tag || 'Home',
+            is_default: true
+          }).select().maybeSingle();
+
+          if (addrErr) {
+            console.warn('[Server] Address insert notice:', addrErr.message);
+          } else {
+            console.log(`[Supabase SUCCESS] Shipping address saved to customer_addresses table! ID: ${savedAddr?.id}`);
+          }
         }
       } catch (addrErr: any) {
         console.warn('[Server] Address auto-save warning:', addrErr?.message || addrErr);
@@ -2489,21 +2572,22 @@ function mapProductToSupabaseRow(p: Product): any {
 
 async function ensureSupabaseProductsSeeded(supabase: any) {
   try {
-    const { data: existing } = await supabase.from('products').select('slug');
-    const existingSlugs = new Set((existing || []).map((row: any) => row.slug));
-
-    const toInsert = PRODUCTS.filter(p => !existingSlugs.has(p.id)).map(mapProductToSupabaseRow);
-    if (toInsert.length > 0) {
-      await supabase.from('products').upsert(toInsert, { onConflict: 'slug' });
-      for (const p of PRODUCTS) {
-        if (!existingSlugs.has(p.id) && p.stock !== undefined) {
-          await updateSupabaseInventoryServer(supabase, p.id, p.stock);
+    const { count, error } = await supabase.from('products').select('*', { count: 'exact', head: true });
+    // Only ever seed if the products table is completely empty (initial setup)
+    if (!error && (count === null || count === 0)) {
+      const toInsert = PRODUCTS.map(mapProductToSupabaseRow);
+      if (toInsert.length > 0) {
+        await supabase.from('products').upsert(toInsert, { onConflict: 'slug' });
+        for (const p of PRODUCTS) {
+          if (p.stock !== undefined) {
+            await updateSupabaseInventoryServer(supabase, p.id, p.stock);
+          }
         }
+        console.log(`[Server] Initial setup: seeded ${toInsert.length} default products to empty database.`);
       }
-      console.log(`[Server] Auto-seeded ${toInsert.length} default products to Supabase.`);
     }
   } catch (err: any) {
-    console.warn('[Server] Auto-seed Supabase notice:', err?.message || err);
+    console.warn('[Server] Initial seed check notice:', err?.message || err);
   }
 }
 
@@ -2517,9 +2601,6 @@ app.get('/api/products', async (_req: Request, res: Response) => {
 
   if (supabase) {
     try {
-      // Auto-seed missing products if necessary
-      ensureSupabaseProductsSeeded(supabase).catch(() => {});
-
       const [prodRes, invMap] = await Promise.all([
         supabase
           .from('products')
@@ -2601,21 +2682,27 @@ app.delete('/api/products/:id', async (req: Request, res: Response) => {
 
   // 3. Delete from Supabase
   const supabase = getSupabaseServerClient();
+  let deletedFromSupabase = false;
   if (supabase) {
     try {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
       if (isUuid) {
-        await supabase.from('products').update({ is_active: false }).eq('id', id);
+        await supabase.from('products').delete().eq('id', id);
       } else {
-        await supabase.from('products').update({ is_active: false }).eq('slug', id);
+        await supabase.from('products').delete().eq('slug', id);
       }
+      // Also ensure deletion by matching both id and slug
+      await supabase.from('products').delete().or(`id.eq.${id},slug.eq.${id}`);
+      // Also update is_active to false as a safety net
+      await supabase.from('products').update({ is_active: false }).or(`id.eq.${id},slug.eq.${id}`);
+      deletedFromSupabase = true;
     } catch (err: any) {
       console.warn('[Server] Supabase delete warning:', err?.message || err);
     }
   }
 
-  console.log(`[Server] Product "${id}" permanently deleted from catalog.`);
-  return res.json({ success: true, deletedId: id });
+  console.log(`[Server] Product "${id}" permanently deleted from catalog (Supabase: ${deletedFromSupabase}).`);
+  return res.json({ success: true, deletedId: id, deletedFromSupabase });
 });
 
 /**

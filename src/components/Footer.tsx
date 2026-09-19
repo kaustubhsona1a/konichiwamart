@@ -5,8 +5,7 @@ import {
   Instagram,
   Package,
   Info,
-  PhoneCall,
-  MessageCircle
+  PhoneCall
 } from 'lucide-react';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
 
@@ -115,16 +114,6 @@ export const Footer: React.FC<FooterProps> = ({
             >
               <Instagram className="w-3.5 h-3.5 text-pink-500" />
               <span>{instagramHandle}</span>
-            </a>
-
-            <a
-              href="https://wa.me/919820012345"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-slate-600 dark:text-zinc-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors cursor-pointer font-medium flex items-center gap-1.5"
-            >
-              <MessageCircle className="w-3.5 h-3.5 text-emerald-500" />
-              <span>WhatsApp Care</span>
             </a>
           </div>
 

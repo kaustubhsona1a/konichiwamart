@@ -870,21 +870,21 @@ export default function App() {
   };
 
   // Remove Product Handler (Permanently deletes from Supabase, Server Storage, and Local state)
-  const handleRemoveProduct = (productId: string) => {
+  const handleRemoveProduct = async (productId: string) => {
     setProductsList((prev) => {
       const updated = prev.filter((p) => p.id !== productId);
       localStorage.setItem('km_custom_products', JSON.stringify(updated));
       return updated;
     });
 
-    // Sync deletion across Supabase and persistent backend storage
-    deleteProductFromStore(productId);
-
     // Also remove from cart if present
     setCart((prev) => prev.filter((item) => item.product.id !== productId));
     if (inspectProduct?.id === productId) {
       setInspectProduct(null);
     }
+
+    // Sync deletion across Supabase and persistent backend storage
+    await deleteProductFromStore(productId);
   };
 
   // Restore Original Catalog Handler
