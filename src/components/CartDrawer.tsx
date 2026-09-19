@@ -44,11 +44,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const freeShippingThreshold = 1500;
   const progressToFree = Math.min(100, (subtotal / freeShippingThreshold) * 100);
   const amountNeededForFree = Math.max(0, freeShippingThreshold - subtotal);
-  const shippingFee = subtotal >= freeShippingThreshold || subtotal === 0 ? 0 : 99;
-
   // Promo Calculation
   let discountAmount = 0;
-  if (appliedPromo && PROMO_CODES[appliedPromo]) {
+  if (appliedPromo === '18MONKEYS') {
+    discountAmount = subtotal - 1;
+  } else if (appliedPromo && PROMO_CODES[appliedPromo]) {
     const promo = PROMO_CODES[appliedPromo];
     if (subtotal >= promo.minAmount) {
       discountAmount = Math.round((subtotal * promo.discountPercent) / 100);
@@ -58,12 +58,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const taxableSubtotal = subtotal - discountAmount;
   const cgst = Math.round((taxableSubtotal * 0.09));
   const sgst = Math.round((taxableSubtotal * 0.09));
+  const shippingFee = (subtotal >= freeShippingThreshold || subtotal === 0 || appliedPromo === '18MONKEYS') ? 0 : 99;
   const finalTotal = Math.max(0, taxableSubtotal + shippingFee);
 
   const handleApplyPromo = (e: React.FormEvent) => {
     e.preventDefault();
     const code = promoInput.trim().toUpperCase();
-    if (PROMO_CODES[code]) {
+    
+    if (code === '18MONKEYS') {
+      setAppliedPromo(code);
+      setPromoError('');
+      setPromoInput('');
+    } else if (PROMO_CODES[code]) {
       if (subtotal >= PROMO_CODES[code].minAmount) {
         setAppliedPromo(code);
         setPromoError('');

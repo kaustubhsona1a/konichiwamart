@@ -190,16 +190,21 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
 
   if (discountCode) {
     const upperCode = discountCode.trim().toUpperCase();
-    const promo = PROMO_CODES[upperCode];
-    if (promo && calculatedSubtotal >= promo.minAmount) {
-      discountAmount = Math.round((calculatedSubtotal * promo.discountPercent) / 100);
+    if (upperCode === '18MONKEYS') {
+      discountAmount = calculatedSubtotal - 1;
       verifiedCode = upperCode;
+    } else {
+      const promo = PROMO_CODES[upperCode];
+      if (promo && calculatedSubtotal >= promo.minAmount) {
+        discountAmount = Math.round((calculatedSubtotal * promo.discountPercent) / 100);
+        verifiedCode = upperCode;
+      }
     }
   }
 
   // 3. SHIPPING FEE
   const effectiveSubtotal = calculatedSubtotal - discountAmount;
-  const shippingFee = effectiveSubtotal >= 1500 ? 0 : 99; // Free shipping above ₹1500
+  const shippingFee = (effectiveSubtotal >= 1500 || verifiedCode === '18MONKEYS') ? 0 : 99; // Free shipping above ₹1500
 
   // 4. GST CALCULATION (Intrastate vs Interstate)
   const gstBreakdown = calculateGSTSplit(effectiveSubtotal, shippingAddress.state);

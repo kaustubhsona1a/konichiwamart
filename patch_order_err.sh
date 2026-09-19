@@ -1,1 +1,0 @@
-sed -i 's/throw new Error(rzpErr?.error?.description || rzpErr?.message || '\''Failed to initialize payment gateway order with Razorpay.'\'');/throw new Error("Razorpay API Rejected: " + (rzpErr?.error?.description || rzpErr?.message || JSON.stringify(rzpErr)));/g' src/lib/orderService.ts

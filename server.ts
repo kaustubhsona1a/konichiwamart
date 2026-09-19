@@ -9,7 +9,6 @@ import fs from 'fs';
 import crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { createServer as createViteServer } from 'vite';
 import { createValidatedOrder, orderStore } from './src/lib/orderService';
 import { processRazorpayWebhook } from './src/lib/webhookHandler';
 import { sendOrderInvoiceEmail, sendTestEmail, sendPasswordResetEmail } from './src/lib/email';
@@ -730,15 +729,6 @@ app.post('/api/customer/register', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Password must be at least 6 characters.' });
     }
 
-    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !serviceKey) {
-      return res.status(500).json({ success: false, error: 'Supabase configuration missing.' });
-    }
-
-    const adminClient = createClient(url, serviceKey);
-    const { data: list } = await adminClient.auth.admin.listUsers();
-
     if (cleanEmail === 'admin@konichiwamart.com') {
       return res.status(400).json({
         success: false,
@@ -746,51 +736,97 @@ app.post('/api/customer/register', async (req: Request, res: Response) => {
       });
     }
 
-    const existing = list?.users?.find(u => u.email?.toLowerCase() === cleanEmail);
-    if (existing) {
-      if (existing.user_metadata?.role === 'operator' || existing.user_metadata?.role === 'admin') {
-        return res.status(400).json({
-          success: false,
-          error: 'This email is reserved for store operations. Operator accounts cannot register as customers.'
-        });
-      }
-      return res.status(400).json({
-        success: false,
-        error: 'An account with this email already exists. Please sign in instead.'
+    const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/['"\s]/g, '').trim();
+    const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').replace(/['"\s]/g, '').trim();
+    const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').replace(/['"\s]/g, '').trim();
+
+    if (!url || (!serviceKey && !anonKey)) {
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Supabase configuration missing on server. Please verify SUPABASE_URL in environment settings.' 
       });
     }
 
-    const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
-      email: cleanEmail,
-      password: cleanPass,
-      email_confirm: true,
-      user_metadata: {
-        full_name: cleanName || cleanEmail.split('@')[0],
-        phone: cleanPhone,
-        role: 'customer'
-      }
-    });
+    let createdUser: any = null;
+    let clientToUse: SupabaseClient;
 
-    if (createErr) {
-      return res.status(400).json({ success: false, error: createErr.message });
+    if (serviceKey) {
+      const adminClient = createClient(url, serviceKey, {
+        auth: { autoRefreshToken: false, persistSession: false }
+      });
+      clientToUse = adminClient;
+
+      const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
+        email: cleanEmail,
+        password: cleanPass,
+        email_confirm: true,
+        user_metadata: {
+          full_name: cleanName || cleanEmail.split('@')[0],
+          phone: cleanPhone,
+          role: 'customer'
+        }
+      });
+
+      if (createErr) {
+        const msg = createErr.message || '';
+        if (msg.toLowerCase().includes('already') || createErr.status === 422) {
+          return res.status(400).json({
+            success: false,
+            error: 'An account with this email already exists. Please sign in instead.'
+          });
+        }
+        return res.status(400).json({ success: false, error: msg });
+      }
+
+      createdUser = created.user;
+    } else {
+      const anonClient = createClient(url, anonKey);
+      clientToUse = anonClient;
+
+      const { data: authData, error: authErr } = await anonClient.auth.signUp({
+        email: cleanEmail,
+        password: cleanPass,
+        options: {
+          data: {
+            full_name: cleanName || cleanEmail.split('@')[0],
+            phone: cleanPhone,
+            role: 'customer'
+          }
+        }
+      });
+
+      if (authErr) {
+        return res.status(400).json({ success: false, error: authErr.message });
+      }
+
+      createdUser = authData.user;
     }
 
+    if (!createdUser) {
+      return res.status(500).json({ success: false, error: 'Registration failed to create customer record.' });
+    }
+
+    // Always ensure profile exists in customer_profiles table
     try {
-      await adminClient.from('customer_profiles').upsert({
-        id: created.user.id,
+      const { error: profErr } = await clientToUse.from('customer_profiles').upsert({
+        id: createdUser.id,
         email: cleanEmail,
         full_name: cleanName || cleanEmail.split('@')[0],
-        phone: cleanPhone
+        phone: cleanPhone,
+        updated_at: new Date().toISOString()
       });
-    } catch (profErr) {
-      console.warn('[Server] Customer profile upsert notice:', profErr);
+      if (profErr) {
+        console.warn('[Server] Customer profile upsert notice:', profErr.message);
+      }
+    } catch (profEx) {
+      console.warn('[Server] Customer profile upsert exception:', profEx);
     }
 
     return res.status(200).json({
       success: true,
       user: {
-        id: created.user.id,
-        email: created.user.email,
+        id: createdUser.id,
+        email: createdUser.email || cleanEmail,
         name: cleanName || cleanEmail.split('@')[0],
         phone: cleanPhone
       }
@@ -815,7 +851,6 @@ app.post('/api/customer/login', async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email and password are required.' });
     }
 
-    // STRICT GUARD 1: Dedicated operator email addresses
     if (cleanEmail === 'admin@konichiwamart.com') {
       return res.status(403).json({
         success: false,
@@ -823,31 +858,16 @@ app.post('/api/customer/login', async (req: Request, res: Response) => {
       });
     }
 
-    const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    const anonKey = process.env.VITE_SUPABASE_ANON_KEY;
-    if (!url || !serviceKey) {
+    const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/['"\s]/g, '').trim();
+    const serviceKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').replace(/['"\s]/g, '').trim();
+    const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').replace(/['"\s]/g, '').trim();
+    const effectiveKey = anonKey || serviceKey;
+
+    if (!url || !effectiveKey) {
       return res.status(500).json({ success: false, error: 'Supabase credentials not configured on server.' });
     }
 
-    const adminClient = createClient(url, serviceKey);
-
-    // STRICT GUARD 2: Check user metadata role in Supabase Auth before allowing customer login
-    const { data: list } = await adminClient.auth.admin.listUsers();
-    const existingUser = list?.users?.find(u => u.email?.toLowerCase() === cleanEmail);
-
-    if (existingUser) {
-      const role = (existingUser.user_metadata?.role || '').toLowerCase();
-      if (role === 'operator' || role === 'admin') {
-        return res.status(403).json({
-          success: false,
-          error: 'This account is designated for Store Operators and cannot sign into the Customer portal. Please use the Staff / Dealer Access portal.'
-        });
-      }
-    }
-
-    // Attempt Supabase Auth password sign-in
-    const authClient = anonKey ? createClient(url, anonKey) : adminClient;
+    const authClient = createClient(url, effectiveKey);
     const { data: authData, error: authErr } = await authClient.auth.signInWithPassword({
       email: cleanEmail,
       password: cleanPass
@@ -874,7 +894,8 @@ app.post('/api/customer/login', async (req: Request, res: Response) => {
     let customerPhone = authData.user.user_metadata?.phone || '';
 
     try {
-      const { data: prof } = await adminClient
+      const dbClient = serviceKey ? createClient(url, serviceKey) : authClient;
+      const { data: prof } = await dbClient
         .from('customer_profiles')
         .select('*')
         .eq('id', authData.user.id)
@@ -884,11 +905,12 @@ app.post('/api/customer/login', async (req: Request, res: Response) => {
         if (prof.full_name) customerName = prof.full_name;
         if (prof.phone) customerPhone = prof.phone;
       } else {
-        await adminClient.from('customer_profiles').upsert({
+        await dbClient.from('customer_profiles').upsert({
           id: authData.user.id,
           email: cleanEmail,
           full_name: customerName,
-          phone: customerPhone
+          phone: customerPhone,
+          updated_at: new Date().toISOString()
         });
       }
     } catch (profErr) {
@@ -2804,6 +2826,7 @@ async function startServer() {
   }
 
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',

@@ -205,27 +205,34 @@ export const customerSignUp = async (
         phone: cleanPhone
       })
     });
-    const json = await res.json();
-    if (res.ok && json.success) {
-      // Auto sign-in to get active Supabase session
-      return await customerSignIn(cleanEmail, cleanPass);
+
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const json = await res.json();
+      if (res.ok && json.success) {
+        // Auto sign-in to get active Supabase session
+        const loginRes = await customerSignIn(cleanEmail, cleanPass);
+        if (loginRes.success) return loginRes;
+        if (json.user) {
+          localStorage.setItem('km_customer_session', JSON.stringify(json.user));
+          return { success: true, user: json.user };
+        }
+      }
+      if (!res.ok && json.error) {
+        return { success: false, error: json.error };
+      }
     }
-    if (!res.ok && json.error) {
-      return { success: false, error: json.error };
-    }
-  } catch (_) {}
+  } catch (err) {
+    console.warn('[Supabase Auth] Server register endpoint unavailable:', err);
+  }
 
   // 2. Direct Supabase Client fallback
   const client = getSupabaseClient();
   if (!client) {
-    const localUser = {
-      id: `usr_${Date.now()}`,
-      email: cleanEmail,
-      name: cleanName,
-      phone: cleanPhone
+    return {
+      success: false,
+      error: 'Unable to connect to Supabase database. Please ensure your internet connection is active.'
     };
-    localStorage.setItem('km_customer_session', JSON.stringify(localUser));
-    return { success: true, user: localUser };
   }
 
   try {
@@ -235,7 +242,8 @@ export const customerSignUp = async (
       options: {
         data: {
           full_name: cleanName,
-          phone: cleanPhone
+          phone: cleanPhone,
+          role: 'customer'
         }
       }
     });
@@ -244,9 +252,26 @@ export const customerSignUp = async (
       return { success: false, error: error.message };
     }
 
+    if (!data.user) {
+      return { success: false, error: 'Registration did not return a user record.' };
+    }
+
+    // Insert directly into public.customer_profiles table
+    try {
+      await client.from('customer_profiles').upsert({
+        id: data.user.id,
+        email: cleanEmail,
+        full_name: cleanName,
+        phone: cleanPhone,
+        updated_at: new Date().toISOString()
+      });
+    } catch (upsertErr) {
+      console.warn('[Supabase Client] Profile upsert notice:', upsertErr);
+    }
+
     const user = {
-      id: data.user?.id || `usr_${Date.now()}`,
-      email: data.user?.email || cleanEmail,
+      id: data.user.id,
+      email: data.user.email || cleanEmail,
       name: cleanName,
       phone: cleanPhone
     };

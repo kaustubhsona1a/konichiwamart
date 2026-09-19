@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+*.sh
+*.cjs
+*.local
