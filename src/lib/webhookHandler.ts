@@ -3,6 +3,7 @@
  * Prevents duplicate orders, duplicate shipments, and double-charges
  */
 import crypto from 'crypto';
+import { createClient } from '@supabase/supabase-js';
 import { orderStore, ValidatedOrder } from './orderService';
 import { createShiprocketOrder } from './shiprocket';
 import { sendOrderInvoiceEmail } from './email';
@@ -15,12 +16,19 @@ export interface WebhookProcessingResult {
   isDuplicate?: boolean;
 }
 
+function getSupabase(): any {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
+
 /**
  * Validates Razorpay Webhook Signature:
  * HMAC-SHA256 of raw body string using RAZORPAY_WEBHOOK_SECRET
  */
 export function verifyWebhookSignature(rawBody: string, signatureHeader: string | undefined): boolean {
-  const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  const webhookSecret = (process.env.RAZORPAY_WEBHOOK_SECRET || process.env.VITE_RAZORPAY_WEBHOOK_SECRET || '').replace(/['"\s]/g, '').trim();
   
   if (!webhookSecret) {
     console.warn('[Webhook Security] RAZORPAY_WEBHOOK_SECRET is not set in environment. Skipping HMAC verification for local test mode.');
@@ -31,15 +39,24 @@ export function verifyWebhookSignature(rawBody: string, signatureHeader: string 
     return false;
   }
 
-  const expectedSignature = crypto
-    .createHmac('sha256', webhookSecret)
-    .update(rawBody)
-    .digest('hex');
+  try {
+    const expectedSignature = crypto
+      .createHmac('sha256', webhookSecret)
+      .update(rawBody)
+      .digest('hex');
 
-  return crypto.timingSafeEqual(
-    Buffer.from(expectedSignature, 'utf8'),
-    Buffer.from(signatureHeader, 'utf8')
-  );
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const signatureBuf = Buffer.from(signatureHeader.trim(), 'utf8');
+
+    if (expectedBuf.length !== signatureBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expectedBuf, signatureBuf);
+  } catch (err) {
+    console.error('[Webhook Signature Verification Error]:', err);
+    return false;
+  }
 }
 
 /**
@@ -87,34 +104,116 @@ export async function processRazorpayWebhook(
 
   // 2. IDEMPOTENCY CHECK
   // Fetch existing order from store or Supabase
-  const existingOrder = orderStore.get(razorpayOrderId);
-  if (!existingOrder) {
-    console.warn(`[Webhook] Received payment for unrecognized order ID: ${razorpayOrderId}`);
-    return {
-      statusCode: 200,
-      message: 'Order not found in memory store (might have been created outside current instance).'
-    };
+  let existingOrder = orderStore.get(razorpayOrderId);
+  
+  const supabase = getSupabase();
+  let supabaseOrder: any = null;
+  if (supabase) {
+    try {
+      const receipt = event.payload?.order?.entity?.receipt || '';
+      let q = supabase.from('orders').select('*');
+      if (receipt) {
+        q = q.or(`razorpay_order_id.eq.${razorpayOrderId},order_number.eq.${receipt}`);
+      } else {
+        q = q.eq('razorpay_order_id', razorpayOrderId);
+      }
+      const { data } = await q.maybeSingle();
+      supabaseOrder = data;
+    } catch (e) {
+      console.warn('[Webhook] Supabase order query notice:', e);
+    }
   }
 
-  // If order is ALREADY marked as paid, return 200 immediately to prevent duplicate shipments!
-  if (existingOrder.status === 'paid' || existingOrder.status === 'processing' || existingOrder.status === 'dispatched') {
-    console.log(`[Webhook Idempotency] Order ${existingOrder.orderNumber} is already marked as ${existingOrder.status}. Skipping duplicate Shiprocket/email triggers.`);
+  // If order is ALREADY marked as paid in either memory or Supabase, return 200 immediately!
+  const isAlreadyPaid = (existingOrder && (existingOrder.status === 'paid' || existingOrder.status === 'processing' || existingOrder.status === 'dispatched')) ||
+                        (supabaseOrder && (supabaseOrder.status === 'paid' || supabaseOrder.status === 'processing' || supabaseOrder.status === 'dispatched'));
+
+  if (isAlreadyPaid) {
+    const orderNum = existingOrder?.orderNumber || supabaseOrder?.order_number || razorpayOrderId;
+    console.log(`[Webhook Idempotency] Order ${orderNum} is already marked as paid. Skipping duplicate triggers.`);
     return {
       statusCode: 200,
       message: 'Order already processed (Idempotent replay).',
-      orderNumber: existingOrder.orderNumber,
+      orderNumber: orderNum,
       isDuplicate: true
     };
   }
 
-  // 3. ATOMICALLY UPDATE ORDER STATUS
-  existingOrder.status = 'paid';
-  existingOrder.razorpayPaymentId = razorpayPaymentId;
-  existingOrder.updatedAt = new Date().toISOString();
-  orderStore.set(existingOrder.orderNumber, existingOrder);
-  orderStore.set(razorpayOrderId, existingOrder);
+  // If order is not in memory and not in Supabase (e.g. Test Webhook Event from Razorpay dashboard)
+  if (!existingOrder && !supabaseOrder) {
+    console.log(`[Webhook] Event acknowledged for order ID: ${razorpayOrderId} (Dashboard Test Event).`);
+    return {
+      statusCode: 200,
+      message: `Webhook event ${eventType} acknowledged successfully.`,
+      orderNumber: razorpayOrderId
+    };
+  }
 
-  console.log(`[Webhook Success] Order ${existingOrder.orderNumber} successfully marked as PAID.`);
+  // Update in Supabase if present
+  if (supabaseOrder && supabase) {
+    try {
+      await supabase
+        .from('orders')
+        .update({
+          status: 'paid',
+          razorpay_payment_id: razorpayPaymentId || supabaseOrder.razorpay_payment_id
+        })
+        .eq('id', supabaseOrder.id);
+      console.log(`[Webhook Success] Supabase order ${supabaseOrder.order_number} marked as PAID.`);
+    } catch (sbUpdateErr) {
+      console.warn('[Webhook] Supabase order update notice:', sbUpdateErr);
+    }
+  }
+
+  // 3. ATOMICALLY UPDATE ORDER STATUS IN MEMORY STORE IF PRESENT
+  if (existingOrder) {
+    existingOrder.status = 'paid';
+    existingOrder.razorpayPaymentId = razorpayPaymentId;
+    existingOrder.updatedAt = new Date().toISOString();
+    orderStore.set(existingOrder.orderNumber, existingOrder);
+    orderStore.set(razorpayOrderId, existingOrder);
+
+    console.log(`[Webhook Success] Order ${existingOrder.orderNumber} successfully marked as PAID.`);
+  } else if (supabaseOrder) {
+    existingOrder = {
+      id: supabaseOrder.id,
+      orderNumber: supabaseOrder.order_number,
+      invoiceNumber: supabaseOrder.invoice_number || `KM-INV-${supabaseOrder.order_number}`,
+      currency: supabaseOrder.currency || 'INR',
+      razorpayOrderId: supabaseOrder.razorpay_order_id || razorpayOrderId,
+      customer: {
+        fullName: supabaseOrder.customer_name || 'Valued Customer',
+        email: supabaseOrder.customer_email || paymentEntity?.email || '',
+        phone: supabaseOrder.customer_phone || paymentEntity?.contact || ''
+      },
+      shippingAddress: {
+        addressLine1: supabaseOrder.shipping_address_line1 || '',
+        addressLine2: supabaseOrder.shipping_address_line2 || '',
+        city: supabaseOrder.city || '',
+        state: supabaseOrder.state || '',
+        pincode: supabaseOrder.pincode || ''
+      },
+      items: [],
+      subtotal: Number(supabaseOrder.subtotal || 0),
+      cgst: Number(supabaseOrder.cgst || 0),
+      sgst: Number(supabaseOrder.sgst || 0),
+      igst: Number(supabaseOrder.igst || 0),
+      shippingFee: Number(supabaseOrder.shipping_fee || 0),
+      discountAmount: Number(supabaseOrder.discount_amount || 0),
+      totalAmount: Number(supabaseOrder.total_amount || 0),
+      status: 'paid',
+      createdAt: supabaseOrder.created_at || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  if (!existingOrder) {
+    return {
+      statusCode: 200,
+      message: `Webhook event ${eventType} acknowledged.`,
+      orderNumber: razorpayOrderId
+    };
+  }
 
   // 4. ORCHESTRATE SHIPROCKET DISPATCH (Resilient external API call)
   try {

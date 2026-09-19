@@ -136,14 +136,24 @@ app.post('/api/checkout/create-order', async (req: Request, res: Response) => {
 });
 
 /**
- * PRODUCTION-GRADE BACKEND ENDPOINT:
- * POST /api/webhooks/razorpay
- * Verifies HMAC-SHA256 signature, validates idempotency, dispatches Shiprocket & Resend email
+ * PRODUCTION-GRADE BACKEND ENDPOINTS:
+ * GET /api/webhooks/razorpay (Health & status check)
+ * POST /api/webhooks/razorpay (HMAC-SHA256 event processing)
  */
+app.get('/api/webhooks/razorpay', (_req: Request, res: Response) => {
+  const isSecretSet = Boolean((process.env.RAZORPAY_WEBHOOK_SECRET || process.env.VITE_RAZORPAY_WEBHOOK_SECRET || '').trim());
+  return res.status(200).json({
+    status: 'active',
+    endpoint: '/api/webhooks/razorpay',
+    webhook_secret_configured: isSecretSet,
+    message: 'Razorpay webhook listener is active and ready to receive events.'
+  });
+});
+
 app.post('/api/webhooks/razorpay', async (req: Request, res: Response) => {
   try {
-    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
-    const signatureHeader = req.headers['x-razorpay-signature'] as string | undefined;
+    const rawBody = (req as any).rawBody || (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+    const signatureHeader = (req.headers['x-razorpay-signature'] as string | undefined) || (req.headers['x-razorpay-signature-v2'] as string | undefined);
 
     const result = await processRazorpayWebhook(rawBody, signatureHeader);
     return res.status(result.statusCode).json({
