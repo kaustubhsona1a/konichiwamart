@@ -268,16 +268,26 @@ export default function App() {
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
-  // Hydrate store orders from Supabase on load and whenever Operator Portal is opened
-  useEffect(() => {
-    fetchAllOrdersFromSupabase().then(fetched => {
-      if (Array.isArray(fetched)) {
+  // Dedicated helper to refresh orders from Supabase & backend API
+  const handleRefreshOrders = async (): Promise<Order[]> => {
+    try {
+      const fetched = await fetchAllOrdersFromSupabase();
+      if (Array.isArray(fetched) && fetched.length > 0) {
         setStoreOrders(fetched);
         try {
           localStorage.setItem('km_store_orders', JSON.stringify(fetched));
         } catch {}
       }
-    });
+      return fetched || [];
+    } catch (err) {
+      console.warn('[Refresh Orders Error]:', err);
+      return [];
+    }
+  };
+
+  // Hydrate store orders from Supabase on load and whenever Operator Portal is opened
+  useEffect(() => {
+    handleRefreshOrders();
   }, [isAdminOpen]);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [operatorSession, setOperatorSession] = useState<OperatorSession | null>(() => getStoredOperatorSession());
@@ -346,6 +356,9 @@ export default function App() {
                 setProductsList(prods);
               }
             });
+          })
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+            handleRefreshOrders();
           });
 
         if (isCancelled) {
@@ -1304,8 +1317,11 @@ export default function App() {
 
   // Update order status in admin portal
   const handleUpdateOrderStatus = async (orderId: string, status: Order['status']) => {
+    const existing = storeOrders.find(o => o.id === orderId || o.orderNumber === orderId);
+    const orderNum = existing?.orderNumber;
+
     setStoreOrders(prev => {
-      const updated = prev.map(o => o.id === orderId ? { ...o, status } : o);
+      const updated = prev.map(o => (o.id === orderId || o.orderNumber === orderId || (orderNum && o.orderNumber === orderNum)) ? { ...o, status } : o);
       try {
         localStorage.setItem('km_store_orders', JSON.stringify(updated));
       } catch {}
@@ -1313,7 +1329,7 @@ export default function App() {
     });
 
     setUserProfile((prev) => {
-      const updatedOrders = prev.orders.map(o => o.id === orderId ? { ...o, status } : o);
+      const updatedOrders = prev.orders.map(o => (o.id === orderId || o.orderNumber === orderId || (orderNum && o.orderNumber === orderNum)) ? { ...o, status } : o);
       if (prev.email) {
         try {
           localStorage.setItem(`km_customer_orders_${prev.email.toLowerCase()}`, JSON.stringify(updatedOrders));
@@ -1325,31 +1341,95 @@ export default function App() {
       };
     });
 
+    // Also update any customer order caches across localStorage
     try {
-      await updateOrderStatusInSupabase(orderId, status);
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('km_customer_orders_')) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const list: Order[] = JSON.parse(raw);
+            let hasMatch = false;
+            const patched = list.map(o => {
+              if (o.id === orderId || o.orderNumber === orderId || (orderNum && o.orderNumber === orderNum)) {
+                hasMatch = true;
+                return { ...o, status };
+              }
+              return o;
+            });
+            if (hasMatch) {
+              localStorage.setItem(key, JSON.stringify(patched));
+            }
+          }
+        }
+      }
+    } catch {}
+
+    window.dispatchEvent(new CustomEvent('km_order_status_updated', { detail: { orderId, status, orderNumber: orderNum } }));
+
+    try {
+      await updateOrderStatusInSupabase(orderId, status, orderNum);
     } catch (err) {
       console.warn('[Update Status Error]:', err);
     }
   };
 
   const handleDeleteOrder = (orderId: string) => {
+    const existing = storeOrders.find(o => o.id === orderId || o.orderNumber === orderId);
+    const orderNum = existing?.orderNumber;
+
     setStoreOrders(prev => {
-      const updated = prev.filter(o => o.id !== orderId && o.orderNumber !== orderId);
+      const updated = prev.filter(o => o.id !== orderId && o.orderNumber !== orderId && (!orderNum || o.orderNumber !== orderNum));
       try {
         localStorage.setItem('km_store_orders', JSON.stringify(updated));
       } catch {}
       return updated;
     });
 
-    deleteOrderFromSupabase(orderId).catch(err => {
+    setUserProfile(prev => {
+      const updatedOrders = prev.orders.filter(o => o.id !== orderId && o.orderNumber !== orderId && (!orderNum || o.orderNumber !== orderNum));
+      if (prev.email) {
+        try {
+          localStorage.setItem(`km_customer_orders_${prev.email.toLowerCase()}`, JSON.stringify(updatedOrders));
+        } catch {}
+      }
+      return {
+        ...prev,
+        orders: updatedOrders
+      };
+    });
+
+    // Also update any customer order caches
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('km_customer_orders_')) {
+          const raw = localStorage.getItem(key);
+          if (raw) {
+            const list: Order[] = JSON.parse(raw);
+            const filtered = list.filter(o => o.id !== orderId && o.orderNumber !== orderId && (!orderNum || o.orderNumber !== orderNum));
+            if (filtered.length !== list.length) {
+              localStorage.setItem(key, JSON.stringify(filtered));
+            }
+          }
+        }
+      }
+    } catch {}
+
+    window.dispatchEvent(new CustomEvent('km_order_status_updated', { detail: { orderId, action: 'delete' } }));
+
+    deleteOrderFromSupabase(orderId, orderNum).catch(err => {
       console.warn('[Delete Order Error]:', err);
     });
   };
 
   const handleModifyOrder = (orderId: string, updates: Partial<Order>) => {
+    const existing = storeOrders.find(o => o.id === orderId || o.orderNumber === orderId);
+    const orderNum = existing?.orderNumber;
+
     setStoreOrders(prev => {
       const updated = prev.map(o => {
-        if (o.id === orderId || o.orderNumber === orderId) {
+        if (o.id === orderId || o.orderNumber === orderId || (orderNum && o.orderNumber === orderNum)) {
           return {
             ...o,
             ...updates,
@@ -1364,7 +1444,31 @@ export default function App() {
       return updated;
     });
 
-    modifyOrderInSupabase(orderId, updates).catch(err => {
+    setUserProfile(prev => {
+      const updatedOrders = prev.orders.map(o => {
+        if (o.id === orderId || o.orderNumber === orderId || (orderNum && o.orderNumber === orderNum)) {
+          return {
+            ...o,
+            ...updates,
+            shippingAddress: updates.shippingAddress ? { ...o.shippingAddress, ...updates.shippingAddress } : o.shippingAddress
+          };
+        }
+        return o;
+      });
+      if (prev.email) {
+        try {
+          localStorage.setItem(`km_customer_orders_${prev.email.toLowerCase()}`, JSON.stringify(updatedOrders));
+        } catch {}
+      }
+      return {
+        ...prev,
+        orders: updatedOrders
+      };
+    });
+
+    window.dispatchEvent(new CustomEvent('km_order_status_updated', { detail: { orderId, action: 'modify', updates } }));
+
+    modifyOrderInSupabase(orderId, updates, orderNum).catch(err => {
       console.warn('[Modify Order Error]:', err);
     });
   };
@@ -1676,6 +1780,7 @@ export default function App() {
         isOpen={isAdminOpen}
         onClose={() => setIsAdminOpen(false)}
         orders={storeOrders}
+        onRefreshOrders={handleRefreshOrders}
         onUpdateOrderStatus={handleUpdateOrderStatus}
         onDeleteOrder={handleDeleteOrder}
         onModifyOrder={handleModifyOrder}

@@ -550,7 +550,7 @@ app.post('/api/send-test-email', async (req: Request, res: Response) => {
     return res.status(200).json({
       success: true,
       messageId: result.messageId,
-      message: `Test email successfully dispatched to ${targetEmail} from ${process.env.RESEND_FROM_EMAIL || 'orders@konichiwamart.com'}.`
+      message: `Test email successfully dispatched to ${targetEmail} from ${process.env.RESEND_FROM_EMAIL || 'info@konichiwamart.com'}.`
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message || 'Error executing test email' });
@@ -3089,7 +3089,7 @@ async function startServer() {
   });
 }
 
-if (!process.env.VERCEL) { startServer(); }
+if (!process.env.VERCEL && !process.env.NOW_REGION && !process.env.VERCEL_ENV && !process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.NODE_ENV !== 'test') { startServer(); }
 export default app;
 // @ts-ignore
 export const handler = app;

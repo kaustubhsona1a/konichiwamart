@@ -43,7 +43,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData): Promise<EmailDis
 
   try {
     const invoiceHtml = generateGSTInvoiceHtml(data);
-    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <orders@konichiwamart.com>';
+    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <info@konichiwamart.com>';
 
     const response = await client.emails.send({
       from: fromAddress,
@@ -140,7 +140,7 @@ export async function sendTestEmail(toEmail: string): Promise<EmailDispatchResul
   }
 
   try {
-    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <orders@konichiwamart.com>';
+    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <info@konichiwamart.com>';
     const response = await client.emails.send({
       from: fromAddress,
       to: [toEmail],
@@ -193,7 +193,7 @@ export async function sendPasswordResetEmail(toEmail: string, resetLink: string)
   }
 
   try {
-    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <orders@konichiwamart.com>';
+    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <info@konichiwamart.com>';
     const response = await client.emails.send({
       from: fromAddress,
       replyTo: 'info@konichiwamart.com',

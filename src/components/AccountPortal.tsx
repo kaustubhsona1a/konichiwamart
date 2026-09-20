@@ -26,8 +26,58 @@ import {
   deleteCustomerAddressFromSupabase, 
   setDefaultAddressInSupabase,
   fetchCustomerAddressesFromSupabase,
-  fetchCustomerOrdersFromSupabase
+  fetchCustomerOrdersFromSupabase,
+  normalizeOrder,
+  normalizeOrderItem
 } from '../lib/supabase';
+
+const getStatusBadgeStyle = (status: string) => {
+  const norm = (status || 'CONFIRMED').toUpperCase();
+  switch (norm) {
+    case 'DELIVERED':
+      return 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
+    case 'IN_TRANSIT':
+    case 'OUT_FOR_DELIVERY':
+      return 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800';
+    case 'DISPATCHED':
+    case 'SHIPPED':
+      return 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800';
+    case 'CANCELLED':
+      return 'bg-rose-50 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800';
+    default:
+      return 'bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-400 border-sky-200 dark:border-sky-800';
+  }
+};
+
+const getStatusLabel = (status: string) => {
+  const norm = (status || 'CONFIRMED').toUpperCase();
+  switch (norm) {
+    case 'DELIVERED':
+      return 'Delivered';
+    case 'IN_TRANSIT':
+      return 'In Transit';
+    case 'OUT_FOR_DELIVERY':
+      return 'Out for Delivery';
+    case 'DISPATCHED':
+    case 'SHIPPED':
+      return 'Packed & Dispatched';
+    case 'CANCELLED':
+      return 'Cancelled';
+    default:
+      return 'Order Confirmed';
+  }
+};
+
+const getMilestoneDone = (milestoneIndex: number, status: string) => {
+  const norm = (status || 'CONFIRMED').toUpperCase();
+  if (norm === 'CANCELLED') return false;
+  let currentIndex = 0; // 0 = CONFIRMED
+  if (norm === 'DISPATCHED' || norm === 'SHIPPED') currentIndex = 1;
+  else if (norm === 'IN_TRANSIT' || norm === 'OUT_FOR_DELIVERY') currentIndex = 2;
+  else if (norm === 'DELIVERED') currentIndex = 3;
+
+  return milestoneIndex <= currentIndex;
+};
 
 interface AccountPortalProps {
   isOpen: boolean;
@@ -72,12 +122,14 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
       if (Array.isArray(fetchedOrders)) {
         const map = new Map<string, Order>();
         fetchedOrders.forEach(o => {
-          const key = o.orderNumber || o.id;
-          if (key) map.set(key, o);
+          const norm = normalizeOrder(o);
+          const key = norm.orderNumber || norm.id;
+          if (key) map.set(key, norm);
         });
         (profile.orders || []).forEach(o => {
-          const key = o.orderNumber || o.id;
-          if (key && !map.has(key)) map.set(key, o);
+          const norm = normalizeOrder(o);
+          const key = norm.orderNumber || norm.id;
+          if (key && !map.has(key)) map.set(key, norm);
         });
         const combined = Array.from(map.values()).sort(
           (a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
@@ -93,6 +145,38 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
       setIsSyncingOrders(false);
     }
   }, [profile, onUpdateProfile]);
+
+  // Real-time synchronization when viewing orders: auto-poll and listen to window focus/custom events
+  React.useEffect(() => {
+    if (!isOpen || !profile.email) return;
+
+    // 1. Refresh when window gains focus or tab becomes visible
+    const handleFocus = () => {
+      syncOrders();
+    };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    // 2. Refresh on custom app order status event (e.g. status updated from admin in same window)
+    const handleStatusEvent = () => {
+      syncOrders();
+    };
+    window.addEventListener('km_order_status_updated', handleStatusEvent);
+
+    // 3. Periodic polling every 8 seconds while modal is open on orders tab
+    const interval = setInterval(() => {
+      if (activeTab === 'orders') {
+        syncOrders();
+      }
+    }, 8000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('km_order_status_updated', handleStatusEvent);
+      clearInterval(interval);
+    };
+  }, [isOpen, activeTab, profile.email, syncOrders]);
 
   React.useEffect(() => {
     if (profile.name) setFullName(profile.name);
@@ -313,92 +397,113 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
                 <p className="text-xs text-slate-500 dark:text-zinc-400">When you place an order, your official Tax Invoice will appear here.</p>
               </div>
             ) : (
-              profile.orders.map((order) => (
-                <div key={order.id} className="p-5 rounded-2xl bg-stone-50/70 dark:bg-zinc-950/60 border border-stone-200 dark:border-zinc-800 shadow-xs space-y-4">
-                  
-                  {/* Order Top Bar */}
-                  <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-3 border-b border-stone-200 dark:border-zinc-800">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-serif text-base font-bold text-slate-900 dark:text-white">
-                          Order #{order.orderNumber}
-                        </span>
-                        <span className="text-[11px] bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 px-2.5 py-0.5 rounded-full font-semibold">
-                          {order.status}
+              profile.orders.map((order) => {
+                const normOrder = normalizeOrder(order);
+                const isCancelled = (normOrder.status || '').toUpperCase() === 'CANCELLED';
+
+                return (
+                  <div key={normOrder.id} className="p-5 rounded-2xl bg-stone-50/70 dark:bg-zinc-950/60 border border-stone-200 dark:border-zinc-800 shadow-xs space-y-4">
+                    
+                    {/* Order Top Bar */}
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2 pb-3 border-b border-stone-200 dark:border-zinc-800">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-serif text-base font-bold text-slate-900 dark:text-white">
+                            Order #{normOrder.orderNumber}
+                          </span>
+                          <span className={`text-[11px] border px-2.5 py-0.5 rounded-full font-semibold ${getStatusBadgeStyle(normOrder.status)}`}>
+                            {getStatusLabel(normOrder.status)}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 block">
+                          Placed on {normOrder.date} • Paid via {normOrder.paymentMethod === 'COD' ? 'Cash on Delivery' : 'Online Payment'}
                         </span>
                       </div>
-                      <span className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5 block">
-                        Placed on {order.date} • Paid via {order.paymentMethod === 'COD' ? 'Cash on Delivery' : 'Online Payment'}
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => onViewInvoice(normOrder)}
+                          className="px-3.5 py-1.5 rounded-xl bg-pink-50 dark:bg-pink-950/50 hover:bg-pink-100 dark:hover:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Tax Invoice</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Shiprocket Live Tracking Status Timeline */}
+                    {!isCancelled ? (
+                      <div className="p-3.5 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-2 text-xs">
+                        {/* Milestone progress dots */}
+                        <div className="grid grid-cols-4 gap-2 text-[10px] text-center font-medium">
+                          {[
+                            { label: 'Order Confirmed', done: getMilestoneDone(0, normOrder.status) },
+                            { label: 'Packed & Dispatched', done: getMilestoneDone(1, normOrder.status) },
+                            { label: 'In Transit', done: getMilestoneDone(2, normOrder.status) },
+                            { label: 'Delivered', done: getMilestoneDone(3, normOrder.status) }
+                          ].map((st, idx) => (
+                            <div key={idx} className="space-y-1">
+                              <div className={`h-1.5 rounded-full transition-colors ${st.done ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-stone-200 dark:bg-zinc-800'}`} />
+                              <span className={st.done ? 'text-emerald-700 dark:text-emerald-400 font-semibold' : 'text-slate-400 dark:text-zinc-500'}>{st.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 font-medium flex items-center gap-2">
+                        <X className="w-4 h-4 text-rose-600" />
+                        <span>This order was cancelled.</span>
+                      </div>
+                    )}
+
+                    {/* Ordered Items List */}
+                    <div className="divide-y divide-stone-200 dark:divide-zinc-800">
+                      {normOrder.items.map((rawItem, i) => {
+                        const item = normalizeOrderItem(rawItem);
+                        const lineTotal = item.price > 0 ? item.price * item.quantity : 0;
+                        return (
+                          <div key={i} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-11 h-11 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 p-1 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                <img
+                                  src={item.image}
+                                  alt={item.title}
+                                  className="w-full h-full object-contain"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => {
+                                    const el = e.currentTarget;
+                                    if (!el.src.includes('/products/keana-rice-mask.png')) {
+                                      el.src = '/products/keana-rice-mask.png';
+                                    }
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <div className="font-serif font-semibold text-slate-900 dark:text-white leading-tight">{item.title}</div>
+                                <div className="text-[10px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                                  Qty: {item.quantity} {item.volume ? `• ${item.volume}` : ''} {item.shade ? `• Shade: ${item.shade}` : ''}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="font-display font-bold text-slate-900 dark:text-white flex-shrink-0">
+                              {lineTotal > 0 ? formatINR(lineTotal) : (normOrder.totalAmount ? formatINR(normOrder.totalAmount) : '—')}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Order Total */}
+                    <div className="pt-2 flex justify-between items-center text-xs font-semibold text-slate-800 dark:text-zinc-200">
+                      <span>Total Paid (Including 18% GST)</span>
+                      <span className="font-display text-base text-pink-600 dark:text-pink-400 font-bold">
+                        {formatINR(normOrder.totalAmount)}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => onViewInvoice(order)}
-                        className="px-3.5 py-1.5 rounded-xl bg-pink-50 dark:bg-pink-950/50 hover:bg-pink-100 dark:hover:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        <span>Tax Invoice</span>
-                      </button>
-                    </div>
                   </div>
-
-                  {/* Shiprocket Live Tracking Status Timeline */}
-                  <div className="p-3.5 rounded-xl bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 space-y-2 text-xs">
-                    <div className="flex flex-wrap items-center justify-between text-slate-700 dark:text-zinc-300 gap-2">
-                    </div>
-
-                    {/* Milestone progress dots */}
-                    <div className="grid grid-cols-4 gap-2 pt-2 text-[10px] text-center font-medium">
-                      {[
-                        { label: 'Order Confirmed', done: true },
-                        { label: 'Packed & Dispatched', done: true },
-                        { label: 'In Transit', done: order.status !== 'CONFIRMED' },
-                        { label: 'Delivered', done: order.status === 'DELIVERED' }
-                      ].map((st, idx) => (
-                        <div key={idx} className="space-y-1">
-                          <div className={`h-1.5 rounded-full ${st.done ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-stone-200 dark:bg-zinc-800'}`} />
-                          <span className={st.done ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-400 dark:text-zinc-500'}>{st.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Ordered Items List */}
-                  <div className="divide-y divide-stone-200 dark:divide-zinc-800">
-                    {order.items.map((item, i) => (
-                      <div key={i} className="py-2.5 flex items-center justify-between gap-3 text-xs">
-                        <div className="flex items-center gap-2.5">
-                          <img
-                            src={item.image}
-                            alt={item.title}
-                            className="w-10 h-10 object-contain rounded-lg bg-white dark:bg-zinc-900 border border-stone-200 dark:border-zinc-800 p-0.5"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div>
-                            <div className="font-serif font-semibold text-slate-900 dark:text-white">{item.title}</div>
-                            <div className="text-[10px] text-slate-500 dark:text-zinc-400">
-                              Qty: {item.quantity} • {item.volume} {item.shade && `• Shade: ${item.shade}`}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="font-display font-bold text-slate-900 dark:text-white">
-                          {formatINR(item.price * item.quantity)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Order Total */}
-                  <div className="pt-2 flex justify-between items-center text-xs font-semibold text-slate-800 dark:text-zinc-200">
-                    <span>Total Paid (Including 18% GST)</span>
-                    <span className="font-display text-base text-pink-600 dark:text-pink-400 font-bold">
-                      {formatINR(order.totalAmount)}
-                    </span>
-                  </div>
-
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

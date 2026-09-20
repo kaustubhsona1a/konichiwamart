@@ -29,7 +29,7 @@ import { X,
 import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
-import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore } from '../lib/supabase';
+import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore, normalizeOrderItem } from '../lib/supabase';
 import { ReelsManager } from './admin/ReelsManager';
 
 // Client-side image optimizer to compress direct photos into fast-loading web images
@@ -99,12 +99,14 @@ interface AdminPortalProps {
   reels?: ReelItem[];
   onUpdateReels?: (reels: ReelItem[]) => void;
   initialTab?: 'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels';
+  onRefreshOrders?: () => Promise<any> | any;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
   isOpen,
   onClose,
   orders,
+  onRefreshOrders,
   onUpdateOrderStatus,
   onDeleteOrder,
   onModifyOrder,
@@ -128,6 +130,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     ? initialTab
     : 'dashboard';
   const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels'>(validInitialTab);
+  const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
+
+  const handleRefresh = async () => {
+    if (isRefreshingOrders) return;
+    setIsRefreshingOrders(true);
+    try {
+      if (onRefreshOrders) {
+        await onRefreshOrders();
+      }
+    } catch (err) {
+      console.warn('[AdminPortal] Error refreshing orders:', err);
+    } finally {
+      setTimeout(() => setIsRefreshingOrders(false), 400);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeTab === 'orders' && orders.length === 0 && onRefreshOrders) {
+      handleRefresh();
+    }
+  }, [activeTab]);
 
   React.useEffect(() => {
     if (typeof initialTab === 'string' && ['dashboard', 'inventory', 'orders', 'settings', 'reels'].includes(initialTab)) {
@@ -1832,22 +1855,40 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           {/* ========================================================================= */}
           {activeTab === 'orders' && (
             <div className="space-y-6 max-w-6xl">
-              <div>
-                <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900 font-sans">
-                  CUSTOMER ORDERS & LEADS
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Live verification of customer transactions, payment logs, and courier dispatch receipts.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900 font-sans">
+                    CUSTOMER ORDERS & LEADS
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Live verification of customer transactions, payment logs, and courier dispatch receipts.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRefresh}
+                  disabled={isRefreshingOrders}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer w-fit"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingOrders ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshingOrders ? 'Syncing...' : 'Refresh Orders'}</span>
+                </button>
               </div>
 
               {orders.length === 0 ? (
-                <div className="text-center py-16 bg-white rounded-2xl border border-pink-100 shadow-xs">
-                  <Truck className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                <div className="text-center py-16 bg-white rounded-2xl border border-pink-100 shadow-xs space-y-3">
+                  <Truck className="w-12 h-12 text-slate-300 mx-auto mb-1" />
                   <h4 className="font-bold text-slate-800 text-sm">No Customer Orders Yet</h4>
-                  <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                  <p className="text-xs text-slate-500 max-w-md mx-auto">
                     When customers complete checkout via Razorpay or COD, their order details and tax invoice will appear here.
                   </p>
+                  <button
+                    onClick={handleRefresh}
+                    disabled={isRefreshingOrders}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 text-xs font-bold transition-all cursor-pointer mt-2"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingOrders ? 'animate-spin' : ''}`} />
+                    <span>{isRefreshingOrders ? 'Syncing Orders...' : 'Sync from Supabase'}</span>
+                  </button>
                 </div>
               ) : (
                 <>
@@ -1885,19 +1926,41 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </p>
                         </div>
 
-                        {/* Ordered Items */}
+                        {/* Ordered Items with Photos */}
                         <div className="pt-2 border-t border-stone-100">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">Ordered Items</span>
-                          <ul className="space-y-1">
-                            {(o.items || []).map((item, idx) => (
-                              <li key={idx} className="flex justify-between text-[11px]">
-                                <span className="text-slate-700 max-w-[180px] truncate" title={item.title}>
-                                  {item.quantity}x {item.title} {item.shade ? `(${item.shade})` : ''}
-                                </span>
-                                <span className="text-slate-900 font-medium">{formatINR(item.price * item.quantity)}</span>
-                              </li>
-                            ))}
-                          </ul>
+                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Ordered Items</span>
+                          <div className="space-y-2">
+                            {(o.items || []).map((rawItem, idx) => {
+                              const item = normalizeOrderItem(rawItem);
+                              return (
+                                <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className="w-8 h-8 rounded-lg bg-stone-100 border border-stone-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                      <img
+                                        src={item.image}
+                                        alt={item.title}
+                                        className="w-full h-full object-contain"
+                                        referrerPolicy="no-referrer"
+                                        onError={(e) => {
+                                          const el = e.currentTarget;
+                                          if (!el.src.includes('/products/keana-rice-mask.png')) {
+                                            el.src = '/products/keana-rice-mask.png';
+                                          }
+                                        }}
+                                      />
+                                    </div>
+                                    <div className="truncate">
+                                      <span className="text-slate-800 font-medium block truncate" title={item.title}>
+                                        {item.quantity}x {item.title}
+                                      </span>
+                                      {item.shade && <span className="text-[10px] text-slate-500">Shade: {item.shade}</span>}
+                                    </div>
+                                  </div>
+                                  <span className="text-slate-900 font-semibold flex-shrink-0">{formatINR(item.price * item.quantity)}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
 
                         {/* Order Status & Courier Partner */}
@@ -1981,14 +2044,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 <div className="text-[10px] text-slate-500">{o.customerEmail}</div>
                                 <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
                               </td>
-                              <td className="p-3.5 text-slate-600 max-w-[200px]">
-                                <ul className="space-y-1 text-[10px]">
-                                  {(o.items || []).map((item, idx) => (
-                                    <li key={idx} className="flex justify-between truncate" title={item.title}>
-                                      <span className="truncate">{item.quantity}x {item.title} {item.shade ? `(${item.shade})` : ''}</span>
-                                    </li>
-                                  ))}
-                                </ul>
+                              <td className="p-3.5 text-slate-600 max-w-[240px]">
+                                <div className="space-y-1.5 text-[11px]">
+                                  {(o.items || []).map((rawItem, idx) => {
+                                    const item = normalizeOrderItem(rawItem);
+                                    return (
+                                      <div key={idx} className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-md bg-stone-100 border border-stone-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                                          <img
+                                            src={item.image}
+                                            alt={item.title}
+                                            className="w-full h-full object-contain"
+                                            referrerPolicy="no-referrer"
+                                            onError={(e) => {
+                                              const el = e.currentTarget;
+                                              if (!el.src.includes('/products/keana-rice-mask.png')) {
+                                                el.src = '/products/keana-rice-mask.png';
+                                              }
+                                            }}
+                                          />
+                                        </div>
+                                        <div className="truncate min-w-0">
+                                          <span className="font-medium text-slate-800 truncate block" title={item.title}>
+                                            {item.quantity}x {item.title}
+                                          </span>
+                                          {item.shade && <span className="text-[10px] text-slate-400 block">Shade: {item.shade}</span>}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </td>
                               <td className="p-3.5 text-slate-600">
                                 {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})
@@ -2448,7 +2533,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">From Address</span>
-                      <span className="font-mono font-medium text-slate-800">orders@konichiwamart.com</span>
+                      <span className="font-mono font-medium text-slate-800">info@konichiwamart.com</span>
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">Verified Sending Domain</span>

@@ -4,10 +4,18 @@ import { Product, Order } from '../types';
 import { PRODUCTS } from '../data/products';
 
 const env = (import.meta as any).env || {};
-let activeSupabaseUrl: string | undefined = 
-  env.VITE_SUPABASE_URL || env.SUPABASE_URL || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL : undefined);
-let activeSupabaseAnonKey: string | undefined = 
-  env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY : undefined);
+const FALLBACK_SUPABASE_URL = 'https://nhcgwxvfuupkflhixxmj.supabase.co';
+const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oY2d3eHZmdXVwa2ZsaGl4eG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4ODAxNDUsImV4cCI6MjEwNDQ1NjE0NX0.ZQ-Y13BuS347Y1MJ-9YKbUm1r0J4UZ4Vs5NoNgIihmQ';
+
+const cleanStr = (val?: string): string => {
+  if (!val || typeof val !== 'string') return '';
+  return val.replace(/['"\s]/g, '').trim();
+};
+
+let activeSupabaseUrl: string = 
+  cleanStr(env.VITE_SUPABASE_URL || env.SUPABASE_URL || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL : '')) || FALLBACK_SUPABASE_URL;
+let activeSupabaseAnonKey: string = 
+  cleanStr(env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY : '')) || FALLBACK_SUPABASE_ANON_KEY;
 
 export const isSupabaseConfigured = (): boolean => {
   return Boolean(activeSupabaseUrl && activeSupabaseAnonKey && activeSupabaseUrl.startsWith('http'));
@@ -29,24 +37,25 @@ export const ensureSupabaseClient = async (): Promise<SupabaseClient | null> => 
       .then(r => r.json())
       .then(cfg => {
         if (cfg.supabaseUrl && cfg.supabaseAnonKey) {
-          activeSupabaseUrl = cfg.supabaseUrl;
-          activeSupabaseAnonKey = cfg.supabaseAnonKey;
-          clientInstance = createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+          activeSupabaseUrl = cleanStr(cfg.supabaseUrl);
+          activeSupabaseAnonKey = cleanStr(cfg.supabaseAnonKey);
+          clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
           return clientInstance;
         }
-        return null;
+        clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
+        return clientInstance;
       })
-      .catch(() => null);
+      .catch(() => {
+        clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
+        return clientInstance;
+      });
   }
   return initPromise;
 };
 
 export const getSupabaseClient = (): SupabaseClient | null => {
-  if (isSupabaseConfigured()) {
-    if (!clientInstance && activeSupabaseUrl && activeSupabaseAnonKey) {
-      clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
-    }
-    return clientInstance;
+  if (!clientInstance && activeSupabaseUrl && activeSupabaseAnonKey) {
+    clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
   }
   return clientInstance;
 };
@@ -266,6 +275,15 @@ export const customerSignUp = async (
     });
 
     if (error) {
+      // In Supabase, if the custom SMTP provider triggers a confirmation email error,
+      // the user record is often already provisioned in auth.users. Try signing in.
+      const msg = (error.message || '').toLowerCase();
+      if (msg.includes('email') || msg.includes('api key') || msg.includes('confirmation')) {
+        const directLogin = await customerSignIn(cleanEmail, cleanPass);
+        if (directLogin.success) {
+          return directLogin;
+        }
+      }
       return { success: false, error: error.message };
     }
 
@@ -640,36 +658,96 @@ export const setDefaultAddressInSupabase = async (id: string, customerId?: strin
 };
 
 /**
+ * Safe item and order normalization helpers
+ */
+export const normalizeOrderItem = (it: any) => {
+  const productId = it.productId || it.product_id || it.sku || it.product?.id || 'KM-ITEM';
+  const matched = PRODUCTS.find((p: any) =>
+    (productId && (p.id === productId || p.sku === productId)) ||
+    (it.title && p.title.toLowerCase().trim() === it.title.toLowerCase().trim()) ||
+    (it.name && p.title.toLowerCase().trim() === it.name.toLowerCase().trim())
+  );
+
+  const title = it.title || it.name || it.product_title || it.product?.title || matched?.title || 'Japanese Skincare Essential';
+  const rawImage = it.image || it.image_url || it.imageUrl || it.product?.image || matched?.image || '/products/keana-rice-mask.png';
+  const price = Number(it.price ?? it.unit_price ?? it.unitPrice ?? it.product?.price ?? matched?.price ?? 0);
+  const volume = it.volume || it.product?.volume || matched?.volume || 'Standard';
+  const quantity = Math.max(1, Number(it.quantity || 1));
+  const shade = it.shade || it.shade_name || it.selectedShade?.name;
+
+  return {
+    ...it,
+    productId,
+    title,
+    image: rawImage,
+    price,
+    volume,
+    quantity,
+    shade,
+    product: {
+      id: productId,
+      title,
+      price,
+      image: rawImage,
+      volume,
+      description: matched?.description || '',
+      category: matched?.category || 'Skincare',
+      rating: 5,
+      reviewCount: 1,
+      isBestSeller: false,
+      stock: 100
+    }
+  };
+};
+
+export const normalizeOrder = (o: any): Order => {
+  if (!o) return o;
+  const rawItems = Array.isArray(o.items)
+    ? o.items
+    : (Array.isArray(o.order_items) ? o.order_items : []);
+
+  const items = rawItems.map(normalizeOrderItem);
+
+  const rawStatus = (o.status || 'CONFIRMED').toString().toUpperCase();
+  let status: Order['status'] = 'CONFIRMED';
+  if (['CONFIRMED', 'PAID', 'PENDING', 'PROCESSING', 'NEW'].includes(rawStatus)) {
+    status = 'CONFIRMED';
+  } else if (['DISPATCHED', 'SHIPPED'].includes(rawStatus)) {
+    status = 'DISPATCHED';
+  } else if (['IN_TRANSIT', 'IN TRANSIT'].includes(rawStatus)) {
+    status = 'IN_TRANSIT';
+  } else if (['OUT_FOR_DELIVERY', 'OUT FOR DELIVERY'].includes(rawStatus)) {
+    status = 'OUT_FOR_DELIVERY';
+  } else if (['DELIVERED'].includes(rawStatus)) {
+    status = 'DELIVERED';
+  } else if (['CANCELLED'].includes(rawStatus)) {
+    status = 'CANCELLED';
+  }
+
+  return {
+    ...o,
+    status,
+    items
+  };
+};
+
+/**
  * Fetch Customer Orders from Supabase (Server endpoint first, direct fallback)
  */
 export function mapSupabaseRowToOrder(row: any): Order {
   const items = Array.isArray(row.order_items)
-    ? row.order_items.map((item: any) => ({
-        product: {
-          id: item.sku || 'prod-1',
-          title: item.title || 'Japanese Skincare Product',
-          price: Number(item.unit_price || 0),
-          image: item.image_url || '/products/keana-rice-mask.png',
-          volume: '150ml',
-          description: '',
-          category: 'Skincare',
-          rating: 5,
-          reviewCount: 1,
-          isBestSeller: false,
-          stock: 100
-        },
-        quantity: Number(item.quantity || 1),
-        selectedShade: item.shade_name ? { id: item.sku || 'sh-1', name: item.shade_name, hex: '#000000', sku: item.sku } : undefined
-      }))
+    ? row.order_items.map(normalizeOrderItem)
     : [];
 
   const rawStatus = (row.status || 'CONFIRMED').toString().toUpperCase();
   let mappedStatus: Order['status'] = 'CONFIRMED';
   if (['CONFIRMED', 'PAID', 'PENDING', 'PROCESSING', 'NEW'].includes(rawStatus)) {
     mappedStatus = 'CONFIRMED';
-  } else if (['DISPATCHED', 'SHIPPED', 'IN_TRANSIT'].includes(rawStatus)) {
+  } else if (['DISPATCHED', 'SHIPPED'].includes(rawStatus)) {
     mappedStatus = 'DISPATCHED';
-  } else if (['OUT_FOR_DELIVERY'].includes(rawStatus)) {
+  } else if (['IN_TRANSIT', 'IN TRANSIT'].includes(rawStatus)) {
+    mappedStatus = 'IN_TRANSIT';
+  } else if (['OUT_FOR_DELIVERY', 'OUT FOR DELIVERY'].includes(rawStatus)) {
     mappedStatus = 'OUT_FOR_DELIVERY';
   } else if (['DELIVERED'].includes(rawStatus)) {
     mappedStatus = 'DELIVERED';
@@ -677,15 +755,24 @@ export function mapSupabaseRowToOrder(row: any): Order {
     mappedStatus = 'CANCELLED';
   }
 
-  return {
-    id: row.id || row.order_number,
+  const dateStr = row.created_at
+    ? new Date(row.created_at).toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    : new Date().toLocaleDateString('en-IN');
+
+  const mappedOrder: Order = {
+    id: row.id,
     orderNumber: row.order_number || row.id,
-    invoiceNumber: row.invoice_number || `KM-INV-${row.order_number}`,
-    date: row.created_at ? new Date(row.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : new Date().toLocaleDateString('en-IN'),
-    createdAt: row.created_at || new Date().toISOString(),
+    invoiceNumber: row.invoice_number || `INV-${row.order_number || row.id}`,
+    date: dateStr,
+    customerName: row.customer_name || 'Valued Customer',
     customerEmail: row.customer_email || '',
     customerPhone: row.customer_phone || '',
-    customerName: row.customer_name || 'Valued Customer',
     items,
     subtotal: Number(row.subtotal || 0),
     cgst: Number(row.cgst || 0),
@@ -694,20 +781,20 @@ export function mapSupabaseRowToOrder(row: any): Order {
     discountAmount: Number(row.discount_amount || 0),
     discountCode: row.discount_code || undefined,
     totalAmount: Number(row.total_amount || 0),
-    paymentMethod: (row.payment_method || 'RAZORPAY').toUpperCase() as any,
-    paymentId: row.razorpay_payment_id || 'pay_verified',
-    signature: row.razorpay_signature || 'sig_verified',
+    paymentMethod: (row.payment_method || 'RAZORPAY') as any,
+    paymentId: row.razorpay_payment_id || 'N/A',
+    signature: row.razorpay_signature || undefined,
     status: mappedStatus,
     shippingAddress: {
-      id: row.id ? `addr_${row.id}` : 'addr_default',
-      tag: 'Home',
+      id: `addr_${row.id}`,
       fullName: row.customer_name || 'Valued Customer',
       phone: row.customer_phone || '',
-      addressLine1: row.shipping_address_line1 || '',
-      addressLine2: row.shipping_address_line2 || '',
-      city: row.city || '',
-      state: row.state || '',
-      pincode: row.pincode || '',
+      addressLine1: row.shipping_address_line1 || 'Address not specified',
+      addressLine2: row.shipping_address_line2 || undefined,
+      city: row.shipping_city || 'City',
+      state: row.shipping_state || 'State',
+      pincode: row.shipping_pincode || '000000',
+      tag: 'Home',
       isDefault: true
     },
     awbNumber: row.awb_number || '',
@@ -715,55 +802,78 @@ export function mapSupabaseRowToOrder(row: any): Order {
     estimatedDeliveryDate: row.estimated_delivery_date || '3-5 business days',
     trackingHistory: [
       {
-        time: row.created_at ? new Date(row.created_at).toLocaleDateString() : 'Just Now',
-        location: 'Konichiwa_Mart Central Fulfillment',
+        time: dateStr,
+        location: 'Konichiwa Mart Fulfillment Center',
         activity: `Order Confirmed (${mappedStatus})`
       }
     ]
   };
+
+  return normalizeOrder(mappedOrder);
 }
 
 export const fetchAllOrdersFromSupabase = async (): Promise<Order[]> => {
+  // 1. First attempt: authoritative server-side endpoint
   try {
-    const res = await fetch('/api/admin/orders');
+    const res = await fetch('/api/admin/orders', {
+      headers: { 'Accept': 'application/json' }
+    });
     if (res.ok) {
       const contentType = res.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const data = await res.json();
-        if (data && data.success && Array.isArray(data.orders)) {
+        if (data && data.success && Array.isArray(data.orders) && data.orders.length > 0) {
           return data.orders;
         }
       }
     }
-  } catch {}
+  } catch (err) {
+    console.warn('[Orders Fetch] Server endpoint fetch issue, trying client Supabase:', err);
+  }
 
-  const client = getSupabaseClient();
-  if (!client) return [];
-
+  // 2. Second attempt: Client-side Supabase client with guaranteed initialization
   try {
+    const client = (await ensureSupabaseClient()) || getSupabaseClient();
+    if (!client) return [];
+
     const { data, error } = await client
       .from('orders')
       .select('*, order_items(*)')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.warn('[Supabase] Error fetching all orders:', error.message);
-      return [];
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return data.map(mapSupabaseRowToOrder);
     }
 
-    return (data || []).map(mapSupabaseRowToOrder);
+    if (error) {
+      // Fallback: query without join if join relationship has an issue
+      const { data: simpleData, error: simpleError } = await client
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!simpleError && Array.isArray(simpleData) && simpleData.length > 0) {
+        return simpleData.map(mapSupabaseRowToOrder);
+      }
+      console.warn('[Supabase] Error fetching all orders:', error.message);
+    }
   } catch (err) {
     console.warn('[Supabase] Exception fetching all orders:', err);
-    return [];
   }
+
+  return [];
 };
 
-export const updateOrderStatusInSupabase = async (orderId: string, status: string): Promise<boolean> => {
+export const updateOrderStatusInSupabase = async (orderId: string, status: string, orderNumber?: string): Promise<boolean> => {
+  const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  const targetOrderNum = orderNumber || (!isUuid(orderId) ? orderId : null);
+
+  // 1. First attempt authoritative server-side endpoint
   try {
     const res = await fetch('/api/admin/update-order-status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId, status })
+      body: JSON.stringify({ orderId, status, orderNumber: targetOrderNum })
     });
     if (res.ok) {
       const data = await res.json();
@@ -771,15 +881,27 @@ export const updateOrderStatusInSupabase = async (orderId: string, status: strin
     }
   } catch {}
 
-  const client = getSupabaseClient();
+  // 2. Direct Supabase Client fallback
+  const client = (await ensureSupabaseClient()) || getSupabaseClient();
   if (!client) return false;
 
   try {
-    const { error } = await client
+    let query = client
       .from('orders')
-      .update({ status: status.toLowerCase() })
-      .or(`id.eq.${orderId},order_number.eq.${orderId}`);
+      .update({
+        status: status.toLowerCase(),
+        updated_at: new Date().toISOString()
+      });
 
+    if (isUuid(orderId) && targetOrderNum) {
+      query = query.or(`id.eq.${orderId},order_number.eq.${targetOrderNum}`);
+    } else if (isUuid(orderId)) {
+      query = query.eq('id', orderId);
+    } else if (targetOrderNum) {
+      query = query.eq('order_number', targetOrderNum);
+    }
+
+    const { error } = await query;
     if (error) {
       console.warn('[Supabase] Error updating order status:', error.message);
       return false;
@@ -791,13 +913,16 @@ export const updateOrderStatusInSupabase = async (orderId: string, status: strin
   }
 };
 
-export const deleteOrderFromSupabase = async (orderId: string): Promise<boolean> => {
+export const deleteOrderFromSupabase = async (orderId: string, orderNumber?: string): Promise<boolean> => {
+  const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  const targetOrderNum = orderNumber || (!isUuid(orderId) ? orderId : null);
+
   // 1. Remove from local store cache
   try {
     const raw = localStorage.getItem('km_store_orders');
     if (raw) {
       const orders: Order[] = JSON.parse(raw);
-      const filtered = orders.filter(o => o.id !== orderId && o.orderNumber !== orderId);
+      const filtered = orders.filter(o => o.id !== orderId && o.orderNumber !== targetOrderNum);
       localStorage.setItem('km_store_orders', JSON.stringify(filtered));
     }
   } catch {}
@@ -814,15 +939,19 @@ export const deleteOrderFromSupabase = async (orderId: string): Promise<boolean>
   } catch {}
 
   // 3. Direct Supabase Client fallback
-  const client = getSupabaseClient();
+  const client = (await ensureSupabaseClient()) || getSupabaseClient();
   if (!client) return true;
 
   try {
-    await client.from('order_items').delete().or(`order_id.eq.${orderId}`);
-    const { error } = await client.from('orders').delete().or(`id.eq.${orderId},order_number.eq.${orderId}`);
-    if (error) {
-      console.warn('[Supabase] Error deleting order:', error.message);
-      return false;
+    if (isUuid(orderId)) {
+      await client.from('order_items').delete().eq('order_id', orderId);
+      await client.from('orders').delete().eq('id', orderId);
+    } else if (targetOrderNum) {
+      const { data: found } = await client.from('orders').select('id').eq('order_number', targetOrderNum).maybeSingle();
+      if (found?.id) {
+        await client.from('order_items').delete().eq('order_id', found.id);
+      }
+      await client.from('orders').delete().eq('order_number', targetOrderNum);
     }
     return true;
   } catch (err) {
@@ -831,14 +960,17 @@ export const deleteOrderFromSupabase = async (orderId: string): Promise<boolean>
   }
 };
 
-export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Order>): Promise<boolean> => {
+export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Order>, orderNumber?: string): Promise<boolean> => {
+  const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  const targetOrderNum = orderNumber || (!isUuid(orderId) ? orderId : null);
+
   // 1. Update in local store cache
   try {
     const raw = localStorage.getItem('km_store_orders');
     if (raw) {
       const orders: Order[] = JSON.parse(raw);
       const updated = orders.map(o => {
-        if (o.id === orderId || o.orderNumber === orderId) {
+        if (o.id === orderId || (targetOrderNum && o.orderNumber === targetOrderNum)) {
           return {
             ...o,
             ...updates,
@@ -865,7 +997,7 @@ export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Or
   } catch {}
 
   // 3. Direct Supabase Client fallback
-  const client = getSupabaseClient();
+  const client = (await ensureSupabaseClient()) || getSupabaseClient();
   if (!client) return true;
 
   try {
@@ -882,10 +1014,13 @@ export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Or
     }
 
     if (Object.keys(dbPatch).length > 0) {
-      const { error } = await client
-        .from('orders')
-        .update(dbPatch)
-        .or(`id.eq.${orderId},order_number.eq.${orderId}`);
+      let query = client.from('orders').update(dbPatch);
+      if (isUuid(orderId)) {
+        query = query.eq('id', orderId);
+      } else if (targetOrderNum) {
+        query = query.eq('order_number', targetOrderNum);
+      }
+      const { error } = await query;
       if (error) {
         console.warn('[Supabase] Error modifying order:', error.message);
         return false;
@@ -911,14 +1046,14 @@ export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.orders)) {
-        return json.orders;
+        return json.orders.map(normalizeOrder);
       }
     }
   } catch (apiErr) {
     console.warn('[Orders Fetch] Server proxy failed, trying direct client:', apiErr);
   }
 
-  const client = getSupabaseClient();
+  const client = (await ensureSupabaseClient()) || getSupabaseClient();
   if (!client) return fetchAllOrdersFromSupabase();
 
   try {
@@ -938,11 +1073,11 @@ export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email
       .order('created_at', { ascending: false });
 
     if (resolvedId && cleanEmail) {
-      query = query.or(`customer_id.eq.${resolvedId},customer_email.eq.${cleanEmail}`);
+      query = query.or(`customer_id.eq.${resolvedId},customer_email.ilike.${cleanEmail}`);
     } else if (resolvedId) {
       query = query.eq('customer_id', resolvedId);
     } else if (cleanEmail) {
-      query = query.eq('customer_email', cleanEmail);
+      query = query.ilike('customer_email', cleanEmail);
     }
 
     const { data, error } = await query;
