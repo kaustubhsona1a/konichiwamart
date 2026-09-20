@@ -1243,8 +1243,10 @@ function mapSupabaseRowToProductClient(
     dbId: row.id,
     title: row.title,
     subtitle: row.subtitle || '',
-    price: Number(row.base_price || 0),
-    originalPrice: Number(row.compare_at_price || row.base_price || 0),
+    price: row.base_price !== null && row.base_price !== undefined ? Number(row.base_price) : 0,
+    originalPrice: row.compare_at_price !== null && row.compare_at_price !== undefined
+      ? Number(row.compare_at_price)
+      : (row.base_price !== null && row.base_price !== undefined ? Number(row.base_price) : 0),
     rating: Number(row.rating || 4.9),
     reviewsCount: Number(row.reviews_count || 120),
     category: categoryName as any,
@@ -1303,8 +1305,10 @@ function mapProductToSupabaseRowClient(p: Product): any {
     key_actives: Array.isArray(p.keyActives) ? p.keyActives : [],
     full_ingredients: p.fullIngredients || 'Official Japanese formulation.',
     hsn_code: '3304',
-    base_price: Number(p.price) || 600,
-    compare_at_price: Number(p.originalPrice) || Number(p.price) || 600,
+    base_price: typeof p.price === 'number' && !isNaN(p.price) ? Math.max(0, p.price) : (Number(p.price) >= 0 ? Number(p.price) : 0),
+    compare_at_price: typeof p.originalPrice === 'number' && !isNaN(p.originalPrice)
+      ? Math.max(0, p.originalPrice)
+      : (typeof p.price === 'number' && !isNaN(p.price) ? Math.max(0, p.price) : 0),
     primary_image_url: defaultImg,
     secondary_image_url: p.secondaryImage || null,
     images: Array.isArray(p.images) && p.images.length > 0 ? p.images : [defaultImg],
@@ -1731,13 +1735,13 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
       }
 
       // If product does not exist in Supabase at all, insert it to cloud!
-      if (updatedCount === 0 && updates.title && updates.price) {
+      if (updatedCount === 0 && updates.title && updates.price !== undefined) {
         const fullProd: Product = {
           id: productId,
           title: updates.title,
           subtitle: updates.subtitle || '',
           price: updates.price,
-          originalPrice: updates.originalPrice || updates.price,
+          originalPrice: updates.originalPrice !== undefined ? updates.originalPrice : updates.price,
           rating: updates.rating || 4.9,
           reviewsCount: updates.reviewsCount || 20,
           category: updates.category || 'Skincare',
@@ -1756,7 +1760,7 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
           description: updates.description || 'Official direct imported Japanese skincare formulation.',
           benefits: updates.benefits || ['Direct Japan import', 'Authentic quality'],
           usageHowTo: updates.usageHowTo || 'Apply onto cleansed skin.',
-          stock: updates.stock !== undefined ? updates.stock : 15
+          stock: updates.stock !== undefined ? updates.stock : 0
         };
         const row = mapProductToSupabaseRowClient(fullProd);
         const { data: insData, error: insErr } = await client.from('products').insert([row]).select();

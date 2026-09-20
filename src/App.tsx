@@ -897,7 +897,7 @@ export default function App() {
   };
 
   const handleUpdateProductPrice = async (productId: string, newPrice: number) => {
-    const validPrice = Math.max(1, newPrice);
+    const validPrice = Math.max(0, newPrice);
     setProductsList((prev) => {
       const updated = prev.map((p) => {
         if (p.id === productId) {
@@ -1568,6 +1568,7 @@ export default function App() {
           {/* 3. CUSTOMER REVIEWS SECTION */}
           <ReviewsSection
             onSelectProduct={setInspectProduct}
+            products={productsList}
           />
 
           {/* 4. INSTAGRAM REEL FEED SECTION: Video reviews & community as social proof */}

@@ -14,22 +14,48 @@ import { PRODUCTS } from '../data/products';
 
 interface ReviewsSectionProps {
   onSelectProduct?: (product: Product) => void;
+  products?: Product[];
 }
 
-const STORAGE_KEY = 'konichiwa_customer_reviews';
+const STORAGE_KEY = 'konichiwa_customer_reviews_v4';
 
-export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct }) => {
+// Helper to ensure only fresh, very recent reviews are shown (strictly under 1 week)
+export const isVeryRecentReview = (review: Review): boolean => {
+  if (!review || !review.date) return false;
+  const d = review.date.toLowerCase().trim();
+  // Filter out any review older than a week (e.g., "1 week ago", "2 weeks ago", "3 weeks ago", "1 month ago")
+  if (d.includes('week') || d.includes('month') || d.includes('year')) {
+    return false;
+  }
+  const daysMatch = d.match(/(\d+)\s*days?\s*ago/);
+  if (daysMatch && parseInt(daysMatch[1], 10) >= 7) {
+    return false;
+  }
+  return true;
+};
+
+export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct, products }) => {
+  const activeProducts = products && products.length > 0 ? products : PRODUCTS;
+
   const [reviews, setReviews] = useState<Review[]>(() => {
     try {
+      // Purge legacy storage keys that contained stale >1 week reviews
+      ['konichiwa_customer_reviews', 'konichiwa_customer_reviews_v2', 'konichiwa_customer_reviews_v3'].forEach(k => {
+        try { localStorage.removeItem(k); } catch {}
+      });
+
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) {
+          const fresh = parsed.filter(isVeryRecentReview);
+          if (fresh.length > 0) return fresh.slice(0, 6);
+        }
       }
     } catch {
       // fallback
     }
-    return INITIAL_REVIEWS;
+    return INITIAL_REVIEWS.filter(isVeryRecentReview).slice(0, 6);
   });
 
   const [selectedProductFilter, setSelectedProductFilter] = useState<string>('All');
@@ -41,21 +67,44 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
   const [author, setAuthor] = useState('');
   const [location, setLocation] = useState('');
   const [skinType, setSkinType] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState(PRODUCTS[0].id);
+  const [selectedProductId, setSelectedProductId] = useState(activeProducts[0]?.id || PRODUCTS[0].id);
   const [rating, setRating] = useState(5);
   const [hoverRating, setHoverRating] = useState(0);
   const [headline, setHeadline] = useState('');
   const [comment, setComment] = useState('');
   const [formError, setFormError] = useState('');
 
-  // Persist to localStorage
+  // Persist only very recent reviews to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(reviews));
+      const freshOnly = reviews.filter(isVeryRecentReview);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(freshOnly));
     } catch {
       // ignore
     }
   }, [reviews]);
+
+  // Only consider very recent reviews
+  const displayedReviews = reviews.filter(isVeryRecentReview);
+
+  // Filter products: ONLY show products that have at least 1 review
+  const productsWithReviews = activeProducts.filter(product => {
+    return displayedReviews.some(
+      r => r.productId === product.id || (product.slug && r.productId === product.slug)
+    );
+  });
+
+  // If selected filter product no longer has reviews, fallback to 'All'
+  useEffect(() => {
+    if (selectedProductFilter !== 'All') {
+      const match = productsWithReviews.some(
+        p => p.id === selectedProductFilter || (p.slug && p.slug === selectedProductFilter)
+      );
+      if (!match) {
+        setSelectedProductFilter('All');
+      }
+    }
+  }, [productsWithReviews, selectedProductFilter]);
 
   const handleHelpful = (reviewId: string) => {
     if (helpfulVotes[reviewId]) return;
@@ -68,7 +117,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
 
   const handleOpenProduct = (productId: string) => {
     if (!onSelectProduct) return;
-    const found = PRODUCTS.find(p => p.id === productId);
+    const found = activeProducts.find(p => p.id === productId || p.slug === productId);
     if (found) onSelectProduct(found);
   };
 
@@ -79,7 +128,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
       return;
     }
 
-    const matchedProduct = PRODUCTS.find(p => p.id === selectedProductId);
+    const matchedProduct = activeProducts.find(p => p.id === selectedProductId || p.slug === selectedProductId);
     const newReview: Review = {
       id: `user-rev-${Date.now()}`,
       author: author.trim(),
@@ -112,11 +161,14 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
   };
 
   const filteredReviews = selectedProductFilter === 'All'
-    ? reviews
-    : reviews.filter(r => r.productId === selectedProductFilter);
+    ? displayedReviews
+    : displayedReviews.filter(
+        r => r.productId === selectedProductFilter ||
+        activeProducts.find(p => (p.id === selectedProductFilter || p.slug === selectedProductFilter) && p.id === r.productId)
+      );
 
   const averageRating = (
-    reviews.reduce((acc, r) => acc + r.rating, 0) / (reviews.length || 1)
+    displayedReviews.reduce((acc, r) => acc + r.rating, 0) / (displayedReviews.length || 1)
   ).toFixed(1);
 
   return (
@@ -149,7 +201,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
             <span className="text-slate-300 dark:text-slate-600">•</span>
             <div className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              <span>{reviews.length} Verified Reviews from Japan Import Batches</span>
+              <span>{displayedReviews.length} Verified Recent Reviews from Japan Import Batches</span>
             </div>
           </div>
         </div>
@@ -164,7 +216,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
         </button>
       </div>
 
-      {/* Product Filter Tabs */}
+      {/* Product Filter Tabs: ONLY show products that have reviews */}
       <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-3 mb-6 scrollbar-none">
         <button
           onClick={() => setSelectedProductFilter('All')}
@@ -174,22 +226,26 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
               : 'bg-white dark:bg-slate-800/90 hover:bg-pink-50/40 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 font-medium'
           }`}
         >
-          All Reviews ({reviews.length})
+          All Reviews ({displayedReviews.length})
         </button>
 
-        {PRODUCTS.map(product => {
-          const count = reviews.filter(r => r.productId === product.id).length;
+        {productsWithReviews.map(product => {
+          const count = displayedReviews.filter(
+            r => r.productId === product.id || (product.slug && r.productId === product.slug)
+          ).length;
+          const isSelected = selectedProductFilter === product.id || selectedProductFilter === product.slug;
+          const shortTitle = product.title.split(' ').slice(0, 2).join(' ');
           return (
             <button
               key={product.id}
               onClick={() => setSelectedProductFilter(product.id)}
               className={`px-3 sm:px-4 py-1.5 rounded-xl text-[11px] sm:text-xs transition-all whitespace-nowrap cursor-pointer border ${
-                selectedProductFilter === product.id
+                isSelected
                   ? 'bg-pink-600 text-white border-pink-600 font-semibold shadow-xs'
                   : 'bg-white dark:bg-slate-800/90 hover:bg-pink-50/40 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 font-medium'
               }`}
             >
-              {product.title.split(' ')[0]} ({count})
+              {shortTitle} ({count})
             </button>
           );
         })}
@@ -331,7 +387,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({ onSelectProduct 
                   onChange={(e) => setSelectedProductId(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs focus:outline-none focus:border-pink-500"
                 >
-                  {PRODUCTS.map(p => (
+                  {activeProducts.map(p => (
                     <option key={p.id} value={p.id}>
                       {p.title} ({p.volume})
                     </option>

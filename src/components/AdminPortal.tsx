@@ -589,16 +589,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Handle Add / Edit Product submit
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim() || !newPrice) return;
+    if (!newTitle.trim() || newPrice.trim() === '') return;
 
     if (newPhotos.length === 0) {
       setPhotoUploadError('Please upload at least 1 photo of the product (recommended 4–5 photos).');
       return;
     }
 
-    const parsedPrice = parseInt(newPrice, 10) || 600;
-    const parsedOriginal = parseInt(newOriginalPrice, 10) || parsedPrice;
-    const parsedStock = parseInt(newStock, 10) || 20;
+    const rawPrice = parseInt(newPrice, 10);
+    const parsedPrice = isNaN(rawPrice) ? 0 : Math.max(0, rawPrice);
+
+    const rawOriginal = parseInt(newOriginalPrice, 10);
+    const parsedOriginal = isNaN(rawOriginal) ? parsedPrice : Math.max(0, rawOriginal);
+
+    const rawStock = parseInt(newStock, 10);
+    const parsedStock = isNaN(rawStock) ? 0 : Math.max(0, rawStock);
 
     const mainCover = newPhotos[0] || '/products/keana-rice-mask.png';
     const secondary = newPhotos[1] || undefined;
@@ -1478,12 +1483,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <span>₹</span>
                             <input
                               type="number"
-                              min="1"
+                              min="0"
                               defaultValue={p.price}
                               onBlur={(e) => {
                                 const val = parseInt(e.target.value, 10);
-                                if (val && onUpdateProductPrice) {
-                                  onUpdateProductPrice(p.id, val);
+                                if (!isNaN(val) && onUpdateProductPrice) {
+                                  onUpdateProductPrice(p.id, Math.max(0, val));
                                 }
                               }}
                               className="w-20 bg-white border border-stone-300 focus:border-pink-500 rounded-lg px-2 py-1 text-xs text-slate-900 font-bold ml-1 shadow-2xs"
@@ -1669,12 +1674,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 <span>₹</span>
                                 <input
                                   type="number"
-                                  min="1"
+                                  min="0"
                                   defaultValue={p.price}
                                   onBlur={(e) => {
                                     const val = parseInt(e.target.value, 10);
-                                    if (val && onUpdateProductPrice) {
-                                      onUpdateProductPrice(p.id, val);
+                                    if (!isNaN(val) && onUpdateProductPrice) {
+                                      onUpdateProductPrice(p.id, Math.max(0, val));
                                     }
                                   }}
                                   className="w-16 bg-stone-50 border border-stone-200 focus:bg-white focus:border-pink-500 rounded px-1.5 py-0.5 text-xs text-slate-900 font-bold"
@@ -2691,10 +2696,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </label>
                   <input
                     type="number"
+                    min="0"
                     required
                     value={newPrice}
                     onChange={(e) => setNewPrice(e.target.value)}
-                    placeholder="750"
+                    placeholder="0"
                     className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
                   />
                 </div>
@@ -2705,9 +2711,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </label>
                   <input
                     type="number"
+                    min="0"
                     value={newOriginalPrice}
                     onChange={(e) => setNewOriginalPrice(e.target.value)}
-                    placeholder="950"
+                    placeholder="0"
                     className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
                   />
                 </div>
@@ -2718,10 +2725,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </label>
                   <input
                     type="number"
+                    min="0"
                     required
                     value={newStock}
                     onChange={(e) => setNewStock(e.target.value)}
-                    placeholder="50"
+                    placeholder="0"
                     className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
                   />
                 </div>

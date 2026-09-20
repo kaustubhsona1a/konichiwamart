@@ -2590,8 +2590,10 @@ function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>
     dbId: row.id,
     title: row.title,
     subtitle: row.subtitle || '',
-    price: Number(row.base_price || 0),
-    originalPrice: Number(row.compare_at_price || row.base_price || 0),
+    price: row.base_price !== null && row.base_price !== undefined ? Number(row.base_price) : 0,
+    originalPrice: row.compare_at_price !== null && row.compare_at_price !== undefined
+      ? Number(row.compare_at_price)
+      : (row.base_price !== null && row.base_price !== undefined ? Number(row.base_price) : 0),
     rating: Number(row.rating || 4.9),
     reviewsCount: Number(row.reviews_count || 120),
     category: (row.category_name || 'Skincare') as any,
@@ -2633,7 +2635,7 @@ function mapProductToSupabaseRow(p: Product): any {
     full_ingredients: p.fullIngredients || '',
     hsn_code: '3304',
     base_price: p.price,
-    compare_at_price: p.originalPrice || p.price,
+    compare_at_price: p.originalPrice !== undefined ? p.originalPrice : p.price,
     primary_image_url: p.image,
     secondary_image_url: p.secondaryImage || null,
     images: p.images || [p.image],
