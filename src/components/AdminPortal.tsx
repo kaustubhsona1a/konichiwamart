@@ -178,12 +178,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [newTitle, setNewTitle] = useState('');
   const [newSubtitle, setNewSubtitle] = useState('');
   const [newCategory, setNewCategory] = useState<ProductCategory>('Face Wash');
+  const [newIsComingSoon, setNewIsComingSoon] = useState(false);
   
   const resetProductForm = () => {
     setEditingProduct(null);
     setNewTitle('');
     setNewSubtitle('');
     setNewCategory('Face Wash');
+    setNewIsComingSoon(false);
     setNewPrice('750');
     setNewOriginalPrice('950');
     setNewStock('50');
@@ -191,6 +193,89 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setNewPhotos([]);
     setPhotoUploadError(null);
     setProductFormMsg(null);
+  };
+
+  // Dedicated interactive modals for orders (replaces browser prompt/confirm)
+  const [editingOrder, setEditingOrder] = useState<Order | null>(null);
+  const [editCustomerName, setEditCustomerName] = useState('');
+  const [editCustomerEmail, setEditCustomerEmail] = useState('');
+  const [editCustomerPhone, setEditCustomerPhone] = useState('');
+  const [editStatus, setEditStatus] = useState<Order['status']>('CONFIRMED');
+  const [editAddressLine, setEditAddressLine] = useState('');
+  const [editCity, setEditCity] = useState('');
+  const [editState, setEditState] = useState('');
+  const [editPincode, setEditPincode] = useState('');
+  const [isSavingOrder, setIsSavingOrder] = useState(false);
+  const [orderActionMsg, setOrderActionMsg] = useState<string | null>(null);
+
+  const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [isDeletingOrder, setIsDeletingOrder] = useState(false);
+
+  const handleOpenEditOrder = (order: Order) => {
+    setEditingOrder(order);
+    setEditCustomerName(order.customerName || '');
+    setEditCustomerEmail(order.customerEmail || '');
+    setEditCustomerPhone(order.customerPhone || '');
+    setEditStatus(order.status || 'CONFIRMED');
+    setEditAddressLine(order.shippingAddress?.addressLine1 || '');
+    setEditCity(order.shippingAddress?.city || '');
+    setEditState(order.shippingAddress?.state || '');
+    setEditPincode(order.shippingAddress?.pincode || '');
+  };
+
+  const handleSaveOrderEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOrder) return;
+    setIsSavingOrder(true);
+    try {
+      const updates: Partial<Order> = {
+        customerName: editCustomerName.trim(),
+        customerEmail: editCustomerEmail.trim(),
+        customerPhone: editCustomerPhone.trim(),
+        status: editStatus,
+        shippingAddress: {
+          ...editingOrder.shippingAddress,
+          fullName: editCustomerName.trim() || editingOrder.shippingAddress.fullName,
+          phone: editCustomerPhone.trim() || editingOrder.shippingAddress.phone,
+          addressLine1: editAddressLine.trim() || editingOrder.shippingAddress.addressLine1,
+          city: editCity.trim() || editingOrder.shippingAddress.city,
+          state: editState.trim() || editingOrder.shippingAddress.state,
+          pincode: editPincode.trim() || editingOrder.shippingAddress.pincode
+        }
+      };
+
+      if (onModifyOrder) {
+        await onModifyOrder(editingOrder.id, updates);
+      }
+      if (onUpdateOrderStatus && editStatus !== editingOrder.status) {
+        await onUpdateOrderStatus(editingOrder.id, editStatus);
+      }
+
+      setOrderActionMsg(`Order #${editingOrder.orderNumber} updated successfully!`);
+      setTimeout(() => setOrderActionMsg(null), 3500);
+      setEditingOrder(null);
+    } catch (err: any) {
+      setOrderActionMsg(`Failed to update order: ${err?.message || 'Error'}`);
+    } finally {
+      setIsSavingOrder(false);
+    }
+  };
+
+  const handleConfirmDeleteOrder = async () => {
+    if (!orderToDelete) return;
+    setIsDeletingOrder(true);
+    try {
+      if (onDeleteOrder) {
+        await onDeleteOrder(orderToDelete.id);
+      }
+      setOrderActionMsg(`Order #${orderToDelete.orderNumber} deleted successfully.`);
+      setTimeout(() => setOrderActionMsg(null), 3500);
+      setOrderToDelete(null);
+    } catch (err: any) {
+      setOrderActionMsg(`Failed to delete order: ${err?.message || 'Error'}`);
+    } finally {
+      setIsDeletingOrder(false);
+    }
   };
   const [categoriesList, setCategoriesList] = useState<string[]>([
     'Face Wash', 'Face Mask', 'Toner', 'Sunscreen', 'Lips', 'Serum', 'Cleansing Oil', 'Moisturizer', 'Skincare'
@@ -524,6 +609,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     try {
       if (editingProduct) {
+        const currentBadges = (editingProduct.badges || []).filter(b => b !== 'Coming Soon');
+        if (newIsComingSoon) {
+          currentBadges.unshift('Coming Soon');
+        }
+
         const updatedProduct: Product = {
           ...editingProduct,
           title: newTitle.trim(),
@@ -535,7 +625,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           image: mainCover,
           secondaryImage: secondary,
           images: newPhotos,
-          stock: parsedStock
+          stock: parsedStock,
+          badges: currentBadges,
+          isComingSoon: newIsComingSoon
         };
 
         if (onEditProduct) {
@@ -543,6 +635,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         }
         setProductFormMsg(`Product "${newTitle}" updated & synced to Supabase database!`);
       } else {
+        const initialBadges = newIsComingSoon
+          ? ['Coming Soon', 'Japan Arrival', 'Authentic Import']
+          : ['Japan Arrival', 'Authentic Import'];
+
         const newProduct: Product = {
           id: `km-${Date.now()}`,
           title: newTitle.trim(),
@@ -556,7 +652,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           skinConcerns: ['Hydration', 'Glow & Dullness'],
           routine: 'AM/PM',
           volume: newVolume || '100ml',
-          badges: ['Japan Arrival', 'Authentic Import'],
+          badges: initialBadges,
+          isComingSoon: newIsComingSoon,
           image: mainCover,
           secondaryImage: secondary,
           images: newPhotos,
@@ -598,6 +695,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setNewStock(product.stock.toString());
     setNewVolume(product.volume || '150ml');
     setNewPhotos(product.images || (product.image ? [product.image] : []));
+    setNewIsComingSoon(Boolean(product.isComingSoon || (product.badges && product.badges.includes('Coming Soon'))));
     setShowAddProductModal(true);
   };
 
@@ -1131,20 +1229,41 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     {/* Mobile recent orders cards */}
                     <div className="block md:hidden space-y-2.5">
                       {orders.slice(0, 4).map((o) => (
-                        <div key={o.id} className="p-3 bg-stone-50/80 rounded-xl border border-stone-200/80 space-y-2">
+                        <div key={o.id} className="p-3 bg-stone-50/80 rounded-xl border border-stone-200/80 space-y-2.5">
                           <div className="flex items-center justify-between">
                             <span className="font-mono font-bold text-slate-900 text-xs">{o.orderNumber}</span>
                             <span className="font-bold text-slate-900 text-xs">{formatINR(o.totalAmount)}</span>
                           </div>
                           <div className="flex items-center justify-between text-[11px] text-slate-600">
                             <span>{o.customerName} ({o.shippingAddress.city})</span>
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-pink-50 text-pink-700 border border-pink-100">
+                              {o.status}
+                            </span>
                           </div>
-                          <button
-                            onClick={() => onViewInvoice(o)}
-                            className="w-full py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 font-semibold text-xs border border-pink-200 shadow-2xs"
-                          >
-                            View Invoice
-                          </button>
+                          <div className="flex items-center gap-1.5 pt-1 border-t border-stone-200/60">
+                            <button
+                              onClick={() => handleOpenEditOrder(o)}
+                              className="px-2.5 py-1.5 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-slate-700 text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                              title="Edit Order"
+                            >
+                              <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              onClick={() => setOrderToDelete(o)}
+                              className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 text-xs font-semibold flex items-center gap-1 cursor-pointer shadow-2xs"
+                              title="Delete Order"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete</span>
+                            </button>
+                            <button
+                              onClick={() => onViewInvoice(o)}
+                              className="flex-1 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 font-semibold text-xs border border-pink-200 shadow-2xs cursor-pointer text-center whitespace-nowrap"
+                            >
+                              View Invoice
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1160,7 +1279,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <th className="py-2.5 px-3">Destination</th>
                             <th className="py-2.5 px-3">Amount</th>
                             <th className="py-2.5 px-3">Delivery</th>
-                            <th className="py-2.5 px-3 text-right">Invoice</th>
+                            <th className="py-2.5 px-3 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-100">
@@ -1185,36 +1304,34 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 {o.shippingAddress.city}, {o.shippingAddress.state}
                               </td>
                               <td className="py-3 px-3 font-bold text-slate-900">{formatINR(o.totalAmount)}</td>
-                              <td className="py-3 px-3 text-[10px] text-slate-500">Manual Delivery
+                              <td className="py-3 px-3 text-[10px] text-slate-500">
+                                <span className="inline-block px-2 py-0.5 rounded-md bg-stone-100 font-semibold text-slate-700 border border-stone-200">
+                                  {o.status}
+                                </span>
                               </td>
                               <td className="py-3 px-3 text-right">
-                                <button
-                                  onClick={() => {
-                                    const newName = prompt('Enter new customer name:', o.customerName);
-                                    if (newName) {
-                                      onModifyOrder?.(o.id, { customerName: newName });
-                                    }
-                                  }}
-                                  className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 flex items-center justify-center transition-colors shadow-xs"
-                                  title="Edit Order"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    if (confirm('Delete this order?')) onDeleteOrder?.(o.id);
-                                  }}
-                                  className="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-colors shadow-xs"
-                                  title="Delete Order"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => onViewInvoice(o)}
-                                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 text-[11px] font-semibold cursor-pointer shadow-2xs transition-colors"
-                                >
-                                  View GST Invoice
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditOrder(o)}
+                                    className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-pink-50 hover:text-pink-700 border border-stone-200 text-slate-600 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                                    title="Edit Order"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setOrderToDelete(o)}
+                                    className="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 hover:text-rose-700 border border-rose-200 text-rose-600 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                                    title="Delete Order"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => onViewInvoice(o)}
+                                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 text-[11px] font-semibold cursor-pointer shadow-2xs transition-colors whitespace-nowrap"
+                                  >
+                                    View GST Invoice
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1802,14 +1919,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </div>
                         </div>
 
-                        {/* Tax Invoice Action Button */}
-                        <button
-                          onClick={() => onViewInvoice(o)}
-                          className="w-full py-2.5 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-                        >
-                          <span>View Official GST Tax Invoice</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
+                        {/* Order Management Actions (Edit, Delete, Invoice) */}
+                        <div className="flex items-center gap-2 pt-2 border-t border-stone-100">
+                          <button
+                            onClick={() => handleOpenEditOrder(o)}
+                            className="px-3 py-2 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            title="Edit Order Details"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            onClick={() => setOrderToDelete(o)}
+                            className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                            title="Delete Order"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                          <button
+                            onClick={() => onViewInvoice(o)}
+                            className="flex-1 py-2 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs text-center"
+                          >
+                            <span>View GST Invoice</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1829,7 +1964,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <th className="p-3.5">Amount</th>
                             <th className="p-3.5">Payment</th>
                             <th className="p-3.5">Delivery</th>
-                            <th className="p-3.5 text-right">Tax Invoice</th>
+                            <th className="p-3.5 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-100">
@@ -1874,12 +2009,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 </select>
                               </td>
                               <td className="p-3.5 text-right">
-                                <button
-                                  onClick={() => onViewInvoice(o)}
-                                  className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 font-semibold text-xs cursor-pointer shadow-2xs transition-colors"
-                                >
-                                  View GST Invoice
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditOrder(o)}
+                                    className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-pink-50 hover:text-pink-700 border border-stone-200 text-slate-600 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                                    title="Edit Order Details"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => setOrderToDelete(o)}
+                                    className="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 hover:text-rose-700 border border-rose-200 text-rose-600 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
+                                    title="Delete Order"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => onViewInvoice(o)}
+                                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 font-semibold text-xs cursor-pointer shadow-2xs transition-colors whitespace-nowrap"
+                                  >
+                                    View GST Invoice
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -2576,6 +2727,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
+              {/* Coming Soon Pre-Launch Tag Option */}
+              <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200/90 flex items-center justify-between gap-3 shadow-2xs">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-600" />
+                    <label htmlFor="isComingSoonCheckbox" className="text-xs font-bold text-slate-900 cursor-pointer">
+                      Tag Product as "Coming Soon"
+                    </label>
+                    {newIsComingSoon && (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider bg-amber-500 text-white shadow-2xs animate-pulse">
+                        Coming Soon Active
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    Displays a prominent "COMING SOON" pre-launch badge across customer storefront, category filters, and product page.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    id="isComingSoonCheckbox"
+                    type="checkbox"
+                    checked={newIsComingSoon}
+                    onChange={(e) => setNewIsComingSoon(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-stone-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+
               {/* Direct Photo Upload Area (4-5 Photos) */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -2798,6 +2979,261 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Edit Order Modal */}
+      {editingOrder && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-lg w-full border border-pink-100 shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+              <div className="flex items-center gap-2.5 text-pink-600">
+                <div className="w-8 h-8 rounded-xl bg-pink-50 border border-pink-200/80 flex items-center justify-center text-pink-600 flex-shrink-0">
+                  <Edit3 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm uppercase tracking-wider text-slate-900">
+                    Edit Order Details
+                  </h3>
+                  <span className="text-[11px] font-mono text-slate-500 font-bold">
+                    Order #{editingOrder.orderNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingOrder(null)}
+                className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveOrderEdit} className="space-y-4 text-xs">
+              {/* Customer Information */}
+              <div className="space-y-2">
+                <label className="block font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                  Customer Information
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <span className="text-[11px] text-slate-500 block mb-1">Full Name</span>
+                    <input
+                      type="text"
+                      required
+                      value={editCustomerName}
+                      onChange={(e) => setEditCustomerName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-semibold text-xs"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 block mb-1">Phone Number</span>
+                    <input
+                      type="text"
+                      value={editCustomerPhone}
+                      onChange={(e) => setEditCustomerPhone(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none text-xs"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[11px] text-slate-500 block mb-1">Email Address</span>
+                  <input
+                    type="email"
+                    value={editCustomerEmail}
+                    onChange={(e) => setEditCustomerEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Order Status */}
+              <div>
+                <label className="block font-bold text-slate-700 uppercase tracking-wider text-[10px] mb-1">
+                  Fulfillment Status
+                </label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value as Order['status'])}
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 font-bold focus:bg-white focus:border-pink-500 focus:outline-none text-xs cursor-pointer"
+                >
+                  <option value="CONFIRMED">CONFIRMED (Order Received)</option>
+                  <option value="DISPATCHED">DISPATCHED (Packed & Assigned)</option>
+                  <option value="IN_TRANSIT">IN TRANSIT (With Courier)</option>
+                  <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY (Last Mile)</option>
+                  <option value="DELIVERED">DELIVERED (Fulfilled)</option>
+                  <option value="CANCELLED">CANCELLED (Void / Refunded)</option>
+                </select>
+              </div>
+
+              {/* Shipping Address */}
+              <div className="space-y-2">
+                <label className="block font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                  Shipping Address
+                </label>
+                <div>
+                  <span className="text-[11px] text-slate-500 block mb-1">Street Address</span>
+                  <input
+                    type="text"
+                    value={editAddressLine}
+                    onChange={(e) => setEditAddressLine(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none text-xs"
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <span className="text-[11px] text-slate-500 block mb-1">City</span>
+                    <input
+                      type="text"
+                      value={editCity}
+                      onChange={(e) => setEditCity(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 block mb-1">State</span>
+                    <input
+                      type="text"
+                      value={editState}
+                      onChange={(e) => setEditState(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none text-xs"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-500 block mb-1">Pincode</span>
+                    <input
+                      type="text"
+                      value={editPincode}
+                      onChange={(e) => setEditPincode(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none text-xs font-mono font-semibold"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Items Summary (Read Only) */}
+              <div className="p-3 bg-stone-50 rounded-xl border border-stone-200/80">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase">Items Ordered</span>
+                  <span className="font-extrabold text-slate-900">{formatINR(editingOrder.totalAmount)}</span>
+                </div>
+                <ul className="space-y-1 max-h-24 overflow-y-auto">
+                  {(editingOrder.items || []).map((item, idx) => (
+                    <li key={idx} className="flex justify-between text-[11px] text-slate-600">
+                      <span className="truncate max-w-[240px]">
+                        {item.quantity}x {item.title} {item.shade ? `(${item.shade})` : ''}
+                      </span>
+                      <span className="font-medium text-slate-900">{formatINR(item.price * item.quantity)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingOrder(null)}
+                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 font-semibold cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingOrder}
+                  className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white font-bold flex items-center gap-2 cursor-pointer shadow-md shadow-pink-600/20 transition-all"
+                >
+                  {isSavingOrder && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isSavingOrder ? 'Saving Order...' : 'Save Order Changes'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Order Confirmation Modal */}
+      {orderToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full border border-pink-100 shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+              <div className="flex items-center gap-2.5 text-rose-600">
+                <div className="w-8 h-8 rounded-xl bg-rose-50 border border-rose-200/80 flex items-center justify-center text-rose-600 flex-shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm uppercase tracking-wider text-slate-900">
+                    Delete Order
+                  </h3>
+                  <span className="text-[10px] text-slate-400 font-semibold">
+                    Order #{orderToDelete.orderNumber}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOrderToDelete(null)}
+                className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to permanently delete order <strong className="text-slate-900 font-bold">#{orderToDelete.orderNumber}</strong> for <strong className="text-slate-900 font-bold">{orderToDelete.customerName}</strong>?
+            </p>
+
+            <div className="p-3 rounded-xl bg-stone-50 border border-stone-200/80 space-y-1.5 text-xs">
+              <div className="flex justify-between text-slate-600">
+                <span>Total Amount:</span>
+                <strong className="text-slate-900">{formatINR(orderToDelete.totalAmount)}</strong>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Items Count:</span>
+                <span className="font-semibold text-slate-800">{(orderToDelete.items || []).reduce((s, i) => s + i.quantity, 0)} items</span>
+              </div>
+              <div className="flex justify-between text-slate-600">
+                <span>Destination:</span>
+                <span className="text-slate-800">{orderToDelete.shippingAddress?.city}, {orderToDelete.shippingAddress?.state}</span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
+              <button
+                type="button"
+                onClick={() => setOrderToDelete(null)}
+                className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 text-xs font-semibold cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingOrder}
+                onClick={handleConfirmDeleteOrder}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 cursor-pointer shadow-md shadow-rose-600/20 transition-all"
+              >
+                {isDeletingOrder ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirm Delete</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Action Toast for Order Operations */}
+      {orderActionMsg && (
+        <div className="fixed bottom-16 md:bottom-6 left-1/2 -translate-x-1/2 z-[80] bg-slate-900 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 animate-in slide-in-from-bottom-3 duration-200">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span>{orderActionMsg}</span>
         </div>
       )}
 

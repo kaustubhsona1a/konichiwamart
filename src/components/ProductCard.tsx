@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, ShoppingBag, Check } from 'lucide-react';
+import { Heart, ShoppingBag, Check, Sparkles } from 'lucide-react';
 import { Product, ProductShade } from '../types';
 import { formatINR } from '../data/pincodes';
 
@@ -23,11 +23,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   );
   const [addedAnimation, setAddedAnimation] = useState(false);
 
+  const isComingSoon = Boolean(
+    product.isComingSoon ||
+    (product.badges || []).some(b => b.toLowerCase().includes('coming soon'))
+  );
   const isInStock = (product.stock ?? 0) > 0;
 
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isInStock) return;
+    if (!isInStock || isComingSoon) return;
     onAddToCart(product, selectedShade);
     setAddedAnimation(true);
     setTimeout(() => setAddedAnimation(false), 1400);
@@ -53,6 +57,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             }
           }}
         />
+
+        {/* Coming Soon Tag Badge */}
+        {isComingSoon && (
+          <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shadow-sm z-10 flex items-center gap-1">
+            <Sparkles className="w-2.5 h-2.5" />
+            <span>Coming Soon</span>
+          </span>
+        )}
 
         {/* Wishlist Button - Touch optimized */}
         <button
@@ -88,36 +100,56 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           <span className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-zinc-100 tracking-tight">
             {formatINR(product.price)}
           </span>
-          <span className={`text-[10px] sm:text-[11px] font-semibold px-1.5 py-0.5 rounded ${isInStock ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300'}`}>
-            {isInStock ? 'In Stock' : 'Sold Out'}
-          </span>
+          {isComingSoon ? (
+            <span className="text-[10px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60">
+              Coming Soon
+            </span>
+          ) : (
+            <span className={`text-[10px] sm:text-[11px] font-semibold px-1.5 py-0.5 rounded ${isInStock ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300'}`}>
+              {isInStock ? 'In Stock' : 'Sold Out'}
+            </span>
+          )}
         </div>
 
-        {/* Add to Cart Button - Minimum 40px touch height */}
-        <button
-          onClick={handleQuickAdd}
-          disabled={!isInStock}
-          className={`w-full min-h-[38px] sm:min-h-[42px] py-2 sm:py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
-            !isInStock
-              ? 'bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed'
-              : addedAnimation
-                ? 'bg-emerald-600 text-white'
-                : 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-600/20 hover:shadow-md'
-          }`}
-          title="Add to Cart"
-        >
-          {addedAnimation ? (
-            <>
-              <Check className="w-4 h-4" />
-              <span>Added!</span>
-            </>
-          ) : (
-            <>
-              <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              <span>{isInStock ? 'Add to Cart' : 'Out of Stock'}</span>
-            </>
-          )}
-        </button>
+        {/* Action Button - Minimum 40px touch height */}
+        {isComingSoon ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(product);
+            }}
+            className="w-full min-h-[38px] sm:min-h-[42px] py-2 sm:py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20 active:scale-95"
+            title="Coming Soon - View Details"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Coming Soon • Details</span>
+          </button>
+        ) : (
+          <button
+            onClick={handleQuickAdd}
+            disabled={!isInStock}
+            className={`w-full min-h-[38px] sm:min-h-[42px] py-2 sm:py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${
+              !isInStock
+                ? 'bg-slate-200 dark:bg-zinc-800 text-slate-400 dark:text-zinc-500 cursor-not-allowed'
+                : addedAnimation
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-600/20 hover:shadow-md'
+            }`}
+            title="Add to Cart"
+          >
+            {addedAnimation ? (
+              <>
+                <Check className="w-4 h-4" />
+                <span>Added!</span>
+              </>
+            ) : (
+              <>
+                <ShoppingBag className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span>{isInStock ? 'Add to Cart' : 'Out of Stock'}</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
     </div>
   );

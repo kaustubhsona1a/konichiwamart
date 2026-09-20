@@ -64,7 +64,10 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-[#1A0F15]/60 dark:bg-black/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+    <div 
+      onClick={onClose}
+      className="fixed inset-0 z-[150] flex items-center justify-center p-3 sm:p-6 bg-[#1A0F15]/60 dark:bg-black/75 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200"
+    >
       
       {/* Invoice Modal Window */}
       <div 

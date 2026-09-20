@@ -74,6 +74,8 @@ import {
   fetchCustomerOrdersFromSupabase,
   fetchAllOrdersFromSupabase,
   updateOrderStatusInSupabase,
+  deleteOrderFromSupabase,
+  modifyOrderInSupabase,
   saveAddressToSupabase,
   fetchCategoriesFromStore
 } from './lib/supabase';
@@ -1332,21 +1334,38 @@ export default function App() {
 
   const handleDeleteOrder = (orderId: string) => {
     setStoreOrders(prev => {
-      const updated = prev.filter(o => o.id !== orderId);
+      const updated = prev.filter(o => o.id !== orderId && o.orderNumber !== orderId);
       try {
         localStorage.setItem('km_store_orders', JSON.stringify(updated));
       } catch {}
       return updated;
     });
+
+    deleteOrderFromSupabase(orderId).catch(err => {
+      console.warn('[Delete Order Error]:', err);
+    });
   };
 
   const handleModifyOrder = (orderId: string, updates: Partial<Order>) => {
     setStoreOrders(prev => {
-      const updated = prev.map(o => o.id === orderId ? { ...o, ...updates } : o);
+      const updated = prev.map(o => {
+        if (o.id === orderId || o.orderNumber === orderId) {
+          return {
+            ...o,
+            ...updates,
+            shippingAddress: updates.shippingAddress ? { ...o.shippingAddress, ...updates.shippingAddress } : o.shippingAddress
+          };
+        }
+        return o;
+      });
       try {
         localStorage.setItem('km_store_orders', JSON.stringify(updated));
       } catch {}
       return updated;
+    });
+
+    modifyOrderInSupabase(orderId, updates).catch(err => {
+      console.warn('[Modify Order Error]:', err);
     });
   };
 

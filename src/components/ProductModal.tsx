@@ -48,6 +48,11 @@ export const ProductModal: React.FC<ProductModalProps> = ({
 
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
+  const isComingSoon = Boolean(
+    product.isComingSoon ||
+    (product.badges || []).some(b => b.toLowerCase().includes('coming soon'))
+  );
+
   React.useEffect(() => {
     setSelectedImageIndex(0);
   }, [product.id]);
@@ -89,8 +94,17 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 referrerPolicy="no-referrer"
               />
               
-              <div className="absolute top-4 left-4 px-2.5 py-1 rounded-md bg-pink-100 dark:bg-pink-950/80 text-pink-800 dark:text-pink-300 text-xs font-semibold border border-pink-200 dark:border-pink-800/60 shadow-xs">
-                {product.routine} Routine
+              <div className="absolute top-4 left-4 flex flex-col gap-1.5 z-10">
+                {isComingSoon ? (
+                  <div className="px-2.5 py-1 rounded-md bg-amber-500 text-white text-xs font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Coming Soon</span>
+                  </div>
+                ) : (
+                  <div className="px-2.5 py-1 rounded-md bg-pink-100 dark:bg-pink-950/80 text-pink-800 dark:text-pink-300 text-xs font-semibold border border-pink-200 dark:border-pink-800/60 shadow-xs">
+                    {product.routine} Routine
+                  </div>
+                )}
               </div>
 
               <button
@@ -146,10 +160,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             
             {/* Header info */}
             <div>
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="px-2.5 py-0.5 rounded-md bg-pink-100 dark:bg-pink-950/80 border border-pink-200 dark:border-pink-800/60 text-pink-800 dark:text-pink-300 text-xs font-semibold">
                   {product.category}
                 </span>
+                {isComingSoon && (
+                  <span className="px-2.5 py-0.5 rounded-md bg-amber-500 text-white text-xs font-bold uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                    <Sparkles className="w-3 h-3" />
+                    <span>Coming Soon</span>
+                  </span>
+                )}
                 <div className="flex items-center text-xs text-amber-500 gap-1">
                   <Star className="w-3.5 h-3.5 fill-current" />
                   <span className="font-bold text-slate-900 dark:text-white">{product.rating}</span>
@@ -304,49 +324,69 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               </div>
             </div>
 
-            {/* Bottom Add to Cart with Quantity */}
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center gap-3">
-              {/* Quantity selector */}
-              <div className="flex items-center rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1">
+            {/* Bottom Actions: Coming Soon state or Standard Add to Cart */}
+            {isComingSoon ? (
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="flex-1 p-3 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2.5">
+                  <Sparkles className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                  <div>
+                    <div className="font-bold">Launching Soon at Konichiwa Mart</div>
+                    <div className="text-[11px] text-amber-700 dark:text-amber-300">Add to your wishlist to get priority notification as soon as stock lands!</div>
+                  </div>
+                </div>
                 <button
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="w-7 h-7 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer"
+                  type="button"
+                  onClick={() => onToggleWishlist(product.id)}
+                  className="py-3 px-5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md shadow-amber-500/20 cursor-pointer transition-colors whitespace-nowrap"
                 >
-                  -
-                </button>
-                <span className="w-8 text-center text-xs font-bold text-slate-900 dark:text-white">
-                  {quantity}
-                </span>
-                <button
-                  onClick={() => setQuantity(quantity + 1)}
-                  className="w-7 h-7 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer"
-                >
-                  +
+                  <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-white text-white' : ''}`} />
+                  <span>{isWishlisted ? 'Saved in Wishlist' : 'Add to Wishlist'}</span>
                 </button>
               </div>
+            ) : (
+              <div className="pt-4 border-t border-slate-200 dark:border-slate-800 flex items-center gap-3">
+                {/* Quantity selector */}
+                <div className="flex items-center rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1">
+                  <button
+                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    className="w-7 h-7 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="w-8 text-center text-xs font-bold text-slate-900 dark:text-white">
+                    {quantity}
+                  </span>
+                  <button
+                    onClick={() => setQuantity(quantity + 1)}
+                    className="w-7 h-7 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
 
-              {/* Add to Cart Button */}
-              <button
-                onClick={handleAdd}
-                className={`flex-1 py-2.5 sm:py-3.5 px-4 sm:px-6 rounded-lg sm:rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer ${
-                  addedAnimation
-                    ? 'bg-emerald-600 text-white'
-                    : 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-600/25'
-                }`}
-              >
-                {addedAnimation ? (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>Added to Cart!</span>
-                  </>
-                ) : (
-                  <>
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>Add to Cart • {formatINR(product.price * quantity)}</span>
-                  </>
-                )}
-              </button>
-            </div>
+                {/* Add to Cart Button */}
+                <button
+                  onClick={handleAdd}
+                  className={`flex-1 py-2.5 sm:py-3.5 px-4 sm:px-6 rounded-lg sm:rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer ${
+                    addedAnimation
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-pink-600 hover:bg-pink-500 text-white shadow-pink-600/25'
+                  }`}
+                >
+                  {addedAnimation ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Added to Cart!</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>Add to Cart • {formatINR(product.price * quantity)}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
 
           </div>
 

@@ -791,6 +791,113 @@ export const updateOrderStatusInSupabase = async (orderId: string, status: strin
   }
 };
 
+export const deleteOrderFromSupabase = async (orderId: string): Promise<boolean> => {
+  // 1. Remove from local store cache
+  try {
+    const raw = localStorage.getItem('km_store_orders');
+    if (raw) {
+      const orders: Order[] = JSON.parse(raw);
+      const filtered = orders.filter(o => o.id !== orderId && o.orderNumber !== orderId);
+      localStorage.setItem('km_store_orders', JSON.stringify(filtered));
+    }
+  } catch {}
+
+  // 2. Server API route
+  try {
+    const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
+      method: 'DELETE'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) return true;
+    }
+  } catch {}
+
+  // 3. Direct Supabase Client fallback
+  const client = getSupabaseClient();
+  if (!client) return true;
+
+  try {
+    await client.from('order_items').delete().or(`order_id.eq.${orderId}`);
+    const { error } = await client.from('orders').delete().or(`id.eq.${orderId},order_number.eq.${orderId}`);
+    if (error) {
+      console.warn('[Supabase] Error deleting order:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception deleting order:', err);
+    return false;
+  }
+};
+
+export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Order>): Promise<boolean> => {
+  // 1. Update in local store cache
+  try {
+    const raw = localStorage.getItem('km_store_orders');
+    if (raw) {
+      const orders: Order[] = JSON.parse(raw);
+      const updated = orders.map(o => {
+        if (o.id === orderId || o.orderNumber === orderId) {
+          return {
+            ...o,
+            ...updates,
+            shippingAddress: updates.shippingAddress ? { ...o.shippingAddress, ...updates.shippingAddress } : o.shippingAddress
+          };
+        }
+        return o;
+      });
+      localStorage.setItem('km_store_orders', JSON.stringify(updated));
+    }
+  } catch {}
+
+  // 2. Server API route
+  try {
+    const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success) return true;
+    }
+  } catch {}
+
+  // 3. Direct Supabase Client fallback
+  const client = getSupabaseClient();
+  if (!client) return true;
+
+  try {
+    const dbPatch: any = {};
+    if (updates.customerName !== undefined) dbPatch.customer_name = updates.customerName;
+    if (updates.customerEmail !== undefined) dbPatch.customer_email = updates.customerEmail;
+    if (updates.customerPhone !== undefined) dbPatch.customer_phone = updates.customerPhone;
+    if (updates.status !== undefined) dbPatch.status = updates.status.toLowerCase();
+    if (updates.shippingAddress) {
+      dbPatch.shipping_address_line1 = updates.shippingAddress.addressLine1;
+      dbPatch.shipping_city = updates.shippingAddress.city;
+      dbPatch.shipping_state = updates.shippingAddress.state;
+      dbPatch.shipping_pincode = updates.shippingAddress.pincode;
+    }
+
+    if (Object.keys(dbPatch).length > 0) {
+      const { error } = await client
+        .from('orders')
+        .update(dbPatch)
+        .or(`id.eq.${orderId},order_number.eq.${orderId}`);
+      if (error) {
+        console.warn('[Supabase] Error modifying order:', error.message);
+        return false;
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Exception modifying order:', err);
+    return false;
+  }
+};
+
 export const fetchCustomerOrdersFromSupabase = async (customerId?: string, email?: string) => {
   const cleanEmail = (email || '').trim().toLowerCase();
   const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
@@ -1146,6 +1253,12 @@ function mapSupabaseRowToProductClient(
     routine: (row.routine as any) || 'AM/PM',
     volume: row.volume_or_weight || '100ml',
     badges: [
+      Boolean(
+        row.is_coming_soon ||
+        (Array.isArray(row.badges) && row.badges.some((b: string) => typeof b === 'string' && b.toLowerCase().includes('coming soon'))) ||
+        (Array.isArray(row.benefits) && row.benefits.includes('__coming_soon__')) ||
+        (row.description && typeof row.description === 'string' && row.description.includes('__coming_soon__'))
+      ) ? 'Coming Soon' : '',
       row.is_bestseller ? 'Bestseller' : '',
       row.is_new ? 'New Arrival' : ''
     ].filter(Boolean),
@@ -1156,25 +1269,36 @@ function mapSupabaseRowToProductClient(
     bgGradient: 'from-rose-50 to-pink-100',
     keyActives: Array.isArray(row.key_actives) ? row.key_actives : [],
     fullIngredients: row.full_ingredients || '',
-    description: row.description || '',
-    benefits: Array.isArray(row.benefits) ? row.benefits : [],
+    description: (row.description || '').replace('__coming_soon__', '').trim(),
+    benefits: Array.isArray(row.benefits) ? row.benefits.filter((b: string) => b !== '__coming_soon__') : [],
     usageHowTo: row.usage_how_to || '',
     stock: stockValue,
     shades: PRODUCT_SHADES_MAP[productId] || undefined,
     isBestSeller: Boolean(row.is_bestseller),
-    isNew: Boolean(row.is_new)
+    isNew: Boolean(row.is_new),
+    isComingSoon: Boolean(
+      row.is_coming_soon ||
+      (Array.isArray(row.badges) && row.badges.some((b: string) => typeof b === 'string' && b.toLowerCase().includes('coming soon'))) ||
+      (Array.isArray(row.benefits) && row.benefits.includes('__coming_soon__')) ||
+      (row.description && typeof row.description === 'string' && row.description.includes('__coming_soon__'))
+    )
   };
 }
 
 function mapProductToSupabaseRowClient(p: Product): any {
   const defaultImg = p.image || (p.images && p.images[0]) || '/products/keana-rice-mask.png';
+  const cleanBenefits = Array.isArray(p.benefits) && p.benefits.length > 0 ? [...p.benefits] : ['Direct Japan import', 'Authentic quality'];
+  if (p.isComingSoon && !cleanBenefits.includes('__coming_soon__')) {
+    cleanBenefits.push('__coming_soon__');
+  }
+
   return {
     slug: p.id || `km-${Date.now()}`,
     title: p.title || 'Japanese Skincare Product',
     subtitle: p.subtitle || '',
     category_name: p.category || 'Skincare',
     description: p.description || 'Official direct imported Japanese skincare formulation.',
-    benefits: Array.isArray(p.benefits) && p.benefits.length > 0 ? p.benefits : ['Direct Japan import', 'Authentic quality'],
+    benefits: cleanBenefits,
     usage_how_to: p.usageHowTo || 'Apply onto cleansed skin. Gently pat with palms until absorbed.',
     key_actives: Array.isArray(p.keyActives) ? p.keyActives : [],
     full_ingredients: p.fullIngredients || 'Official Japanese formulation.',
@@ -1191,6 +1315,7 @@ function mapProductToSupabaseRowClient(p: Product): any {
     routine: p.routine || 'AM/PM',
     is_bestseller: Boolean(p.isBestSeller),
     is_new: Boolean(p.isNew),
+    is_coming_soon: Boolean(p.isComingSoon),
     is_active: true,
     rating: Number(p.rating) || 4.9,
     reviews_count: Number(p.reviewsCount) || 10,
@@ -1565,30 +1690,44 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
       if (updates.routine !== undefined) patch.routine = updates.routine;
       if (updates.isBestSeller !== undefined) patch.is_bestseller = updates.isBestSeller;
       if (updates.isNew !== undefined) patch.is_new = updates.isNew;
+      if (updates.isComingSoon !== undefined) {
+        patch.is_coming_soon = updates.isComingSoon;
+        const currBenefits = Array.isArray(updates.benefits) ? [...updates.benefits] : [];
+        patch.benefits = updates.isComingSoon
+          ? Array.from(new Set([...currBenefits, '__coming_soon__']))
+          : currBenefits.filter(b => b !== '__coming_soon__');
+      }
 
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
       const targetUuid = updates.dbId || (isUuid ? productId : null);
 
-      let updatedCount = 0;
-      if (targetUuid) {
-        const { data, error } = await client.from('products').update(patch).eq('id', targetUuid).select();
-        if (!error && data && data.length > 0) {
-          updatedCount += data.length;
+      const executeProductUpdate = async (updatePayload: any) => {
+        let count = 0;
+        let lastErr: any = null;
+        if (targetUuid) {
+          const { data, error } = await client.from('products').update(updatePayload).eq('id', targetUuid).select();
+          if (!error && data && data.length > 0) count += data.length;
+          if (error) lastErr = error;
         }
-      }
+        if (count === 0) {
+          const { data, error } = await client.from('products').update(updatePayload).eq('slug', productId).select();
+          if (!error && data && data.length > 0) count += data.length;
+          if (error) lastErr = error;
+        }
+        if (count === 0 && updates.title) {
+          const { data, error } = await client.from('products').update(updatePayload).eq('title', updates.title).select();
+          if (!error && data && data.length > 0) count += data.length;
+          if (error) lastErr = error;
+        }
+        return { count, error: lastErr };
+      };
 
-      if (updatedCount === 0) {
-        const { data, error } = await client.from('products').update(patch).eq('slug', productId).select();
-        if (!error && data && data.length > 0) {
-          updatedCount += data.length;
-        }
-      }
-
-      if (updatedCount === 0 && updates.title) {
-        const { data, error } = await client.from('products').update(patch).eq('title', updates.title).select();
-        if (!error && data && data.length > 0) {
-          updatedCount += data.length;
-        }
+      let { count: updatedCount, error: updateErr } = await executeProductUpdate(patch);
+      if (updatedCount === 0 && updateErr && (updateErr.message?.includes('is_coming_soon') || updateErr.code === '42703')) {
+        const fallbackPatch = { ...patch };
+        delete fallbackPatch.is_coming_soon;
+        const retryResult = await executeProductUpdate(fallbackPatch);
+        updatedCount = retryResult.count;
       }
 
       // If product does not exist in Supabase at all, insert it to cloud!
@@ -1691,7 +1830,16 @@ export const addProductToStore = async (product: Product): Promise<boolean> => {
   if (client) {
     try {
       const row = mapProductToSupabaseRowClient(product);
-      const { data, error } = await client.from('products').insert([row]).select();
+      let { data, error } = await client.from('products').insert([row]).select();
+      if (error && (error.message?.includes('is_coming_soon') || (error as any).code === '42703')) {
+        // Fallback: If table doesn't have is_coming_soon column yet, retry without it
+        // The __coming_soon__ flag in benefits guarantees detection across the app!
+        const fallbackRow = { ...row };
+        delete fallbackRow.is_coming_soon;
+        const retryRes = await client.from('products').insert([fallbackRow]).select();
+        data = retryRes.data;
+        error = retryRes.error;
+      }
       if (error) {
         console.error('[Supabase Store] Error adding product to Supabase:', error);
       } else if (data && data.length > 0) {

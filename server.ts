@@ -2042,6 +2042,68 @@ app.post('/api/admin/update-order-status', async (req: Request, res: Response) =
 });
 
 /**
+ * DELETE /api/admin/orders/:orderId
+ * Deletes an order from Supabase
+ */
+app.delete('/api/admin/orders/:orderId', async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'Order ID is required.' });
+    }
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        await supabase.from('order_items').delete().or(`order_id.eq.${orderId}`);
+      } catch {}
+      await supabase.from('orders').delete().or(`id.eq.${orderId},order_number.eq.${orderId}`);
+    }
+
+    return res.status(200).json({ success: true, message: 'Order deleted successfully.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * PATCH /api/admin/orders/:orderId
+ * Modifies an order in Supabase
+ */
+app.patch('/api/admin/orders/:orderId', async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const updates = req.body || {};
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'Order ID is required.' });
+    }
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      const dbPatch: any = {};
+      if (updates.customerName !== undefined) dbPatch.customer_name = updates.customerName;
+      if (updates.customerEmail !== undefined) dbPatch.customer_email = updates.customerEmail;
+      if (updates.customerPhone !== undefined) dbPatch.customer_phone = updates.customerPhone;
+      if (updates.status !== undefined) dbPatch.status = String(updates.status).toLowerCase();
+      if (updates.shippingAddress !== undefined) {
+        dbPatch.shipping_address_line1 = updates.shippingAddress.addressLine1;
+        dbPatch.shipping_city = updates.shippingAddress.city;
+        dbPatch.shipping_state = updates.shippingAddress.state;
+        dbPatch.shipping_pincode = updates.shippingAddress.pincode;
+      }
+
+      if (Object.keys(dbPatch).length > 0) {
+        await supabase.from('orders').update(dbPatch).or(`id.eq.${orderId},order_number.eq.${orderId}`);
+      }
+    }
+
+    return res.status(200).json({ success: true, message: 'Order modified successfully.' });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /api/categories
  * Returns active categories from Supabase (filtering out internal metadata rows)
  */

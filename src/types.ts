@@ -49,6 +49,7 @@ export interface Product {
   shades?: ProductShade[];
   isBestSeller?: boolean;
   isNew?: boolean;
+  isComingSoon?: boolean;
   stock: number;
 }
 
