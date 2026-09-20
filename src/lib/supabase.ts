@@ -1199,38 +1199,45 @@ function mapProductToSupabaseRowClient(p: Product): any {
 }
 
 /**
- * Fetches categories from server API and direct Supabase
+ * Fetches categories from direct Supabase (source of truth) and server API fallback
  */
-export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; name: string; slug: string; description?: string }>> => {
-  // 1. Try server API
+export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; name: string; slug: string; description?: string; display_order?: number }>> => {
+  // 1. Direct Supabase Client FIRST (Single source of truth for live database categories)
+  const client = await ensureSupabaseClient() || getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client
+        .from('categories')
+        .select('id, name, slug, description, display_order')
+        .order('display_order', { ascending: true });
+
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const filtered = data.filter((c: any) => !c.slug?.startsWith('_app_'));
+        try {
+          localStorage.setItem('km_custom_categories', JSON.stringify(filtered));
+        } catch {}
+        return filtered;
+      }
+    } catch (sbErr) {
+      console.warn('[Categories Store] Direct Supabase fetch warning, checking server fallback:', sbErr);
+    }
+  }
+
+  // 2. Server API Fallback
   try {
     const res = await fetch('/api/categories');
     if (res.ok) {
       const data = await res.json();
       if (data?.success && Array.isArray(data.categories) && data.categories.length > 0) {
-        return data.categories.filter((c: any) => c.slug !== '_app_inventory');
+        const filtered = data.categories.filter((c: any) => !c.slug?.startsWith('_app_'));
+        try {
+          localStorage.setItem('km_custom_categories', JSON.stringify(filtered));
+        } catch {}
+        return filtered;
       }
     }
   } catch (err) {
-    console.warn('[Categories Store] Server fetch error, checking direct Supabase:', err);
-  }
-
-  // 2. Direct Supabase
-  const client = getSupabaseClient();
-  if (client) {
-    try {
-      const { data, error } = await client
-        .from('categories')
-        .select('id, name, slug, description')
-        .neq('slug', '_app_inventory')
-        .order('name', { ascending: true });
-
-      if (!error && Array.isArray(data) && data.length > 0) {
-        return data;
-      }
-    } catch (sbErr) {
-      console.warn('[Categories Store] Supabase fetch error:', sbErr);
-    }
+    console.warn('[Categories Store] Server fetch error, checking local storage:', err);
   }
 
   // 3. Local fallback
@@ -1238,7 +1245,9 @@ export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; na
     const local = localStorage.getItem('km_custom_categories');
     if (local) {
       const parsed = JSON.parse(local);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter((c: any) => !c.slug?.startsWith('_app_'));
+      }
     }
   } catch {}
 
@@ -1255,25 +1264,8 @@ export const saveCategoryToStore = async (name: string, description?: string): P
 
   let resultCategory: any = null;
 
-  // 1. Server API
-  try {
-    const res = await fetch('/api/categories', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: cleanName, description })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.success && data.category) {
-        resultCategory = data.category;
-      }
-    }
-  } catch (err) {
-    console.warn('[Category Save] Server error, trying direct Supabase:', err);
-  }
-
-  // 2. Direct Supabase fallback
-  const client = getSupabaseClient();
+  // 1. Direct Supabase FIRST
+  const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
     try {
       const { data, error } = await client
@@ -1290,8 +1282,25 @@ export const saveCategoryToStore = async (name: string, description?: string): P
         resultCategory = data;
       }
     } catch (sbErr) {
-      console.warn('[Category Save] Supabase error:', sbErr);
+      console.warn('[Category Save] Supabase direct error:', sbErr);
     }
+  }
+
+  // 2. Server API sync
+  try {
+    const res = await fetch('/api/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: cleanName, description })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && data.category && !resultCategory) {
+        resultCategory = data.category;
+      }
+    }
+  } catch (err) {
+    console.warn('[Category Save] Server error:', err);
   }
 
   // 3. Local cache update
@@ -1311,17 +1320,8 @@ export const updateCategoryInStore = async (
   idOrSlug: string,
   updates: { name?: string; description?: string; slug?: string }
 ): Promise<boolean> => {
-  // 1. Server API
-  try {
-    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
-    });
-  } catch {}
-
-  // 2. Direct Supabase
-  const client = getSupabaseClient();
+  // 1. Direct Supabase
+  const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
     try {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
@@ -1332,6 +1332,15 @@ export const updateCategoryInStore = async (
     } catch {}
   }
 
+  // 2. Server API
+  try {
+    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates)
+    });
+  } catch {}
+
   return true;
 };
 
@@ -1339,13 +1348,8 @@ export const updateCategoryInStore = async (
  * Deletes a category from server and Supabase
  */
 export const deleteCategoryFromStore = async (idOrSlug: string): Promise<boolean> => {
-  // 1. Server API
-  try {
-    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, { method: 'DELETE' });
-  } catch {}
-
-  // 2. Direct Supabase
-  const client = getSupabaseClient();
+  // 1. Direct Supabase
+  const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
     try {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
@@ -1355,6 +1359,11 @@ export const deleteCategoryFromStore = async (idOrSlug: string): Promise<boolean
       await query;
     } catch {}
   }
+
+  // 2. Server API
+  try {
+    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, { method: 'DELETE' });
+  } catch {}
 
   return true;
 };

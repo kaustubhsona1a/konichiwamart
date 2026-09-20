@@ -290,7 +290,7 @@ export default function App() {
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
 
   // Dynamic categories synced from Supabase and Server
-  const [dbCategories, setDbCategories] = useState<Array<{ id: string; name: string; slug: string }>>([]);
+  const [dbCategories, setDbCategories] = useState<Array<{ id: string; name: string; slug: string; display_order?: number }>>([]);
 
   useEffect(() => {
     // Hydrate products directly from Supabase / live store on mount
@@ -302,19 +302,34 @@ export default function App() {
 
     fetchCategoriesFromStore().then((cats) => {
       if (Array.isArray(cats) && cats.length > 0) {
-        setDbCategories(cats.map(c => ({ id: c.name, name: c.name, slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') })));
+        setDbCategories(cats.map(c => ({
+          id: c.id || c.name,
+          name: c.name,
+          slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+          display_order: c.display_order ?? 99
+        })));
       }
     });
 
-    let removeChannelFn: (() => void) | null = null;
+    let isCancelled = false;
+    let activeChannel: any = null;
+
     ensureSupabaseClient().then(client => {
-      if (client) {
-        const channel = client
-          .channel('realtime_categories_and_products')
+      if (!client || isCancelled) return;
+      try {
+        const channelName = `realtime_cat_prod_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const channel = client.channel(channelName);
+
+        channel
           .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => {
             fetchCategoriesFromStore().then(cats => {
               if (Array.isArray(cats) && cats.length > 0) {
-                setDbCategories(cats.map(c => ({ id: c.name, name: c.name, slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') })));
+                setDbCategories(cats.map(c => ({
+                  id: c.id || c.name,
+                  name: c.name,
+                  slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+                  display_order: c.display_order ?? 99
+                })));
               }
             });
             fetchProductsFromStore().then(prods => {
@@ -329,17 +344,27 @@ export default function App() {
                 setProductsList(prods);
               }
             });
-          })
-          .subscribe();
+          });
 
-        removeChannelFn = () => {
+        if (isCancelled) {
           client.removeChannel(channel);
-        };
+          return;
+        }
+
+        channel.subscribe();
+        activeChannel = channel;
+      } catch (err) {
+        console.warn('[Realtime Sync] Channel subscription error:', err);
       }
     });
 
     return () => {
-      if (removeChannelFn) removeChannelFn();
+      isCancelled = true;
+      if (activeChannel) {
+        ensureSupabaseClient().then(client => {
+          if (client) client.removeChannel(activeChannel);
+        });
+      }
     };
   }, []);
 
@@ -962,65 +987,144 @@ export default function App() {
     discountAmount: 0
   });
 
-  // Dynamic categories combined from Supabase, preset list, and active products
+  // Helper: Normalize category string for comparison
+  const normalizeCat = (str?: string) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Helper: Format category display name in clean Title Case (e.g., "hair care" -> "Hair Care")
+  const formatCatName = (name: string): string => {
+    if (!name) return '';
+    return name
+      .split(' ')
+      .map((w) => {
+        if (!w) return '';
+        if (w === w.toLowerCase()) {
+          return w.charAt(0).toUpperCase() + w.slice(1);
+        }
+        return w;
+      })
+      .join(' ');
+  };
+
+  // Helper: check if a product belongs to a given category
+  const productBelongsToCategory = (p: Product, cat: { id?: string; name: string; slug?: string }) => {
+    const pCatNorm = normalizeCat(p.category);
+    const catNameNorm = normalizeCat(cat.name);
+    const catSlugNorm = normalizeCat(cat.slug);
+    const catIdNorm = normalizeCat(cat.id);
+
+    if (pCatNorm && (pCatNorm === catNameNorm || pCatNorm === catSlugNorm || pCatNorm === catIdNorm)) {
+      return true;
+    }
+    const pCatNameNorm = normalizeCat((p as any).categoryName);
+    if (pCatNameNorm && (pCatNameNorm === catNameNorm || pCatNameNorm === catSlugNorm)) {
+      return true;
+    }
+    if ((p as any).categoryId && (p as any).categoryId === cat.id) {
+      return true;
+    }
+    return false;
+  };
+
+  // Dynamic categories: Only show categories whose products are currently listed in the store
   const displayCategories = useMemo(() => {
-    const existing = new Set<string>();
-    const list: { id: string; name: string; slug: string }[] = [];
+    const list: { id: string; name: string; slug: string; count: number }[] = [];
+    const seen = new Set<string>();
 
-    // Always include 'All' first
-    list.push({ id: 'All', name: 'All', slug: 'all' });
-    existing.add('all');
+    // 1. Always include 'All' first
+    list.push({ id: 'All', name: 'All', slug: 'all', count: productsList.length });
+    seen.add('all');
 
-    // Add Supabase categories
+    // 2. Gather all candidate categories from Supabase (dbCategories), listed products, and presets
+    const candidates: Array<{ id: string; name: string; slug: string; display_order?: number }> = [];
+
+    // Supabase categories
     if (dbCategories.length > 0) {
       dbCategories.forEach((c) => {
-        const lower = c.name.toLowerCase();
-        if (lower !== 'all' && !existing.has(lower)) {
-          existing.add(lower);
-          list.push({ id: c.name, name: c.name, slug: c.slug || lower.replace(/[^a-z0-9]/g, '-') });
+        const norm = normalizeCat(c.name);
+        if (norm && norm !== 'all' && !candidates.some((existing) => normalizeCat(existing.name) === norm)) {
+          candidates.push(c);
         }
       });
     }
 
-    // Add preset categories
-    CATEGORIES.forEach((c) => {
-      const lower = c.name.toLowerCase();
-      if (lower !== 'all' && !existing.has(lower)) {
-        existing.add(lower);
-        list.push({ id: c.name, name: c.name, slug: c.slug || lower.replace(/[^a-z0-9]/g, '-') });
+    // Categories present on active products
+    productsList.forEach((p) => {
+      if (p.category) {
+        const norm = normalizeCat(p.category);
+        if (norm && norm !== 'all' && !candidates.some((existing) => normalizeCat(existing.name) === norm)) {
+          candidates.push({
+            id: p.category,
+            name: p.category,
+            slug: norm.replace(/[^a-z0-9]/g, '-')
+          });
+        }
       }
     });
 
-    // Also include any categories present on current active products
-    productsList.forEach((p) => {
-      if (p.category) {
-        const lower = p.category.toLowerCase();
-        if (!existing.has(lower)) {
-          existing.add(lower);
-          list.push({
-            id: p.category,
-            name: p.category,
-            slug: lower.replace(/[^a-z0-9]/g, '-')
-          });
-        }
+    // Preset categories
+    CATEGORIES.forEach((c) => {
+      const norm = normalizeCat(c.name);
+      if (norm && norm !== 'all' && !candidates.some((existing) => normalizeCat(existing.name) === norm)) {
+        candidates.push(c);
+      }
+    });
+
+    // 3. For each candidate category, count matching products currently listed
+    // RULE: Don't show categories whose products are currently not listed (count > 0)
+    candidates.forEach((cand) => {
+      const norm = normalizeCat(cand.name);
+      if (!norm || seen.has(norm)) return;
+
+      const matchingCount = productsList.filter((p) => productBelongsToCategory(p, cand)).length;
+
+      // Only include categories that currently have at least 1 product listed!
+      if (matchingCount > 0) {
+        seen.add(norm);
+        list.push({
+          id: cand.name,
+          name: formatCatName(cand.name),
+          slug: cand.slug || norm.replace(/[^a-z0-9]/g, '-'),
+          count: matchingCount
+        });
       }
     });
 
     return list;
   }, [dbCategories, productsList]);
 
+  // Reset selected category to 'All' if selected category is hidden or has no products
+  useEffect(() => {
+    if (selectedCategory && selectedCategory !== 'All' && selectedCategory !== 'cat-all') {
+      const norm = normalizeCat(selectedCategory.replace(/^cat-/, ''));
+      const exists = displayCategories.some(
+        c => c.name === selectedCategory ||
+             normalizeCat(c.name) === norm ||
+             normalizeCat(c.slug) === norm
+      );
+      if (!exists) {
+        setSelectedCategory('All');
+      }
+    }
+  }, [displayCategories, selectedCategory]);
+
   // Filtered Products Logic
   const filteredProducts = useMemo(() => {
     return productsList.filter((p) => {
       // Category filter (handles display names, IDs, slugs, and case-insensitivity)
       if (selectedCategory && selectedCategory !== 'All' && selectedCategory !== 'cat-all') {
-        const normSelected = selectedCategory.toLowerCase().replace(/^cat-/, '').replace(/[^a-z0-9]/g, '');
-        const normCat = (p.category || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normSelected = normalizeCat(selectedCategory.replace(/^cat-/, ''));
+        const normCat = normalizeCat(p.category);
         const matchesExact = p.category === selectedCategory;
         const matchesCaseInsensitive = p.category?.toLowerCase() === selectedCategory.toLowerCase();
         const matchesNorm = normCat === normSelected;
-        const matchingCatObj = displayCategories.find(c => c.id === selectedCategory || c.slug === selectedCategory || c.name.toLowerCase() === selectedCategory.toLowerCase());
-        const matchesCatObj = matchingCatObj ? (p.category?.toLowerCase() === matchingCatObj.name.toLowerCase()) : false;
+        const matchingCatObj = displayCategories.find(c => 
+          c.id === selectedCategory || 
+          c.slug === selectedCategory || 
+          c.name.toLowerCase() === selectedCategory.toLowerCase() ||
+          normalizeCat(c.name) === normSelected ||
+          normalizeCat(c.slug) === normSelected
+        );
+        const matchesCatObj = matchingCatObj ? productBelongsToCategory(p, matchingCatObj) : false;
 
         if (!matchesExact && !matchesCaseInsensitive && !matchesNorm && !matchesCatObj) {
           return false;

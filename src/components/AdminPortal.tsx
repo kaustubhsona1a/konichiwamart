@@ -603,7 +603,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Filtered Products for Inventory Table
   const filteredProducts = products.filter((p) => {
-    const matchesCategory = categoryFilter === 'All' || p.category === categoryFilter;
+    const normFilter = categoryFilter.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normCat = (p.category || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const matchesCategory = categoryFilter === 'All' || p.category === categoryFilter || normCat === normFilter;
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch = !q || p.title.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
     return matchesCategory && matchesSearch;
