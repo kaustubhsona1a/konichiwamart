@@ -1413,6 +1413,7 @@ function mapSupabaseRowToProductClient(
     shades: PRODUCT_SHADES_MAP[productId] || undefined,
     isBestSeller: Boolean(row.is_bestseller),
     isNew: Boolean(row.is_new),
+    displayOrder: row.display_order !== undefined && row.display_order !== null ? Number(row.display_order) : undefined,
     isComingSoon: Boolean(
       row.is_coming_soon ||
       (Array.isArray(row.badges) && row.badges.some((b: string) => typeof b === 'string' && b.toLowerCase().includes('coming soon'))) ||
@@ -1456,6 +1457,7 @@ function mapProductToSupabaseRowClient(p: Product): any {
     is_new: Boolean(p.isNew),
     is_coming_soon: Boolean(p.isComingSoon),
     is_active: true,
+    display_order: typeof p.displayOrder === 'number' ? p.displayOrder : undefined,
     rating: Number(p.rating) || 4.9,
     reviews_count: Number(p.reviewsCount) || 10,
     updated_at: new Date().toISOString()
@@ -1636,6 +1638,100 @@ export const deleteCategoryFromStore = async (idOrSlug: string): Promise<boolean
  * Fetches products from server API & Supabase.
  * Excludes permanently deleted products and ensures seamless sync.
  */
+/**
+ * Applies custom product sequence based on stored order array or displayOrder.
+ */
+export const applyProductOrderClient = (products: Product[], customOrderIds?: string[]): Product[] => {
+  let orderIds = customOrderIds;
+  if (!orderIds || !orderIds.length) {
+    try {
+      const saved = localStorage.getItem('km_product_order');
+      if (saved) {
+        orderIds = JSON.parse(saved);
+      }
+    } catch {}
+  }
+
+  if (orderIds && Array.isArray(orderIds) && orderIds.length > 0) {
+    const idToPos = new Map<string, number>();
+    orderIds.forEach((id, idx) => idToPos.set(id, idx));
+
+    const sorted = [...products].sort((a, b) => {
+      const posA = idToPos.has(a.id) ? idToPos.get(a.id)! : (a.displayOrder !== undefined ? a.displayOrder + 1000 : 9999);
+      const posB = idToPos.has(b.id) ? idToPos.get(b.id)! : (b.displayOrder !== undefined ? b.displayOrder + 1000 : 9999);
+      return posA - posB;
+    });
+
+    return sorted.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+  }
+
+  const hasDisplayOrder = products.some(p => typeof p.displayOrder === 'number');
+  if (hasDisplayOrder) {
+    const sorted = [...products].sort((a, b) => (a.displayOrder ?? 9999) - (b.displayOrder ?? 9999));
+    return sorted.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+  }
+
+  return products.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+};
+
+/**
+ * Persists custom product display order to localStorage, Supabase, and Server backend.
+ */
+export const saveProductOrderToStore = async (orderedProductIds: string[]): Promise<boolean> => {
+  try {
+    // 1. Local Storage
+    localStorage.setItem('km_product_order', JSON.stringify(orderedProductIds));
+
+    // Update displayOrder in km_custom_products
+    try {
+      const saved = localStorage.getItem('km_custom_products');
+      if (saved) {
+        const parsed: Product[] = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const idToPos = new Map<string, number>();
+          orderedProductIds.forEach((id, idx) => idToPos.set(id, idx + 1));
+          const updated = parsed.map(p => ({
+            ...p,
+            displayOrder: idToPos.get(p.id) ?? p.displayOrder ?? 999
+          }));
+          localStorage.setItem('km_custom_products', JSON.stringify(updated));
+        }
+      }
+    } catch {}
+
+    // 2. Server API
+    try {
+      await fetch('/api/products/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderIds: orderedProductIds })
+      });
+    } catch {}
+
+    // 3. Supabase Direct
+    const client = await ensureSupabaseClient() || getSupabaseClient();
+    if (client) {
+      try {
+        await client.from('categories').upsert({
+          slug: '_app_product_order',
+          name: 'Store Product Ordering Metadata',
+          description: JSON.stringify(orderedProductIds)
+        }, { onConflict: 'slug' });
+      } catch (e) {
+        console.warn('[saveProductOrderToStore] Supabase notice:', e);
+      }
+    }
+
+    return true;
+  } catch (err) {
+    console.error('[saveProductOrderToStore] Failed:', err);
+    return false;
+  }
+};
+
+/**
+ * Fetches products from store with order and inventory synchronization.
+ */
 export const fetchProductsFromStore = async (): Promise<Product[]> => {
   // Read local deleted IDs first for immediate filtering
   let localDeletedIds = new Set<string>();
@@ -1650,7 +1746,7 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
   const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
     try {
-      const [prodRes, invRes, catsRes] = await Promise.all([
+      const [prodRes, invRes, catsRes, orderRes] = await Promise.all([
         client
           .from('products')
           .select('*')
@@ -1663,7 +1759,12 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
           .maybeSingle(),
         client
           .from('categories')
-          .select('id, name, slug')
+          .select('id, name, slug'),
+        client
+          .from('categories')
+          .select('description')
+          .eq('slug', '_app_product_order')
+          .maybeSingle()
       ]);
 
       const inventoryMap: Record<string, number> = invRes?.data?.description 
@@ -1678,13 +1779,25 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
         });
       }
 
+      let supabaseOrderIds: string[] | undefined;
+      if (orderRes?.data?.description) {
+        try {
+          const parsed = JSON.parse(orderRes.data.description);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            supabaseOrderIds = parsed;
+            localStorage.setItem('km_product_order', JSON.stringify(parsed));
+          }
+        } catch {}
+      }
+
       if (!prodRes.error && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
         const mapped = prodRes.data
           .map((row) => mapSupabaseRowToProductClient(row, inventoryMap, categoryMap))
           .filter((p) => !localDeletedIds.has(p.id));
 
-        localStorage.setItem('km_custom_products', JSON.stringify(mapped));
-        return mapped;
+        const ordered = applyProductOrderClient(mapped, supabaseOrderIds);
+        localStorage.setItem('km_custom_products', JSON.stringify(ordered));
+        return ordered;
       }
     } catch (err) {
       console.warn('[Products Store] Direct Supabase error:', err);
@@ -1698,9 +1811,10 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
       const data = await res.json();
       if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
         const filtered = data.products.filter((p: Product) => !localDeletedIds.has(p.id));
+        const ordered = applyProductOrderClient(filtered);
         // Update local cache
-        localStorage.setItem('km_custom_products', JSON.stringify(filtered));
-        return filtered;
+        localStorage.setItem('km_custom_products', JSON.stringify(ordered));
+        return ordered;
       }
     }
   } catch (err) {
@@ -1724,12 +1838,13 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed) && parsed.length > 0) {
         const valid = parsed.filter((p: Product) => !localDeletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
-        if (valid.length > 0) return valid;
+        if (valid.length > 0) return applyProductOrderClient(valid);
       }
     }
   } catch {}
 
-  return PRODUCTS.filter((p) => !localDeletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
+  const defaultProducts = PRODUCTS.filter((p) => !localDeletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
+  return applyProductOrderClient(defaultProducts);
 };
 
 /**

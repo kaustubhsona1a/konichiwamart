@@ -40,14 +40,16 @@ export interface InvoiceData {
 }
 
 export const SELLER_DETAILS = {
-  companyName: 'Konichiwa Mart Retail Pvt. Ltd.',
-  tradeName: 'Konichiwa Mart - Boutique Japanese Beauty & Cosmetics',
-  addressLine1: 'Unit 402, Trade World B-Wing, Kamala Mills Compound',
-  addressLine2: 'Lower Parel West, Mumbai',
+  companyName: 'KONICHIWA_MART PRIVATE LIMITED',
+  tradeName: 'Konichiwa Mart',
+  tagline: 'Japanese Skincare • J-Beauty',
+  addressLine1: 'Shop no.3, Opposite Model Town Society, Near Takshila society',
+  addressLine2: 'Mahakali caves road, Andheri(E)',
+  landmark: 'Near Takshila CHS & Poonam nagar',
   city: 'Mumbai',
   state: 'Maharashtra',
   stateCode: '27',
-  pincode: '400013',
+  pincode: '400093',
   country: 'India',
   supportEmail: 'info@konichiwamart.com',
   supportPhone: '+91 (022) 4890 2341'
@@ -148,9 +150,12 @@ export function generateGSTInvoiceHtml(data: InvoiceData): string {
     <div class="header">
       <div>
         <div class="logo-brand">${SELLER_DETAILS.tradeName}</div>
+        <div style="font-size: 11px; font-weight: 700; color: #a53460; margin-bottom: 4px;">${SELLER_DETAILS.tagline}</div>
+        <div style="font-weight: 600; font-size: 11px; color: #334155;">${SELLER_DETAILS.companyName}</div>
         <div>${SELLER_DETAILS.addressLine1}</div>
-        <div>${SELLER_DETAILS.addressLine2}, ${SELLER_DETAILS.city} - ${SELLER_DETAILS.pincode}</div>
-        <div><strong>State:</strong> Maharashtra (Code: 27)</div>
+        <div>${SELLER_DETAILS.addressLine2}, ${SELLER_DETAILS.city}:- ${SELLER_DETAILS.pincode}</div>
+        <div><strong>Landmark:</strong> ${SELLER_DETAILS.landmark}</div>
+        <div><strong>State:</strong> Maharashtra (State Code: 27)</div>
       </div>
       <div>
         <div class="invoice-title">TAX INVOICE</div>
@@ -188,7 +193,7 @@ export function generateGSTInvoiceHtml(data: InvoiceData): string {
           <th>Description of Goods</th>
           <th class="text-center">HSN</th>
           <th class="text-center">Qty</th>
-          <th class="text-right">Rate (₹)</th>
+          <th class="text-right">Price (Incl. of all taxes) (₹)</th>
           <th class="text-right">Total (₹)</th>
         </tr>
       </thead>
@@ -208,36 +213,26 @@ export function generateGSTInvoiceHtml(data: InvoiceData): string {
 
     <table class="summary-table">
       <tr>
-        <td>Subtotal:</td>
-        <td class="text-right">₹${data.subtotal.toFixed(2)}</td>
+        <td>Price (Inclusive of all taxes):</td>
+        <td class="text-right">₹${data.items.reduce((s, it) => s + (it.totalPrice || (it.unitPrice * it.quantity)), 0).toFixed(2)}</td>
       </tr>
       ${data.discountAmount > 0 ? `
       <tr style="color: #e11d48;">
-        <td>Discount:</td>
+        <td>Privilege Discount:</td>
         <td class="text-right">-₹${data.discountAmount.toFixed(2)}</td>
       </tr>` : ''}
-      ${isIntrastate ? `
       <tr>
-        <td>CGST (9%):</td>
-        <td class="text-right">₹${data.cgst.toFixed(2)}</td>
-      </tr>
-      <tr>
-        <td>SGST (9%):</td>
-        <td class="text-right">₹${data.sgst.toFixed(2)}</td>
-      </tr>
-      ` : `
-      <tr>
-        <td>IGST (18%):</td>
-        <td class="text-right">₹${data.igst.toFixed(2)}</td>
-      </tr>
-      `}
-      <tr>
-        <td>Shipping Charges:</td>
+        <td>Shipping & Delivery:</td>
         <td class="text-right">${data.shippingFee === 0 ? 'FREE' : '₹' + data.shippingFee.toFixed(2)}</td>
       </tr>
       <tr style="font-weight: bold; font-size: 13px; border-top: 2px solid #0f172a;">
         <td>Grand Total:</td>
         <td class="text-right">₹${data.totalAmount.toFixed(2)}</td>
+      </tr>
+      <tr>
+        <td colspan="2" style="font-size: 9.5px; color: #64748b; text-align: right; padding-top: 4px; border: none;">
+          (Price inclusive of all taxes. No extra GST added.)
+        </td>
       </tr>
     </table>
 

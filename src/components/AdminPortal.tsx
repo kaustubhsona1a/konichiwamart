@@ -25,7 +25,11 @@ import { X,
   FolderPlus,
   Loader2,
   RefreshCw,
-  Mail, Edit3 } from 'lucide-react';
+  Mail, Edit3,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ListOrdered } from 'lucide-react';
 import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
@@ -92,6 +96,7 @@ interface AdminPortalProps {
   onEditProduct?: (product: Product) => void | Promise<any>;
   onRemoveProduct?: (productId: string) => void | Promise<any>;
   onResetDefaultProducts?: () => void;
+  onReorderProducts?: (reordered: Product[]) => void | Promise<any>;
   onLogout: () => void;
   operatorEmail?: string;
   siteSettings: SiteSettings;
@@ -118,6 +123,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onEditProduct,
   onRemoveProduct,
   onResetDefaultProducts,
+  onReorderProducts,
   onLogout,
   operatorEmail = 'dealer@konichiwamart.com',
   siteSettings,
@@ -200,23 +206,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newSubtitle, setNewSubtitle] = useState('');
-  const [newCategory, setNewCategory] = useState<ProductCategory>('Face Wash');
+  const [newCategory, setNewCategory] = useState<ProductCategory>('Face Mask');
   const [newIsComingSoon, setNewIsComingSoon] = useState(false);
+  const [newDisplayOrder, setNewDisplayOrder] = useState<string>('');
   
   const resetProductForm = () => {
     setEditingProduct(null);
     setNewTitle('');
     setNewSubtitle('');
-    setNewCategory('Face Wash');
+    setNewCategory('Face Mask');
     setNewIsComingSoon(false);
     setNewPrice('750');
     setNewOriginalPrice('950');
     setNewStock('50');
     setNewVolume('150ml');
     setNewPhotos([]);
+    setNewDisplayOrder(String(products.length + 1));
     setPhotoUploadError(null);
     setProductFormMsg(null);
   };
+
+  // Reorder Products Modal State
+  const [showReorderModal, setShowReorderModal] = useState(false);
+  const [orderedList, setOrderedList] = useState<Product[]>([]);
+  const [reorderSearchQuery, setReorderSearchQuery] = useState('');
+  const [isSavingReorder, setIsSavingReorder] = useState(false);
+  const [reorderFeedbackMsg, setReorderFeedbackMsg] = useState<string | null>(null);
 
   // Dedicated interactive modals for orders (replaces browser prompt/confirm)
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
@@ -300,8 +315,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setIsDeletingOrder(false);
     }
   };
+  // Helper to ensure Cleaner / Face Wash categories always appear LAST in category listings
+  const sortCategoriesWithCleanerLast = (cats: string[]) => {
+    const isCleaner = (c: string) => {
+      const l = c.toLowerCase();
+      return (
+        l.includes('cleaner') ||
+        l.includes('cleanser') ||
+        l.includes('cleansing') ||
+        l.includes('face wash') ||
+        l.includes('facewash')
+      );
+    };
+    const regular = cats.filter((c) => !isCleaner(c));
+    const cleaners = cats.filter((c) => isCleaner(c));
+    cleaners.sort((a, b) => {
+      const aClean = a.toLowerCase().includes('cleaner');
+      const bClean = b.toLowerCase().includes('cleaner');
+      if (aClean && !bClean) return 1;
+      if (!aClean && bClean) return -1;
+      return 0;
+    });
+    return [...regular, ...cleaners];
+  };
+
   const [categoriesList, setCategoriesList] = useState<string[]>([
-    'Face Wash', 'Face Mask', 'Toner', 'Sunscreen', 'Lips', 'Serum', 'Cleansing Oil', 'Moisturizer', 'Skincare'
+    'Face Mask', 'Toner', 'Sunscreen', 'Lips', 'Serum', 'Cleansing Oil', 'Moisturizer', 'Skincare', 'Face Wash'
   ]);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [newCustomCategoryName, setNewCustomCategoryName] = useState('');
@@ -314,7 +353,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       .then((cats) => {
         if (Array.isArray(cats) && cats.length > 0) {
           const names = cats.map((c: any) => c.name);
-          setCategoriesList((prev) => Array.from(new Set([...prev, ...names])));
+          setCategoriesList((prev) => sortCategoriesWithCleanerLast(Array.from(new Set([...prev, ...names]))));
         }
       })
       .catch((err) => {
@@ -334,7 +373,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     try {
       const saved = await saveCategoryToStore(trimmed);
       if (saved) {
-        setCategoriesList((prev) => Array.from(new Set([...prev, trimmed])));
+        setCategoriesList((prev) => sortCategoriesWithCleanerLast(Array.from(new Set([...prev, trimmed]))));
         setNewCategory(trimmed);
         setCategorySaveMsg({ type: 'success', text: `Category "${trimmed}" saved to Supabase!` });
         setTimeout(() => {
@@ -655,7 +694,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           images: newPhotos,
           stock: parsedStock,
           badges: currentBadges,
-          isComingSoon: newIsComingSoon
+          isComingSoon: newIsComingSoon,
+          displayOrder: parseInt(newDisplayOrder, 10) || editingProduct.displayOrder || products.length + 1
         };
 
         if (onEditProduct) {
@@ -688,6 +728,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           accentColor: '#C52857',
           bgGradient: 'from-pink-50 to-rose-100',
           stock: parsedStock,
+          displayOrder: parseInt(newDisplayOrder, 10) || products.length + 1,
           keyActives: [
             { name: 'Japanese Botanical Extract', purpose: 'Restores skin barrier & luminosity' }
           ],
@@ -724,7 +765,93 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setNewVolume(product.volume || '150ml');
     setNewPhotos(product.images || (product.image ? [product.image] : []));
     setNewIsComingSoon(Boolean(product.isComingSoon || (product.badges && product.badges.includes('Coming Soon'))));
+    setNewDisplayOrder(
+      product.displayOrder !== undefined
+        ? String(product.displayOrder)
+        : String(products.findIndex((p) => p.id === product.id) + 1)
+    );
     setShowAddProductModal(true);
+  };
+
+  // Reorder & Sequence Management Handlers
+  const handleQuickMove = async (productId: string, direction: -1 | 1) => {
+    const currentIndex = products.findIndex((p) => p.id === productId);
+    if (currentIndex === -1) return;
+    const targetIndex = currentIndex + direction;
+    if (targetIndex < 0 || targetIndex >= products.length) return;
+
+    const copy = [...products];
+    const [moved] = copy.splice(currentIndex, 1);
+    copy.splice(targetIndex, 0, moved);
+
+    if (onReorderProducts) {
+      await onReorderProducts(copy);
+      setRemoveToastMessage(`Moved "${moved.title}" to position #${targetIndex + 1} on website.`);
+      setTimeout(() => setRemoveToastMessage(null), 3000);
+    }
+  };
+
+  const handleOpenReorderModal = () => {
+    setOrderedList([...products].sort((a, b) => (a.displayOrder ?? 9999) - (b.displayOrder ?? 9999)));
+    setReorderSearchQuery('');
+    setReorderFeedbackMsg(null);
+    setShowReorderModal(true);
+  };
+
+  const handleMoveInModal = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= orderedList.length) return;
+    setOrderedList((prev) => {
+      const copy = [...prev];
+      const [item] = copy.splice(fromIndex, 1);
+      copy.splice(toIndex, 0, item);
+      return copy;
+    });
+  };
+
+  const handleMoveToPosition = (fromIndex: number, targetRank: number) => {
+    const targetIndex = Math.max(0, Math.min(orderedList.length - 1, targetRank - 1));
+    if (targetIndex === fromIndex) return;
+    handleMoveInModal(fromIndex, targetIndex);
+  };
+
+  const handleApplyPresetOrder = (preset: 'bestseller' | 'price-asc' | 'price-desc' | 'title' | 'reset') => {
+    setOrderedList((prev) => {
+      const copy = [...prev];
+      if (preset === 'bestseller') {
+        copy.sort((a, b) => {
+          const aScore = (a.isBestSeller ? 2 : 0) + (a.reviewsCount || 0);
+          const bScore = (b.isBestSeller ? 2 : 0) + (b.reviewsCount || 0);
+          return bScore - aScore;
+        });
+      } else if (preset === 'price-asc') {
+        copy.sort((a, b) => a.price - b.price);
+      } else if (preset === 'price-desc') {
+        copy.sort((a, b) => b.price - a.price);
+      } else if (preset === 'title') {
+        copy.sort((a, b) => a.title.localeCompare(b.title));
+      } else if (preset === 'reset') {
+        copy.sort((a, b) => a.id.localeCompare(b.id));
+      }
+      return copy;
+    });
+    setReorderFeedbackMsg(`Applied preset sequence. Click "Save Website Order" to publish.`);
+  };
+
+  const handleSaveModalReorder = async () => {
+    if (!onReorderProducts) return;
+    setIsSavingReorder(true);
+    try {
+      await onReorderProducts(orderedList);
+      setReorderFeedbackMsg('Product sequence saved & updated across the website!');
+      setTimeout(() => {
+        setShowReorderModal(false);
+        setReorderFeedbackMsg(null);
+      }, 1000);
+    } catch (err: any) {
+      setReorderFeedbackMsg(`Error saving order: ${err?.message || 'Failed'}`);
+    } finally {
+      setIsSavingReorder(false);
+    }
   };
 
   // Filtered Products for Inventory Table
@@ -1387,7 +1514,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {onReorderProducts && (
+                    <button
+                      onClick={handleOpenReorderModal}
+                      className="px-3.5 py-2.5 rounded-xl border border-pink-200 bg-pink-50 hover:bg-pink-100 text-pink-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all shadow-xs"
+                      title="Set product display sequence on website"
+                    >
+                      <ArrowUpDown className="w-3.5 h-3.5 text-pink-600" />
+                      <span>Set Product Order</span>
+                    </button>
+                  )}
+
                   {onResetDefaultProducts && (
                     <button
                       onClick={() => {
@@ -1471,23 +1609,50 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-1">
-                            <span className="px-2 py-0.5 rounded-md bg-stone-100 text-slate-700 text-[10px] font-bold border border-stone-200">
-                              {p.category}
-                            </span>
-                            <button
-                              onClick={() => handleOpenEditProduct(p)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-pink-600 hover:bg-pink-50 border border-transparent hover:border-pink-200 transition-colors mr-1"
-                              title={`Edit ${p.title}`}
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setProductToDelete(p)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
-                              title={`Delete ${p.title}`}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="px-2 py-0.5 rounded-md bg-stone-100 text-slate-700 text-[10px] font-bold border border-stone-200">
+                                {p.category}
+                              </span>
+                              <div className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-pink-50 border border-pink-200 text-pink-700 text-[10px] font-bold">
+                                <span>#{p.displayOrder ?? (products.findIndex((item) => item.id === p.id) + 1)}</span>
+                                {onReorderProducts && (
+                                  <div className="flex items-center ml-0.5">
+                                    <button
+                                      onClick={() => handleQuickMove(p.id, -1)}
+                                      disabled={products.findIndex((item) => item.id === p.id) === 0}
+                                      className="disabled:opacity-20 text-slate-500 hover:text-pink-600 p-0.5"
+                                      title="Move Up"
+                                    >
+                                      <ArrowUp className="w-2.5 h-2.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleQuickMove(p.id, 1)}
+                                      disabled={products.findIndex((item) => item.id === p.id) === products.length - 1}
+                                      className="disabled:opacity-20 text-slate-500 hover:text-pink-600 p-0.5"
+                                      title="Move Down"
+                                    >
+                                      <ArrowDown className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="flex items-center">
+                              <button
+                                onClick={() => handleOpenEditProduct(p)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-pink-600 hover:bg-pink-50 border border-transparent hover:border-pink-200 transition-colors mr-1"
+                                title={`Edit ${p.title}`}
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => setProductToDelete(p)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-colors"
+                                title={`Delete ${p.title}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                           <h4 className="font-bold text-slate-900 text-xs mt-1 leading-snug line-clamp-2">
                             {p.title}
@@ -1650,6 +1815,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <table className="w-full text-left text-xs">
                     <thead className="bg-stone-50/90 text-slate-600 font-semibold uppercase tracking-wider text-[10px] border-b border-stone-200">
                       <tr>
+                        <th className="p-3.5 text-center w-24">Order</th>
                         <th className="p-3.5">Product</th>
                         <th className="p-3.5">Category</th>
                         <th className="p-3.5">Selling Price</th>
@@ -1666,6 +1832,35 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                         return (
                           <tr key={p.id} className="hover:bg-pink-50/20 transition-colors">
+                            {/* Product Rank / Order with Quick Shift */}
+                            <td className="p-3.5 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <span className="w-7 h-7 rounded-lg bg-pink-50 border border-pink-200 text-pink-700 font-bold text-xs flex items-center justify-center">
+                                  #{p.displayOrder ?? (products.findIndex((item) => item.id === p.id) + 1)}
+                                </span>
+                                {onReorderProducts && (
+                                  <div className="flex flex-col gap-0.5">
+                                    <button
+                                      onClick={() => handleQuickMove(p.id, -1)}
+                                      disabled={products.findIndex((item) => item.id === p.id) === 0}
+                                      className="p-1 rounded hover:bg-stone-100 disabled:opacity-20 text-slate-500 hover:text-pink-600 transition-colors cursor-pointer"
+                                      title="Move up in website catalog"
+                                    >
+                                      <ArrowUp className="w-3 h-3" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleQuickMove(p.id, 1)}
+                                      disabled={products.findIndex((item) => item.id === p.id) === products.length - 1}
+                                      className="p-1 rounded hover:bg-stone-100 disabled:opacity-20 text-slate-500 hover:text-pink-600 transition-colors cursor-pointer"
+                                      title="Move down in website catalog"
+                                    >
+                                      <ArrowDown className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+
                             {/* Product Info */}
                             <td className="p-3.5">
                               <div className="flex items-center gap-3">
@@ -2610,6 +2805,230 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       </div>
 
       {/* ========================================================================= */}
+      {/* SET PRODUCT ORDER (REORDER MODAL) */}
+      {/* ========================================================================= */}
+      {showReorderModal && (
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white border border-pink-100 rounded-2xl sm:rounded-3xl w-full max-w-2xl p-4 sm:p-6 shadow-2xl text-left space-y-4 max-h-[92vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3 flex-shrink-0">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                  <ArrowUpDown className="w-4 h-4 text-pink-600" />
+                  <span>Set Website Product Sequence</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Order in which products appear in the storefront. Position #1 is displayed first.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowReorderModal(false)}
+                className="w-8 h-8 rounded-full bg-stone-100 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Presets & Quick Reorder Controls */}
+            <div className="flex flex-wrap items-center gap-1.5 p-2.5 rounded-xl bg-stone-50 border border-stone-200 text-xs flex-shrink-0">
+              <span className="font-semibold text-slate-500 mr-1">Quick Presets:</span>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetOrder('bestseller')}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-pink-50 border border-stone-200 text-slate-700 hover:text-pink-700 text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs"
+              >
+                ⭐ Bestsellers First
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetOrder('price-asc')}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-pink-50 border border-stone-200 text-slate-700 hover:text-pink-700 text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs"
+              >
+                ₹ Price: Low to High
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetOrder('price-desc')}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-pink-50 border border-stone-200 text-slate-700 hover:text-pink-700 text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs"
+              >
+                ₹ Price: High to Low
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetOrder('title')}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-pink-50 border border-stone-200 text-slate-700 hover:text-pink-700 text-[11px] font-semibold cursor-pointer transition-colors shadow-2xs"
+              >
+                🔤 A - Z
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetOrder('reset')}
+                className="px-2.5 py-1 rounded-lg bg-white hover:bg-stone-100 border border-stone-200 text-slate-600 text-[11px] font-medium cursor-pointer transition-colors"
+              >
+                Default
+              </button>
+            </div>
+
+            {/* Search filter in modal */}
+            <div className="relative flex-shrink-0">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={reorderSearchQuery}
+                onChange={(e) => setReorderSearchQuery(e.target.value)}
+                placeholder="Filter products to spot a specific item..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-stone-50 border border-stone-200 text-xs focus:bg-white focus:border-pink-500 focus:outline-none"
+              />
+            </div>
+
+            {/* Feedback Message */}
+            {reorderFeedbackMsg && (
+              <div className="p-2.5 rounded-xl bg-pink-50 border border-pink-200 text-pink-800 text-xs flex items-center gap-2 flex-shrink-0">
+                <CheckCircle2 className="w-4 h-4 text-pink-600 flex-shrink-0" />
+                <span>{reorderFeedbackMsg}</span>
+              </div>
+            )}
+
+            {/* Scrollable list of products */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 divide-y divide-stone-100">
+              {orderedList
+                .map((product, actualIndex) => ({ product, actualIndex }))
+                .filter(({ product }) => {
+                  if (!reorderSearchQuery.trim()) return true;
+                  const q = reorderSearchQuery.toLowerCase();
+                  return product.title.toLowerCase().includes(q) || product.category.toLowerCase().includes(q);
+                })
+                .map(({ product, actualIndex }) => {
+                  const displayRank = actualIndex + 1;
+                  return (
+                    <div
+                      key={product.id}
+                      className="pt-2 flex items-center justify-between gap-2 p-2 rounded-xl hover:bg-stone-50 transition-colors"
+                    >
+                      {/* Left: Rank & Image & Title */}
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="w-7 h-7 rounded-lg bg-pink-50 border border-pink-200 text-pink-700 font-bold text-xs flex items-center justify-center flex-shrink-0">
+                          #{displayRank}
+                        </div>
+                        <div className="w-10 h-10 rounded-lg bg-stone-100 border border-stone-200 overflow-hidden flex-shrink-0 flex items-center justify-center p-1">
+                          <img
+                            src={product.image}
+                            alt={product.title}
+                            className="w-full h-full object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-slate-900 text-xs truncate">
+                            {product.title}
+                          </div>
+                          <div className="text-[10px] text-slate-500 flex items-center gap-2">
+                            <span>{product.category}</span>
+                            <span>•</span>
+                            <span>₹{product.price}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right: Move & Rank Input controls */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <div className="flex items-center gap-1 mr-1">
+                          <span className="text-[10px] text-slate-400 font-medium">Rank:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max={orderedList.length}
+                            defaultValue={displayRank}
+                            key={`rank-${product.id}-${displayRank}`}
+                            onBlur={(e) => {
+                              const targetVal = parseInt(e.target.value, 10);
+                              if (!isNaN(targetVal)) {
+                                handleMoveToPosition(actualIndex, targetVal);
+                              }
+                            }}
+                            className="w-12 text-center py-1 px-1 rounded-lg border border-stone-200 text-xs font-bold text-slate-800 bg-white"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveInModal(actualIndex, 0)}
+                          disabled={actualIndex === 0}
+                          className="px-1.5 py-1 rounded bg-stone-100 hover:bg-stone-200 disabled:opacity-20 text-slate-700 text-[10px] font-bold cursor-pointer transition-colors"
+                          title="Move to Very Top (#1)"
+                        >
+                          Top
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveInModal(actualIndex, actualIndex - 1)}
+                          disabled={actualIndex === 0}
+                          className="p-1 rounded bg-stone-100 hover:bg-pink-100 hover:text-pink-700 disabled:opacity-20 text-slate-700 cursor-pointer transition-colors"
+                          title="Move Up One Spot"
+                        >
+                          <ArrowUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveInModal(actualIndex, actualIndex + 1)}
+                          disabled={actualIndex === orderedList.length - 1}
+                          className="p-1 rounded bg-stone-100 hover:bg-pink-100 hover:text-pink-700 disabled:opacity-20 text-slate-700 cursor-pointer transition-colors"
+                          title="Move Down One Spot"
+                        >
+                          <ArrowDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMoveInModal(actualIndex, orderedList.length - 1)}
+                          disabled={actualIndex === orderedList.length - 1}
+                          className="px-1.5 py-1 rounded bg-stone-100 hover:bg-stone-200 disabled:opacity-20 text-slate-700 text-[10px] font-bold cursor-pointer transition-colors"
+                          title="Move to Bottom"
+                        >
+                          End
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Footer buttons */}
+            <div className="flex items-center justify-between border-t border-stone-100 pt-3 flex-shrink-0">
+              <div className="text-[11px] text-slate-500">
+                Total {orderedList.length} products
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowReorderModal(false)}
+                  className="px-3 py-1.5 rounded-xl border border-stone-200 text-slate-600 hover:bg-stone-50 text-xs font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveModalReorder}
+                  disabled={isSavingReorder}
+                  className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-md shadow-pink-600/20 disabled:opacity-50"
+                >
+                  {isSavingReorder ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Order...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Website Order</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* ADD PRODUCT MODAL */}
       {/* ========================================================================= */}
       {showAddProductModal && (
@@ -2774,7 +3193,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
                     Price (₹)
@@ -2815,6 +3234,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     value={newStock}
                     onChange={(e) => setNewStock(e.target.value)}
                     placeholder="0"
+                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1" title="Display sequence on website">
+                    Order Rank
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newDisplayOrder}
+                    onChange={(e) => setNewDisplayOrder(e.target.value)}
+                    placeholder="1"
                     className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
                   />
                 </div>

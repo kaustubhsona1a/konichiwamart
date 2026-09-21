@@ -14,7 +14,8 @@ import {
   ChevronRight,
   ArrowUpRight,
   Zap,
-  CheckCircle2
+  CheckCircle2,
+  ArrowUpDown
 } from 'lucide-react';
 import { 
   Product, 
@@ -77,7 +78,9 @@ import {
   deleteOrderFromSupabase,
   modifyOrderInSupabase,
   saveAddressToSupabase,
-  fetchCategoriesFromStore
+  fetchCategoriesFromStore,
+  applyProductOrderClient,
+  saveProductOrderToStore
 } from './lib/supabase';
 import { FallingPetalsBackground } from './components/FallingPetalsBackground';
 import { formatINR } from './data/pincodes';
@@ -130,14 +133,14 @@ export default function App() {
         if (Array.isArray(parsed) && parsed.length > 0) {
           const cleaned = parsed.filter((p) => !deletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
           if (cleaned.length > 0) {
-            return cleaned;
+            return applyProductOrderClient(cleaned);
           }
         }
       } else if (deletedIds.size > 0) {
-        return PRODUCTS.filter((p) => !deletedIds.has(p.id));
+        return applyProductOrderClient(PRODUCTS.filter((p) => !deletedIds.has(p.id)));
       }
     } catch {}
-    return PRODUCTS;
+    return applyProductOrderClient(PRODUCTS);
   });
 
   // Products & Filtering State
@@ -145,6 +148,23 @@ export default function App() {
   const [selectedConcern, setSelectedConcern] = useState<string>('All');
   const [selectedSkinType, setSelectedSkinType] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Storefront Product Sort & Order Option
+  type ProductSortOption = 'featured' | 'price-asc' | 'price-desc' | 'rating' | 'bestseller' | 'newest' | 'title';
+  const [productSortBy, setProductSortBy] = useState<ProductSortOption>(() => {
+    try {
+      const saved = localStorage.getItem('km_product_sort_by');
+      if (saved) return saved as ProductSortOption;
+    } catch {}
+    return 'featured';
+  });
+
+  const handleSortChange = (newSort: ProductSortOption) => {
+    setProductSortBy(newSort);
+    try {
+      localStorage.setItem('km_product_sort_by', newSort);
+    } catch {}
+  };
 
   // Store-wide orders (for admin portal & store management)
   const [storeOrders, setStoreOrders] = useState<Order[]>(() => {
@@ -996,6 +1016,25 @@ export default function App() {
     setProductsList(fresh);
   };
 
+  // Reorder Products Handler (Persists custom website product sequence to Supabase, server, and local storage)
+  const handleReorderProducts = async (reordered: Product[]) => {
+    const withOrder = reordered.map((p, idx) => ({
+      ...p,
+      displayOrder: idx + 1
+    }));
+    setProductsList(withOrder);
+    try {
+      localStorage.setItem('km_custom_products', JSON.stringify(withOrder));
+      localStorage.setItem('km_product_order', JSON.stringify(withOrder.map((p) => p.id)));
+    } catch {}
+
+    await saveProductOrderToStore(withOrder.map((p) => p.id));
+    const fresh = await fetchProductsFromStore();
+    if (fresh && fresh.length > 0) {
+      setProductsList(fresh);
+    }
+  };
+
   // Active Promo applied from Cart
   const [checkoutDiscount, setCheckoutDiscount] = useState<{ promoCode?: string; discountAmount: number }>({
     promoCode: undefined,
@@ -1104,6 +1143,37 @@ export default function App() {
       }
     });
 
+    // RULE: Cleaner / Cleanser / Face Wash filter categories MUST be placed LAST on the website
+    if (list.length > 1) {
+      const allItem = list[0]; // 'All' category remains first
+      const otherItems = list.slice(1);
+
+      const isCleanerFilter = (cat: { id: string; name: string; slug: string }) => {
+        const text = `${cat.name} ${cat.slug} ${cat.id}`.toLowerCase();
+        return (
+          text.includes('cleaner') ||
+          text.includes('cleanser') ||
+          text.includes('cleansing') ||
+          text.includes('face wash') ||
+          text.includes('facewash')
+        );
+      };
+
+      const regularCategories = otherItems.filter((c) => !isCleanerFilter(c));
+      const cleanerCategories = otherItems.filter((c) => isCleanerFilter(c));
+
+      // Order cleaner categories so anything specifically named 'cleaner' is at the very end
+      cleanerCategories.sort((a, b) => {
+        const aExact = a.name.toLowerCase().includes('cleaner');
+        const bExact = b.name.toLowerCase().includes('cleaner');
+        if (aExact && !bExact) return 1;
+        if (!aExact && bExact) return -1;
+        return 0;
+      });
+
+      return [allItem, ...regularCategories, ...cleanerCategories];
+    }
+
     return list;
   }, [dbCategories, productsList]);
 
@@ -1122,9 +1192,9 @@ export default function App() {
     }
   }, [displayCategories, selectedCategory]);
 
-  // Filtered Products Logic
+  // Filtered & Sorted Products Logic
   const filteredProducts = useMemo(() => {
-    return productsList.filter((p) => {
+    const list = productsList.filter((p) => {
       // Category filter (handles display names, IDs, slugs, and case-insensitivity)
       if (selectedCategory && selectedCategory !== 'All' && selectedCategory !== 'cat-all') {
         const normSelected = normalizeCat(selectedCategory.replace(/^cat-/, ''));
@@ -1166,7 +1236,37 @@ export default function App() {
       }
       return true;
     });
-  }, [productsList, selectedCategory, selectedConcern, selectedSkinType, searchQuery, displayCategories]);
+
+    // Apply Order in which products appear in the website
+    return [...list].sort((a, b) => {
+      if (productSortBy === 'price-asc') {
+        return a.price - b.price;
+      }
+      if (productSortBy === 'price-desc') {
+        return b.price - a.price;
+      }
+      if (productSortBy === 'rating') {
+        return b.rating - a.rating;
+      }
+      if (productSortBy === 'bestseller') {
+        const aScore = (a.isBestSeller ? 2 : 0) + (a.reviewsCount || 0);
+        const bScore = (b.isBestSeller ? 2 : 0) + (b.reviewsCount || 0);
+        return bScore - aScore;
+      }
+      if (productSortBy === 'newest') {
+        const aScore = a.isNew ? 1 : 0;
+        const bScore = b.isNew ? 1 : 0;
+        return bScore - aScore;
+      }
+      if (productSortBy === 'title') {
+        return a.title.localeCompare(b.title);
+      }
+      // 'featured' (Default sequence): Respects displayOrder / custom store sequence!
+      const orderA = typeof a.displayOrder === 'number' ? a.displayOrder : 9999;
+      const orderB = typeof b.displayOrder === 'number' ? b.displayOrder : 9999;
+      return orderA - orderB;
+    });
+  }, [productsList, selectedCategory, selectedConcern, selectedSkinType, searchQuery, displayCategories, productSortBy]);
 
   // Cart operations
   const handleAddToCart = (product: Product, quantity = 1, shade?: ProductShade) => {
@@ -1590,11 +1690,41 @@ export default function App() {
           {/* 2. MAIN PRODUCT CATALOG */}
           <main id="collection" className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pt-12 sm:pt-16 md:pt-20 pb-12 sm:pb-20">
             
-            {/* Simplified Section Header */}
-            <div className="mb-4 sm:mb-6 text-left">
-              <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
-                Our Collection
-              </h2>
+            {/* Collection Section Header with Product Order / Sort Option */}
+            <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
+              <div>
+                <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
+                  Our Collection
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                  {filteredProducts.length} {filteredProducts.length === 1 ? 'Product' : 'Products'} Available
+                </p>
+              </div>
+
+              {/* Storefront Product Order / Sort Dropdown */}
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <label 
+                  htmlFor="sort-products-select" 
+                  className="text-xs font-semibold text-slate-600 dark:text-zinc-300 flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  <ArrowUpDown className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400" />
+                  <span>Order:</span>
+                </label>
+                <select
+                  id="sort-products-select"
+                  value={productSortBy}
+                  onChange={(e) => handleSortChange(e.target.value as ProductSortOption)}
+                  className="text-xs font-semibold bg-white dark:bg-zinc-900 text-slate-800 dark:text-zinc-100 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-pink-500/20 cursor-pointer shadow-2xs hover:border-pink-300 transition-colors"
+                >
+                  <option value="featured">✨ Default Sequence</option>
+                  <option value="price-asc">Price: Low to High</option>
+                  <option value="price-desc">Price: High to Low</option>
+                  <option value="rating">Highest Rated</option>
+                  <option value="bestseller">Bestsellers First</option>
+                  <option value="newest">New Arrivals</option>
+                  <option value="title">Alphabetical (A - Z)</option>
+                </select>
+              </div>
             </div>
 
             {/* Clean Category Pills */}
@@ -1792,6 +1922,7 @@ export default function App() {
         onEditProduct={handleEditProduct}
         onRemoveProduct={handleRemoveProduct}
         onResetDefaultProducts={handleResetDefaultProducts}
+        onReorderProducts={handleReorderProducts}
         onLogout={() => {
           operatorLogout();
           setOperatorSession(null);

@@ -2510,6 +2510,52 @@ function saveCustomProducts(products: Product[]): void {
   } catch {}
 }
 
+const PRODUCT_ORDER_FILE = path.join(DATA_DIR, 'product_order.json');
+
+function getProductOrderServer(): string[] {
+  try {
+    if (fs.existsSync(PRODUCT_ORDER_FILE)) {
+      const content = fs.readFileSync(PRODUCT_ORDER_FILE, 'utf-8');
+      return JSON.parse(content) || [];
+    }
+  } catch {}
+  return [];
+}
+
+function saveProductOrderServer(orderIds: string[]): void {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    fs.writeFileSync(PRODUCT_ORDER_FILE, JSON.stringify(orderIds, null, 2));
+  } catch {}
+}
+
+function sortProductsByServerOrder(products: Product[], customOrderIds?: string[]): Product[] {
+  const orderIds = (customOrderIds && customOrderIds.length > 0) ? customOrderIds : getProductOrderServer();
+  if (orderIds && orderIds.length > 0) {
+    const idToPos = new Map<string, number>();
+    orderIds.forEach((id, idx) => idToPos.set(id, idx));
+
+    const sorted = [...products].sort((a, b) => {
+      const posA = idToPos.has(a.id) ? idToPos.get(a.id)! : (a.displayOrder !== undefined ? a.displayOrder + 1000 : 9999);
+      const posB = idToPos.has(b.id) ? idToPos.get(b.id)! : (b.displayOrder !== undefined ? b.displayOrder + 1000 : 9999);
+      return posA - posB;
+    });
+
+    return sorted.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+  }
+
+  // Fallback if products already have displayOrder
+  const hasDisplayOrder = products.some(p => typeof p.displayOrder === 'number');
+  if (hasDisplayOrder) {
+    const sorted = [...products].sort((a, b) => (a.displayOrder ?? 9999) - (b.displayOrder ?? 9999));
+    return sorted.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+  }
+
+  return products.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+}
+
 // Helper: shade definitions fallback for lipstick and foundations
 const PRODUCT_SHADES_MAP_SERVER: Record<string, any[]> = {
   'velvet-petal-matte-lipstick': [
@@ -2698,7 +2744,8 @@ app.get('/api/products', async (_req: Request, res: Response) => {
           .map(row => mapSupabaseRowToProduct(row, invMap))
           .filter(p => !deletedIds.has(p.id));
 
-        return res.json({ success: true, source: 'supabase', products });
+        const ordered = sortProductsByServerOrder(products);
+        return res.json({ success: true, source: 'supabase', products: ordered });
       }
     } catch (e: any) {
       console.warn('[Server] Supabase product query warning:', e?.message || e);
@@ -2717,7 +2764,53 @@ app.get('/api/products', async (_req: Request, res: Response) => {
     }
   }
 
-  return res.json({ success: true, source: 'persistent_store', products: activeCatalog });
+  const orderedCatalog = sortProductsByServerOrder(activeCatalog);
+  return res.json({ success: true, source: 'persistent_store', products: orderedCatalog });
+});
+
+/**
+ * POST /api/products/reorder
+ * Sets the exact sequence / display order of products across the website.
+ */
+app.post('/api/products/reorder', async (req: Request, res: Response) => {
+  try {
+    const { orderIds } = req.body;
+    if (!Array.isArray(orderIds) || orderIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'Valid orderIds array is required' });
+    }
+
+    // 1. Save to server persistent file
+    saveProductOrderServer(orderIds);
+
+    // 2. Update custom products displayOrder
+    const custom = getCustomProducts();
+    const idMap = new Map<string, number>();
+    orderIds.forEach((id, idx) => idMap.set(id, idx + 1));
+    const updatedCustom = custom.map(p => ({
+      ...p,
+      displayOrder: idMap.get(p.id) ?? p.displayOrder ?? 999
+    }));
+    saveCustomProducts(updatedCustom);
+
+    // 3. Save to Supabase metadata (_app_product_order)
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        await supabase.from('categories').upsert({
+          slug: '_app_product_order',
+          name: 'Store Product Ordering Metadata',
+          description: JSON.stringify(orderIds)
+        }, { onConflict: 'slug' });
+      } catch (e) {
+        console.warn('[Server] Supabase product reorder notice:', e);
+      }
+    }
+
+    return res.json({ success: true, count: orderIds.length, message: 'Product order saved successfully' });
+  } catch (err: any) {
+    console.error('[Server] Product reorder error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Reorder failed' });
+  }
 });
 
 /**

@@ -299,6 +299,21 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
     }
   }, [pincode]);
 
+  // Lock background body scroll when open and handle ESC
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isProcessing) onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, isProcessing, onClose]);
+
   if (!isOpen) return null;
 
   const activePincodeInfo = lookupPincode(pincode || '400050');
@@ -762,13 +777,13 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 overflow-y-auto p-0 sm:p-4 flex justify-center items-end sm:items-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200 overscroll-contain"
       onClick={onClose}
     >
       
       {/* Modal Card */}
       <div 
-        className="relative w-full max-w-xl md:max-w-2xl max-h-[92vh] flex flex-col bg-white dark:bg-zinc-900 rounded-2xl sm:rounded-3xl shadow-2xl border border-pink-100 dark:border-zinc-800 overflow-hidden text-left"
+        className="relative w-full sm:max-w-xl md:max-w-2xl max-h-[92dvh] sm:max-h-[90vh] flex flex-col bg-white dark:bg-zinc-900 rounded-t-2xl sm:rounded-3xl shadow-2xl border border-pink-100 dark:border-zinc-800 overflow-hidden text-left sm:my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         

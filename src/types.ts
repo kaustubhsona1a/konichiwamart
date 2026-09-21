@@ -51,6 +51,7 @@ export interface Product {
   isNew?: boolean;
   isComingSoon?: boolean;
   stock: number;
+  displayOrder?: number;
 }
 
 export interface CartItem {

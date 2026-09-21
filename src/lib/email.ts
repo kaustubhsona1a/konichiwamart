@@ -81,7 +81,7 @@ export async function sendOrderInvoiceEmail(data: InvoiceData): Promise<EmailDis
                 </tr>
               `).join('')}
               <tr>
-                <td style="padding: 6px 0; font-weight: bold;">Grand Total (incl. 18% GST):</td>
+                <td style="padding: 6px 0; font-weight: bold;">Grand Total (Price inclusive of all taxes):</td>
                 <td style="padding: 6px 0; text-align: right; font-weight: bold; color: #e11d48;">₹${data.totalAmount.toFixed(2)}</td>
               </tr>
             </table>
