@@ -74,6 +74,22 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+
+  // Dynamically keep --navbar-height in sync with the header's real rendered height
+  useEffect(() => {
+    const updateNavbarHeight = () => {
+      if (headerRef.current) {
+        const height = headerRef.current.offsetHeight;
+        if (height > 0) {
+          document.documentElement.style.setProperty('--navbar-height', `${height}px`);
+        }
+      }
+    };
+    updateNavbarHeight();
+    window.addEventListener('resize', updateNavbarHeight);
+    return () => window.removeEventListener('resize', updateNavbarHeight);
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -158,7 +174,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 inset-x-0 z-50 w-full bg-white/90 dark:bg-[#09090b]/95 backdrop-blur-md border-b border-pink-200/50 dark:border-zinc-800/80 shadow-xs supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-[#09090b]/85 transition-all duration-300">
+    <header ref={headerRef} className="sticky top-0 inset-x-0 z-50 w-full bg-white/90 dark:bg-[#09090b]/95 backdrop-blur-md border-b border-pink-200/50 dark:border-zinc-800/80 shadow-xs supports-[backdrop-filter]:bg-white/80 dark:supports-[backdrop-filter]:bg-[#09090b]/85 transition-all duration-300">
       <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2">
         
         {/* Left: Logo & Branding */}

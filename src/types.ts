@@ -141,6 +141,9 @@ export interface SiteSettings {
   storeTagline: string;
   heroBannerUrl: string;
   mobileHeroBannerUrl?: string;
+  heroVideoUrl?: string;
+  heroMobileVideoUrl?: string;
+  heroMediaType?: 'image' | 'video';
   backgroundImageUrl?: string;
   mobileBackgroundImageUrl?: string;
   backgroundHintOpacity?: 'subtle' | 'balanced' | 'pronounced';

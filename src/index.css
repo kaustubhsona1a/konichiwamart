@@ -4,6 +4,7 @@
 
 @layer base {
   :root {
+    --navbar-height: 56px;
     --font-serif: 'Cormorant Garamond', Georgia, serif;
     --font-display: 'Italiana', 'Cormorant Garamond', serif;
     --font-editorial: 'Playfair Display', Georgia, serif;

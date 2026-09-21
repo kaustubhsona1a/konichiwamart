@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Upload, Image as ImageIcon, CheckCircle2, ChevronDown } from 'lucide-react';
+import { ArrowRight, Upload } from 'lucide-react';
 import { Product } from '../types';
 
 interface HeroBannerProps {
@@ -10,26 +10,30 @@ interface HeroBannerProps {
   onApplyCoupon?: (code: string) => void;
   customBannerUrl?: string;
   customMobileBannerUrl?: string;
+  customVideoUrl?: string;
+  customMobileVideoUrl?: string;
+  heroMediaType?: 'image' | 'video';
 }
 
 export const HeroBanner: React.FC<HeroBannerProps> = ({
   customBannerUrl,
-  customMobileBannerUrl
+  customMobileBannerUrl,
+  customVideoUrl,
+  customMobileVideoUrl,
+  heroMediaType = 'video'
 }) => {
-  // Desktop Fallback image sources in order of priority
+  // Desktop Fallback image sources served directly by website server (No external GitHub dependency)
   const FALLBACK_BANNERS = [
     '/konichiwalaptopbackground.png',
     '/products/konichiwalaptopbackground.png',
-    'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwalaptopbackground.png',
     '/products/konichiwalaptopbg.png',
     '/hero-banner.png'
   ];
 
-  // Mobile Fallback image sources in order of priority
+  // Mobile Fallback image sources served directly by website server
   const FALLBACK_MOBILE_BANNERS = [
     '/products/konichiwamobilebg.png',
     '/konichiwamobilebg.png',
-    'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwamobilebg.png',
     '/products/konichiwalaptopbg.png'
   ];
 
@@ -42,36 +46,111 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     return localStorage.getItem('km_hero_mobile_banner_data') || FALLBACK_MOBILE_BANNERS[0];
   });
 
+  // Stored or custom hero video URL (default to elegant botanical flower bloom aesthetic)
+  const [internalVideoUrl, setInternalVideoUrl] = useState<string>(() => {
+    return localStorage.getItem('km_hero_video_url') || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+  });
+
+  const [internalMobileVideoUrl, setInternalMobileVideoUrl] = useState<string>(() => {
+    return localStorage.getItem('km_hero_mobile_video_url') || '';
+  });
+
+  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth < 640;
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobileScreen(window.innerWidth < 640);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [fallbackIndex, setFallbackIndex] = useState<number>(0);
   const bannerUrl = customBannerUrl || internalBannerUrl;
   const mobileBannerUrl = customMobileBannerUrl || internalMobileBannerUrl;
   const setBannerUrl = setInternalBannerUrl;
-  const [imageLoaded, setImageLoaded] = useState<boolean>(true);
+
+  const activeVideoUrl = customVideoUrl !== undefined ? customVideoUrl : internalVideoUrl;
+  const activeMobileVideoUrl = customMobileVideoUrl !== undefined ? customMobileVideoUrl : internalMobileVideoUrl;
+
+  // Dynamically select portrait video when on mobile screens, or fallback to desktop video
+  const effectiveVideoUrl = (isMobileScreen && activeMobileVideoUrl)
+    ? activeMobileVideoUrl
+    : (activeVideoUrl || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4');
+  const effectivePoster = isMobileScreen ? (mobileBannerUrl || bannerUrl) : bannerUrl;
+
+  // Video playback & state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const heroSectionRef = useRef<HTMLElement>(null);
+  const [videoError, setVideoError] = useState<boolean>(false);
+  const [, setVideoLoaded] = useState<boolean>(false);
+
   const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [uploadSuccess, setUploadSuccess] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Check if banner exists on server (optional check for dynamic backend deployments)
+  // Determine if video should be rendered
+  const shouldRenderVideo = (heroMediaType === 'video' || Boolean(activeVideoUrl) || Boolean(activeMobileVideoUrl)) && Boolean(effectiveVideoUrl) && !videoError;
+
+  // Keep video playing continuously whenever someone is in the hero section
   useEffect(() => {
-    fetch('/api/banner-status')
-      .then((res) => {
-        if (!res.ok) throw new Error('Not found');
-        return res.json();
-      })
-      .then((data) => {
-        if (data?.exists && data?.url) {
-          setBannerUrl(data.url + '?v=' + Date.now());
-          setImageLoaded(true);
-        }
-        if (data?.mobileUrl) {
-          setInternalMobileBannerUrl(data.mobileUrl + '?v=' + Date.now());
-        }
-      })
-      .catch(() => {
-        // Static deployments won't have /api/banner-status, which is normal.
-      });
-  }, []);
+    const video = videoRef.current;
+    if (!video || !shouldRenderVideo) return;
+
+    const ensurePlay = () => {
+      if (video && video.paused) {
+        video.muted = true;
+        video.play().catch((err) => {
+          console.warn('Hero video continuous play notice:', err?.message);
+        });
+      }
+    };
+
+    // Immediate playback attempt on mount or video source change
+    ensurePlay();
+
+    // Observe hero section visibility - keep playing whenever someone is in the hero section
+    let observer: IntersectionObserver | null = null;
+    if (typeof window !== 'undefined' && 'IntersectionObserver' in window && heroSectionRef.current) {
+      observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            ensurePlay();
+          }
+        });
+      }, { threshold: [0, 0.2, 0.5] });
+      observer.observe(heroSectionRef.current);
+    }
+
+    // Play whenever browser tab becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        ensurePlay();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Ensure immediate playback on first interaction if mobile browser restricted autoplay
+    const handleFirstGesture = () => {
+      ensurePlay();
+    };
+    window.addEventListener('touchstart', handleFirstGesture, { passive: true, once: true });
+    window.addEventListener('scroll', handleFirstGesture, { passive: true, once: true });
+    window.addEventListener('click', handleFirstGesture, { passive: true, once: true });
+
+    return () => {
+      if (observer) observer.disconnect();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('touchstart', handleFirstGesture);
+      window.removeEventListener('scroll', handleFirstGesture);
+      window.removeEventListener('click', handleFirstGesture);
+    };
+  }, [effectiveVideoUrl, shouldRenderVideo]);
 
   const handleShopNowClick = () => {
     const el = document.getElementById('collection');
@@ -80,39 +159,91 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     }
   };
 
-  // Upload file helper (used by both file input and drag-and-drop)
-  const processImageFile = (file: File) => {
-    if (!file || !file.type.startsWith('image/')) return;
+  // Upload file helper for direct banner/video drop
+  const processUploadedFile = (file: File) => {
+    if (!file) return;
 
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const base64 = reader.result as string;
-      setBannerUrl(base64);
-      setImageLoaded(true);
-      try {
-        localStorage.setItem('km_hero_banner_data', base64);
-        // Persist directly into public/hero-banner.png on the build server
-        await fetch('/api/upload-banner', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64 })
-        });
-        setUploadSuccess(true);
-        setTimeout(() => setUploadSuccess(false), 3500);
-      } catch (err) {
-        console.error('Failed to save banner on server:', err);
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
+    // Handle video file upload
+    if (file.type.startsWith('video/')) {
+      setIsUploading(true);
+      const tempVideo = document.createElement('video');
+      tempVideo.preload = 'metadata';
+      const objUrl = URL.createObjectURL(file);
+      tempVideo.src = objUrl;
+
+      const performUpload = (target: 'desktop' | 'mobile') => {
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const base64 = reader.result as string;
+          try {
+            const res = await fetch('/api/upload-hero-video', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ videoBase64: base64, target })
+            });
+            const data = await res.json();
+            if (data?.success && data?.url) {
+              if (target === 'mobile') {
+                setInternalMobileVideoUrl(data.url);
+                localStorage.setItem('km_hero_mobile_video_url', data.url);
+              } else {
+                setInternalVideoUrl(data.url);
+                localStorage.setItem('km_hero_video_url', data.url);
+              }
+              setVideoError(false);
+            }
+          } catch (err) {
+            console.error('Failed to upload hero video:', err);
+          } finally {
+            setIsUploading(false);
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+
+      tempVideo.onloadedmetadata = () => {
+        const isPortrait = tempVideo.videoHeight > tempVideo.videoWidth;
+        const target = (isMobileScreen || isPortrait) ? 'mobile' : 'desktop';
+        URL.revokeObjectURL(objUrl);
+        performUpload(target);
+      };
+
+      tempVideo.onerror = () => {
+        URL.revokeObjectURL(objUrl);
+        const target = isMobileScreen ? 'mobile' : 'desktop';
+        performUpload(target);
+      };
+      return;
+    }
+
+    // Handle image banner file upload
+    if (file.type.startsWith('image/')) {
+      setIsUploading(true);
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result as string;
+        setBannerUrl(base64);
+        try {
+          localStorage.setItem('km_hero_banner_data', base64);
+          await fetch('/api/upload-banner', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ imageBase64: base64 })
+          });
+        } catch (err) {
+          console.error('Failed to save banner on server:', err);
+        } finally {
+          setIsUploading(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      processImageFile(file);
+      processUploadedFile(file);
     }
   };
 
@@ -135,82 +266,120 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      processImageFile(file);
+      processUploadedFile(file);
     }
   };
 
   return (
     <section 
       id="hero-banner" 
-      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b]"
+      ref={heroSectionRef}
+      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b] h-[calc(100dvh-var(--navbar-height,56px))] min-h-[calc(100dvh-var(--navbar-height,56px))] sm:h-auto sm:min-h-0 flex flex-col"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      {/* Hidden file input for direct computer file upload */}
+      {/* Hidden file input for direct video or image file upload */}
       <input
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
-        accept="image/*"
+        accept="video/mp4,video/webm,image/*"
         className="hidden"
       />
 
       {/* Drag Over Active Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 z-40 bg-[#C52857]/20 backdrop-blur-sm border-4 border-dashed border-[#C52857] flex flex-col items-center justify-center pointer-events-none">
+        <div className="absolute inset-0 z-40 bg-[#C52857]/25 backdrop-blur-sm border-4 border-dashed border-[#C52857] flex flex-col items-center justify-center pointer-events-none">
           <div className="bg-white/95 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-[#912B52] font-semibold text-sm animate-pulse">
             <Upload className="w-6 h-6 text-[#C52857]" />
-            <span>Drop your photo here to set as laptop hero banner</span>
+            <span>Drop video (.mp4) or photo here to set as hero background</span>
           </div>
         </div>
       )}
 
-      {/* FULL-VIEWPORT LAPTOP & DESKTOP HERO BANNER CONTAINER */}
-      <div className="relative w-full max-w-[1920px] mx-auto overflow-hidden">
-        {/* Banner image representation with responsive Mobile & Laptop art-direction */}
-        <div className="relative w-full overflow-hidden flex items-center justify-center bg-transparent">
-          <picture className="w-full h-auto block align-bottom">
-            {/* Desktop / Laptop Layout: show laptop background */}
-            <source media="(min-width: 640px)" srcSet={bannerUrl} />
-            {/* Mobile Layout: show mobile layout background */}
-            <source media="(max-width: 639px)" srcSet={mobileBannerUrl} />
-            <img
-              src={mobileBannerUrl}
-              alt="Konichiwa Mart - Japanese Beauty, Made for You"
-              loading="eager"
-              fetchPriority="high"
-              onLoad={() => setImageLoaded(true)}
-              onError={() => {
-                if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
-                  const nextIdx = fallbackIndex + 1;
-                  setFallbackIndex(nextIdx);
-                  setBannerUrl(FALLBACK_BANNERS[nextIdx]);
-                } else {
-                  setImageLoaded(false);
-                }
-              }}
-              className="w-full h-auto block select-none align-bottom transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
-            />
-          </picture>
+      {/* FULL-VIEWPORT LAPTOP & DESKTOP HERO CONTAINER */}
+      <div className="relative w-full max-w-[1920px] mx-auto overflow-hidden h-full flex-1 flex flex-col">
+        <div className="relative w-full h-full flex-1 overflow-hidden flex items-center justify-center bg-stone-900">
+          
+          {shouldRenderVideo ? (
+            /* CINEMATIC LOOPING BACKGROUND VIDEO (CONTINUOUS AMBIENT PLAYBACK - NO CONTROLS) */
+            <div className="relative w-full h-full flex-1 overflow-hidden flex items-center justify-center">
+              <video
+                ref={videoRef}
+                key={effectiveVideoUrl}
+                src={effectiveVideoUrl}
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="auto"
+                poster={effectivePoster}
+                controls={false}
+                onLoadedData={() => {
+                  setVideoLoaded(true);
+                  setVideoError(false);
+                  videoRef.current?.play().catch(() => {});
+                }}
+                onEnded={() => {
+                  videoRef.current?.play().catch(() => {});
+                }}
+                onError={() => {
+                  console.warn('Hero video failed to stream, falling back to banner image.');
+                  setVideoError(true);
+                }}
+                className="w-full h-full sm:h-auto sm:min-h-[420px] md:min-h-[500px] lg:min-h-[580px] sm:max-h-[85vh] object-cover object-center block select-none pointer-events-none align-bottom transition-[filter,opacity] duration-700 brightness-[0.96] contrast-[1.02] dark:brightness-[0.78] dark:contrast-[1.05]"
+              >
+                <source src={effectiveVideoUrl} type="video/mp4" />
+                <source src={effectiveVideoUrl} type="video/webm" />
+                {/* Fallback image */}
+                <img
+                  src={effectivePoster}
+                  alt="Konichiwa Mart - Japanese Beauty"
+                  className="w-full h-full object-cover object-center block select-none"
+                />
+              </video>
+            </div>
+          ) : (
+            /* STATIC ART-DIRECTED IMAGE BANNER */
+            <picture className="w-full h-full sm:h-auto flex-1 block align-bottom">
+              {/* Desktop / Laptop Layout: show laptop background */}
+              <source media="(min-width: 640px)" srcSet={bannerUrl} />
+              {/* Mobile Layout: show mobile layout background */}
+              <source media="(max-width: 639px)" srcSet={mobileBannerUrl} />
+              <img
+                src={mobileBannerUrl}
+                alt="Konichiwa Mart - Japanese Beauty, Made for You"
+                loading="eager"
+                fetchPriority="high"
+                onError={() => {
+                  if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
+                    const nextIdx = fallbackIndex + 1;
+                    setFallbackIndex(nextIdx);
+                    setBannerUrl(FALLBACK_BANNERS[nextIdx]);
+                  }
+                }}
+                className="w-full h-full sm:h-auto sm:max-h-[85vh] object-cover object-center block select-none align-bottom transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
+              />
+            </picture>
+          )}
 
           {/* Ambient Dimmer Scrim Layer for smoother lighting in both light & dark mode */}
-          <div className="absolute inset-0 bg-slate-900/[0.04] dark:bg-black/35 pointer-events-none transition-colors duration-500 z-10" />
+          <div className="absolute inset-0 bg-slate-900/[0.08] dark:bg-black/35 pointer-events-none transition-colors duration-500 z-10" />
 
           {/* EXACT POSITIONED CLICKABLE [SHOP NOW →] BUTTON OVERLAY */}
           {/* Centered on mobile for maximum visibility, docked left on tablet/desktop */}
-          <div className="absolute left-1/2 -translate-x-1/2 sm:left-[8%] sm:translate-x-0 md:left-[10%] bottom-[5%] sm:bottom-[8%] md:bottom-[10%] z-20 w-auto text-center">
+          <div className="absolute left-1/2 -translate-x-1/2 sm:left-[8%] sm:translate-x-0 md:left-[10%] bottom-8 sm:bottom-[8%] md:bottom-[10%] z-20 w-auto text-center">
             <button
               id="hero-shop-now-button"
               onClick={handleShopNowClick}
-              className="group relative inline-flex items-center justify-center gap-2 sm:gap-3 px-7 sm:px-9 py-3 sm:py-4 rounded-full bg-gradient-to-r from-[#C52857] via-[#B8224E] to-[#912B52] hover:from-[#A81E46] hover:to-[#7E2245] text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-xl shadow-pink-950/35 hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/50 ring-2 ring-pink-500/25 whitespace-nowrap"
+              className="group relative inline-flex items-center justify-center gap-2 sm:gap-3 px-7 sm:px-9 py-3 sm:py-4 rounded-full bg-gradient-to-r from-[#C52857] via-[#B8224E] to-[#912B52] hover:from-[#A81E46] hover:to-[#7E2245] text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-xl shadow-pink-950/40 hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/60 ring-2 ring-pink-500/25 whitespace-nowrap"
             >
               <span>SHOP NOW</span>
               <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1.5 transition-transform duration-200" />
             </button>
           </div>
 
-          {/* Clean Scroll Cue for First Fold on Laptop */}
         </div>
       </div>
     </section>

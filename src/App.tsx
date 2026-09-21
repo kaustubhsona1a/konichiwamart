@@ -721,6 +721,8 @@ export default function App() {
     const explicitlyTurnedOff = localStorage.getItem('km_flower_drift_user_enabled') === 'false';
     const storedDesktop = localStorage.getItem('km_hero_banner_data');
     const storedMobile = localStorage.getItem('km_hero_mobile_banner_data');
+    const storedVideo = localStorage.getItem('km_hero_video_url');
+    const storedMobileVideo = localStorage.getItem('km_hero_mobile_video_url');
 
     try {
       const saved = localStorage.getItem('km_site_settings');
@@ -745,6 +747,9 @@ export default function App() {
           ...parsed,
           heroBannerUrl: activeHero,
           mobileHeroBannerUrl: activeMobileHero,
+          heroVideoUrl: parsed.heroVideoUrl || storedVideo || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+          heroMobileVideoUrl: parsed.heroMobileVideoUrl || storedMobileVideo || '',
+          heroMediaType: parsed.heroMediaType || 'video',
           backgroundImageUrl: activeHero,
           mobileBackgroundImageUrl: activeMobileHero,
           storeTagline: tagline,
@@ -757,6 +762,9 @@ export default function App() {
       storeTagline: 'Japanese Skincare',
       heroBannerUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileHeroBannerUrl: storedMobile || '/konichiwamobilebg.png',
+      heroVideoUrl: storedVideo || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+      heroMobileVideoUrl: storedMobileVideo || '',
+      heroMediaType: 'video',
       backgroundImageUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileBackgroundImageUrl: storedMobile || '/konichiwamobilebg.png',
       backgroundHintOpacity: 'balanced',
@@ -782,6 +790,12 @@ export default function App() {
       }
       if (updated.mobileHeroBannerUrl) {
         try { localStorage.setItem('km_hero_mobile_banner_data', updated.mobileHeroBannerUrl); } catch {}
+      }
+      if (updated.heroVideoUrl) {
+        try { localStorage.setItem('km_hero_video_url', updated.heroVideoUrl); } catch {}
+      }
+      if (updated.heroMobileVideoUrl) {
+        try { localStorage.setItem('km_hero_mobile_video_url', updated.heroMobileVideoUrl); } catch {}
       }
 
       // Sync settings to server/Supabase
@@ -810,6 +824,12 @@ export default function App() {
             }
             if (s.mobileHeroBannerUrl) {
               try { localStorage.setItem('km_hero_mobile_banner_data', s.mobileHeroBannerUrl); } catch {}
+            }
+            if (s.heroVideoUrl) {
+              try { localStorage.setItem('km_hero_video_url', s.heroVideoUrl); } catch {}
+            }
+            if (s.heroMobileVideoUrl) {
+              try { localStorage.setItem('km_hero_mobile_video_url', s.heroMobileVideoUrl); } catch {}
             }
             return merged;
           });
@@ -876,16 +896,25 @@ export default function App() {
       handleRequestAdminAccess();
     }
 
-    // Verify if custom hero banner exists on the server and ensure latest version is loaded
+    // Verify if custom hero banner and video exist on the server and ensure latest versions are loaded
     fetch('/api/banner-status')
       .then(res => res.json())
       .then(data => {
-        if (data?.exists && data?.url) {
-          const freshBannerUrl = `${data.url}?v=${Date.now()}`;
-          setSiteSettings(prev => ({
-            ...prev,
-            heroBannerUrl: freshBannerUrl
-          }));
+        if (data?.exists || data?.desktopVideoUrl || data?.mobileVideoUrl) {
+          setSiteSettings(prev => {
+            const next = { ...prev };
+            if (data.url) next.heroBannerUrl = `${data.url}?v=${Date.now()}`;
+            if (data.mobileUrl) next.mobileHeroBannerUrl = `${data.mobileUrl}?v=${Date.now()}`;
+            if (data.desktopVideoUrl) {
+              next.heroVideoUrl = data.desktopVideoUrl;
+              localStorage.setItem('km_hero_video_url', data.desktopVideoUrl);
+            }
+            if (data.mobileVideoUrl) {
+              next.heroMobileVideoUrl = data.mobileVideoUrl;
+              localStorage.setItem('km_hero_mobile_video_url', data.mobileVideoUrl);
+            }
+            return next;
+          });
         }
       })
       .catch(() => {});
@@ -1676,7 +1705,7 @@ export default function App() {
         />
       ) : (
         <>
-          {/* 1. HERO SECTION: CINEMATIC PANORAMIC JAPANESE BEAUTY BANNER */}
+          {/* 1. HERO SECTION: CINEMATIC PANORAMIC JAPANESE BEAUTY BANNER / VIDEO */}
           <HeroBanner
             onSelectProduct={setInspectProduct}
             onAddToCart={handleAddToCart}
@@ -1685,6 +1714,9 @@ export default function App() {
             onApplyCoupon={() => setIsCartOpen(true)}
             customBannerUrl={siteSettings.heroBannerUrl}
             customMobileBannerUrl={siteSettings.mobileHeroBannerUrl || '/konichiwamobilebg.png'}
+            customVideoUrl={siteSettings.heroVideoUrl}
+            customMobileVideoUrl={siteSettings.heroMobileVideoUrl}
+            heroMediaType={siteSettings.heroMediaType || 'video'}
           />
 
           {/* 2. MAIN PRODUCT CATALOG */}

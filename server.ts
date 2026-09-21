@@ -30,12 +30,12 @@ function getSupabaseServerClient(): SupabaseClient | null {
 
 // Middleware for parsing JSON with raw body retention for HMAC verification and high-res banner uploads
 app.use(express.json({
-  limit: '50mb',
+  limit: '100mb',
   verify: (req: any, _res, buf) => {
     req.rawBody = buf.toString('utf8');
   }
 }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
 /**
  * Lazy initialization helper for Razorpay client.
@@ -604,6 +604,75 @@ app.post('/api/upload-banner', (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Direct Hero Video Upload Endpoint
+ * Writes uploaded base64 video data (.mp4 / .webm) to public/videos/
+ * so it is directly served by Vite in development and Express in production.
+ */
+app.post('/api/upload-hero-video', (req: Request, res: Response) => {
+  try {
+    const { videoBase64, target = 'desktop' } = req.body;
+    if (!videoBase64) {
+      return res.status(400).json({ success: false, error: 'No video data provided' });
+    }
+
+    let ext = 'mp4';
+    if (typeof videoBase64 === 'string' && videoBase64.startsWith('data:video/webm')) ext = 'webm';
+    else if (typeof videoBase64 === 'string' && videoBase64.startsWith('data:video/quicktime')) ext = 'mov';
+
+    const cleanBase64 = typeof videoBase64 === 'string' 
+      ? videoBase64.replace(/^data:video\/[a-zA-Z0-9.-]+;base64,/, '') 
+      : '';
+    const buffer = Buffer.from(cleanBase64, 'base64');
+
+    const publicDir = path.join(process.cwd(), 'public');
+    const videosDir = path.join(publicDir, 'videos');
+    if (!fs.existsSync(videosDir)) {
+      fs.mkdirSync(videosDir, { recursive: true });
+    }
+
+    const filename = target === 'mobile' ? `hero-video-mobile.${ext}` : `hero-video-desktop.${ext}`;
+    const filePath = path.join(videosDir, filename);
+    fs.writeFileSync(filePath, buffer);
+
+    if (target === 'mobile') {
+      // Also write as konichiwamobilebg for backwards compatibility and easy referencing
+      try {
+        fs.writeFileSync(path.join(videosDir, `konichiwamobilebg.${ext}`), buffer);
+        fs.writeFileSync(path.join(publicDir, `konichiwamobilebg.${ext}`), buffer);
+      } catch (copyErr) {
+        console.warn('Failed to mirror mobile video copy:', copyErr);
+      }
+    }
+
+    // Also copy to dist/videos if dist exists
+    const distPath = path.join(process.cwd(), 'dist');
+    const distVideosPath = path.join(distPath, 'videos');
+    if (fs.existsSync(distPath)) {
+      if (!fs.existsSync(distVideosPath)) {
+        fs.mkdirSync(distVideosPath, { recursive: true });
+      }
+      fs.writeFileSync(path.join(distVideosPath, filename), buffer);
+      if (target === 'mobile') {
+        try {
+          fs.writeFileSync(path.join(distVideosPath, `konichiwamobilebg.${ext}`), buffer);
+          fs.writeFileSync(path.join(distPath, `konichiwamobilebg.${ext}`), buffer);
+        } catch {}
+      }
+    }
+
+    const videoUrl = `/videos/${filename}?v=${Date.now()}`;
+    return res.status(200).json({
+      success: true,
+      url: videoUrl,
+      message: `${target === 'mobile' ? 'Mobile' : 'Desktop'} video uploaded and saved successfully`
+    });
+  } catch (err: any) {
+    console.error('Error saving hero video:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Failed to save hero video' });
+  }
+});
+
 app.get('/api/banner-status', (_req: Request, res: Response) => {
   const laptopCandidates = [
     { filePath: path.join(process.cwd(), 'public', 'konichiwalaptopbackground.png'), url: '/konichiwalaptopbackground.png' },
@@ -618,6 +687,20 @@ app.get('/api/banner-status', (_req: Request, res: Response) => {
     { filePath: path.join(process.cwd(), 'public', 'konichiwamobilebg.png'), url: '/konichiwamobilebg.png' },
     { filePath: path.join(process.cwd(), 'public', 'products', 'mobilebg.png'), url: '/products/mobilebg.png' },
     { filePath: path.join(process.cwd(), 'public', 'mobilebg.png'), url: '/mobilebg.png' }
+  ];
+
+  const desktopVideoCandidates = [
+    { filePath: path.join(process.cwd(), 'public', 'videos', 'hero-video-desktop.mp4'), url: '/videos/hero-video-desktop.mp4' },
+    { filePath: path.join(process.cwd(), 'public', 'videos', 'hero-video-desktop.webm'), url: '/videos/hero-video-desktop.webm' },
+    { filePath: path.join(process.cwd(), 'public', 'videos', 'hero.mp4'), url: '/videos/hero.mp4' },
+  ];
+
+  const mobileVideoCandidates = [
+    { filePath: path.join(process.cwd(), 'public', 'videos', 'hero-video-mobile.mp4'), url: '/videos/hero-video-mobile.mp4' },
+    { filePath: path.join(process.cwd(), 'public', 'videos', 'konichiwamobilebg.mp4'), url: '/videos/konichiwamobilebg.mp4' },
+    { filePath: path.join(process.cwd(), 'public', 'konichiwamobilebg.mp4'), url: '/konichiwamobilebg.mp4' },
+    { filePath: path.join(process.cwd(), 'public', 'videos', 'hero-video-mobile.webm'), url: '/videos/hero-video-mobile.webm' },
+    { filePath: path.join(process.cwd(), 'public', 'videos', 'mobile.mp4'), url: '/videos/mobile.mp4' }
   ];
 
   let laptopResult: { url: string; filename: string } | null = null;
@@ -636,12 +719,30 @@ app.get('/api/banner-status', (_req: Request, res: Response) => {
     }
   }
 
+  let desktopVideoResult: string | null = null;
+  for (const item of desktopVideoCandidates) {
+    if (fs.existsSync(item.filePath)) {
+      desktopVideoResult = item.url;
+      break;
+    }
+  }
+
+  let mobileVideoResult: string | null = null;
+  for (const item of mobileVideoCandidates) {
+    if (fs.existsSync(item.filePath)) {
+      mobileVideoResult = item.url;
+      break;
+    }
+  }
+
   res.json({
     exists: Boolean(laptopResult || mobileResult),
     url: laptopResult ? laptopResult.url : (mobileResult ? mobileResult.url : null),
     mobileUrl: mobileResult ? mobileResult.url : (laptopResult ? laptopResult.url : null),
     laptopFilename: laptopResult?.filename || null,
-    mobileFilename: mobileResult?.filename || null
+    mobileFilename: mobileResult?.filename || null,
+    desktopVideoUrl: desktopVideoResult,
+    mobileVideoUrl: mobileVideoResult
   });
 });
 

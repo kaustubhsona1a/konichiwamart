@@ -22,6 +22,11 @@ import { X,
   Trash2,
   Menu,
   Video,
+  Film,
+  HelpCircle,
+  Info,
+  Play,
+  Pause,
   FolderPlus,
   Loader2,
   RefreshCw,
@@ -409,9 +414,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const bannerInputRef = useRef<HTMLInputElement>(null);
   const mobileBannerInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const mobileVideoInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const [isUploadingMobileBanner, setIsUploadingMobileBanner] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
+  const [videoUrlInput, setVideoUrlInput] = useState(siteSettings.heroVideoUrl || '');
+  const [mobileVideoUrlInput, setMobileVideoUrlInput] = useState(siteSettings.heroMobileVideoUrl || '');
+  const [showVideoHostingGuide, setShowVideoHostingGuide] = useState(false);
 
   if (!isOpen) return null;
 
@@ -568,6 +579,92 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setTimeout(() => setSettingsSuccessMsg(null), 3000);
     };
     reader.readAsDataURL(file);
+  };
+
+  // Hero Video File Handler
+  const handleVideoFileChange = async (e: React.ChangeEvent<HTMLInputElement>, target: 'desktop' | 'mobile' = 'desktop') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
+      setSettingsSuccessMsg('Please select a valid video file (.mp4, .webm).');
+      return;
+    }
+
+    if (file.size > 80 * 1024 * 1024) {
+      setSettingsSuccessMsg('Video file is over 80MB. For optimal web playback, please compress to under 25MB or host on Cloudinary / Supabase Storage.');
+      return;
+    }
+
+    setIsUploadingVideo(true);
+    try {
+      let finalUrl = '';
+
+      // Try Supabase Storage upload first
+      const supabase = await ensureSupabaseClient() || getSupabaseClient();
+      if (supabase) {
+        try {
+          const ext = file.name.split('.').pop() || 'mp4';
+          const fileName = `hero_video_${target}_${Date.now()}.${ext}`;
+          const { error: uploadErr } = await supabase.storage
+            .from('product-images')
+            .upload(fileName, file, { cacheControl: '3600', upsert: true });
+
+          if (!uploadErr) {
+            const { data: publicUrlData } = supabase.storage
+              .from('product-images')
+              .getPublicUrl(fileName);
+            if (publicUrlData?.publicUrl) {
+              finalUrl = publicUrlData.publicUrl;
+            }
+          }
+        } catch (sErr) {
+          console.warn('Supabase video upload skipped, trying server endpoint:', sErr);
+        }
+      }
+
+      // If Supabase wasn't available or errored, use server endpoint
+      if (!finalUrl) {
+        const reader = new FileReader();
+        const base64 = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const res = await fetch('/api/upload-hero-video', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoBase64: base64, target })
+        });
+        const data = await res.json();
+        if (data?.success && data?.url) {
+          finalUrl = data.url;
+        } else {
+          throw new Error(data?.error || 'Failed to save video on server');
+        }
+      }
+
+      if (finalUrl) {
+        if (target === 'desktop') {
+          setVideoUrlInput(finalUrl);
+          localStorage.setItem('km_hero_video_url', finalUrl);
+          onUpdateSiteSettings({ heroVideoUrl: finalUrl, heroMediaType: 'video' });
+        } else {
+          setMobileVideoUrlInput(finalUrl);
+          localStorage.setItem('km_hero_mobile_video_url', finalUrl);
+          onUpdateSiteSettings({ heroMobileVideoUrl: finalUrl, heroMediaType: 'video' });
+        }
+        setSettingsSuccessMsg(`${target === 'desktop' ? 'Desktop' : 'Mobile'} hero video saved & active!`);
+        setTimeout(() => setSettingsSuccessMsg(null), 3500);
+      }
+    } catch (err: any) {
+      console.error('Error uploading video:', err);
+      setSettingsSuccessMsg(`Video upload error: ${err?.message || 'Check connection or file size'}`);
+    } finally {
+      setIsUploadingVideo(false);
+      if (e.target) e.target.value = '';
+    }
   };
 
   // Product Photos Multi-Upload Handler (4-5 direct photos)
@@ -2349,106 +2446,398 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               )}
 
-              {/* MODULE 1: STORE BACKGROUND & HERO BANNER (RESPONSIVE DESKTOP + MOBILE) */}
-              <div className="bg-white border border-pink-100 rounded-2xl p-6 space-y-5 shadow-xs">
-                <div className="flex items-center justify-between">
+              {/* MODULE 1: HERO SECTION MEDIA (LOOPING VIDEO & IMAGE BANNER) */}
+              <div className="bg-white border border-pink-100 rounded-2xl p-6 space-y-6 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-pink-50 border border-pink-200/80 flex items-center justify-center text-pink-600">
-                      <ImageIcon className="w-4 h-4" />
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-pink-500 to-rose-400 flex items-center justify-center text-white shadow-xs">
+                      {siteSettings.heroMediaType === 'image' ? (
+                        <ImageIcon className="w-5 h-5" />
+                      ) : (
+                        <Film className="w-5 h-5" />
+                      )}
                     </div>
                     <div>
-                      <h3 className="font-bold text-sm tracking-wider uppercase text-slate-900">
-                        STORE BACKGROUND / HERO BANNER (DESKTOP & MOBILE)
+                      <h3 className="font-bold text-sm tracking-wider uppercase text-slate-900 flex items-center gap-2">
+                        <span>HERO SECTION MEDIA: VIDEO & BANNER</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-50 text-pink-700 font-semibold border border-pink-200">
+                          {siteSettings.heroMediaType === 'image' ? 'Static Image' : 'Continuous Video'}
+                        </span>
                       </h3>
                       <p className="text-xs text-slate-500">
-                        Customize separate art-directed backgrounds for desktop/laptops and mobile screens. Both remain subtly visible when scrolling!
+                        Choose between a smooth looping video or static art-directed photos for desktop and mobile devices.
                       </p>
                     </div>
                   </div>
+
+                  {/* Mode Toggle Pills */}
+                  <div className="flex items-center gap-1.5 p-1 bg-stone-100 rounded-xl border border-stone-200 self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSiteSettings({ heroMediaType: 'video' })}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        siteSettings.heroMediaType !== 'image'
+                          ? 'bg-white text-pink-700 shadow-xs border border-pink-200/60'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <Film className="w-3.5 h-3.5 text-pink-600" />
+                      <span>Looping Video</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUpdateSiteSettings({ heroMediaType: 'image' })}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        siteSettings.heroMediaType === 'image'
+                          ? 'bg-white text-pink-700 shadow-xs border border-pink-200/60'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-pink-600" />
+                      <span>Image Banner</span>
+                    </button>
+                  </div>
                 </div>
 
-                {/* Dual Layout Grid: Desktop/Laptop vs Mobile Banner */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Laptop / Desktop Background Card */}
-                  <div className="p-3.5 rounded-xl border border-stone-200 bg-stone-50/50 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                        💻 Laptop & Desktop Layout
-                      </span>
-                      <span className="text-[10px] text-slate-400 font-medium">16:9 / 21:9 Widescreen</span>
+                {/* CONDITIONAL CONTENT: VIDEO SETTINGS OR IMAGE BANNER SETTINGS */}
+                {siteSettings.heroMediaType !== 'image' ? (
+                  /* ================= VIDEO MODE ================= */
+                  <div className="space-y-5">
+                    {/* Live Video Preview Box */}
+                    <div className="relative w-full rounded-2xl overflow-hidden border border-slate-800 bg-stone-950 aspect-[16/8] sm:aspect-[21/9] max-h-72 shadow-md group">
+                      <video
+                        key={siteSettings.heroVideoUrl || 'default-preview'}
+                        src={siteSettings.heroVideoUrl || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
+                        className="w-full h-full object-cover brightness-[0.95]"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/30 pointer-events-none" />
+                      
+                      {/* Top Overlay Badge */}
+                      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+                        <span className="px-2.5 py-1 rounded-full bg-pink-600/90 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-sm flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                          Live Hero Background Video
+                        </span>
+                      </div>
+
+                      {/* Video Quick Controls / Info */}
+                      <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between text-white text-xs">
+                        <span className="text-[11px] font-mono text-white/80 truncate max-w-[70%]">
+                          {siteSettings.heroVideoUrl || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => videoInputRef.current?.click()}
+                          disabled={isUploadingVideo}
+                          className="px-3 py-1.5 rounded-lg bg-white/95 hover:bg-white text-slate-900 font-bold text-[11px] uppercase tracking-wider transition-all shadow-md cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Upload className="w-3 h-3 text-pink-600" />
+                          <span>{isUploadingVideo ? 'Uploading...' : 'Replace Video'}</span>
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="relative w-full h-36 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 group shadow-2xs">
-                      <img
-                        src={siteSettings.heroBannerUrl || '/konichiwalaptopbackground.png'}
-                        alt="Current Laptop Banner"
-                        className="w-full h-full object-cover"
-                      />
-                      <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    {/* "Where to Upload Your Video" Guide Accordion (Answers Private GitHub Problem) */}
+                    <div className="rounded-xl border border-pink-200 bg-pink-50/40 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-2.5">
+                          <div className="w-6 h-6 rounded-md bg-pink-100 text-pink-700 flex items-center justify-center flex-shrink-0 mt-0.5">
+                            <HelpCircle className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-xs text-pink-950 uppercase tracking-wider">
+                              Where should I upload my video? (Why private GitHub fails)
+                            </h4>
+                            <p className="text-xs text-pink-900/80 mt-0.5">
+                              When a GitHub repository is private, raw URLs (<code className="bg-pink-100/80 px-1 py-0.5 rounded text-[11px]">raw.githubusercontent.com</code>) block public access without a login token. Here are the 3 best ways to host your video:
+                            </p>
+                          </div>
+                        </div>
                         <button
+                          type="button"
+                          onClick={() => setShowVideoHostingGuide(!showVideoHostingGuide)}
+                          className="text-xs font-bold text-pink-700 hover:text-pink-900 underline flex-shrink-0 cursor-pointer"
+                        >
+                          {showVideoHostingGuide ? 'Hide details' : 'Show step-by-step'}
+                        </button>
+                      </div>
+
+                      {showVideoHostingGuide && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-pink-200/60 text-xs">
+                          {/* Method 1: Supabase Storage */}
+                          <div className="p-3 rounded-lg bg-white border border-pink-100 space-y-1.5 shadow-2xs">
+                            <span className="font-bold text-slate-900 flex items-center gap-1 text-[11px] uppercase tracking-wider text-pink-800">
+                              ⭐ 1. Supabase Storage (Recommended)
+                            </span>
+                            <p className="text-slate-600 text-[11px] leading-relaxed">
+                              You already have Supabase connected! In your Supabase project, go to <strong>Storage → product-images</strong>, click <strong>Upload File</strong>, and copy the <strong>Public URL</strong>. Paste it below.
+                            </p>
+                          </div>
+
+                          {/* Method 2: Direct Admin Upload */}
+                          <div className="p-3 rounded-lg bg-white border border-pink-100 space-y-1.5 shadow-2xs">
+                            <span className="font-bold text-slate-900 flex items-center gap-1 text-[11px] uppercase tracking-wider text-pink-800">
+                              ⚡ 2. Direct Admin Upload
+                            </span>
+                            <p className="text-slate-600 text-[11px] leading-relaxed">
+                              Click <strong>"Upload Video (.mp4)"</strong> below. Our server will upload and serve it directly from this web server (e.g. <code className="bg-stone-100 px-1 py-0.5 rounded">/videos/hero.mp4</code>) without touching GitHub!
+                            </p>
+                          </div>
+
+                          {/* Method 3: Cloudinary / S3 */}
+                          <div className="p-3 rounded-lg bg-white border border-pink-100 space-y-1.5 shadow-2xs">
+                            <span className="font-bold text-slate-900 flex items-center gap-1 text-[11px] uppercase tracking-wider text-pink-800">
+                              ☁️ 3. Cloudinary or S3
+                            </span>
+                            <p className="text-slate-600 text-[11px] leading-relaxed">
+                              Upload your video to a free video CDN like <strong>Cloudinary</strong> or AWS S3 and paste the direct <code className="bg-stone-100 px-1 py-0.5 rounded">.mp4</code> streaming link into the box below.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Desktop Video URL & Direct Upload Controls */}
+                    <div className="p-4 rounded-xl border border-stone-200 bg-stone-50/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                          💻 Desktop / Laptop Background Video (.mp4 or .webm)
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">Recommended: 1080p, &lt; 20MB</span>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="url"
+                          value={videoUrlInput}
+                          onChange={(e) => setVideoUrlInput(e.target.value)}
+                          placeholder="Paste direct .mp4 URL (Supabase, Cloudinary, or /videos/hero.mp4)"
+                          className="flex-1 px-3 py-2 text-xs rounded-lg border border-stone-300 bg-white focus:outline-none focus:ring-2 focus:ring-pink-500/30 text-slate-800"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (videoUrlInput.trim()) {
+                                localStorage.setItem('km_hero_video_url', videoUrlInput.trim());
+                                onUpdateSiteSettings({ heroVideoUrl: videoUrlInput.trim(), heroMediaType: 'video' });
+                                setSettingsSuccessMsg('Desktop hero video URL updated & live!');
+                                setTimeout(() => setSettingsSuccessMsg(null), 3500);
+                              }
+                            }}
+                            className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs cursor-pointer transition-all whitespace-nowrap shadow-xs"
+                          >
+                            Apply URL
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => videoInputRef.current?.click()}
+                            disabled={isUploadingVideo}
+                            className="px-4 py-2 rounded-lg bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap shadow-xs"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>{isUploadingVideo ? 'Uploading...' : 'Upload .mp4 File'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Quick Presets */}
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-[11px] text-slate-500 font-medium">Quick Test:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const demoUrl = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+                            setVideoUrlInput(demoUrl);
+                            localStorage.setItem('km_hero_video_url', demoUrl);
+                            onUpdateSiteSettings({ heroVideoUrl: demoUrl, heroMediaType: 'video' });
+                            setSettingsSuccessMsg('Botanical blooming flower video applied!');
+                            setTimeout(() => setSettingsSuccessMsg(null), 3000);
+                          }}
+                          className="text-[11px] font-semibold text-pink-700 hover:underline cursor-pointer bg-pink-50 px-2 py-0.5 rounded border border-pink-200/60"
+                        >
+                          🌸 Botanical Sakura Flower (Bloom Demo)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mobile Video (Optional) */}
+                    <div className="p-4 rounded-xl border border-stone-200 bg-stone-50/50 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                          📱 Mobile Layout Video (9:16 Portrait)
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">Leave empty to use desktop video</span>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="url"
+                          value={mobileVideoUrlInput}
+                          onChange={(e) => setMobileVideoUrlInput(e.target.value)}
+                          placeholder="Mobile vertical video URL (.mp4)"
+                          className="flex-1 px-3 py-2 text-xs rounded-lg border border-stone-300 bg-white focus:outline-none focus:ring-2 focus:ring-pink-500/30 text-slate-800"
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              localStorage.setItem('km_hero_mobile_video_url', mobileVideoUrlInput.trim());
+                              onUpdateSiteSettings({ heroMobileVideoUrl: mobileVideoUrlInput.trim() });
+                              setSettingsSuccessMsg('Mobile hero video setting updated!');
+                              setTimeout(() => setSettingsSuccessMsg(null), 3500);
+                            }}
+                            className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs cursor-pointer transition-all whitespace-nowrap shadow-xs"
+                          >
+                            Save Mobile URL
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => mobileVideoInputRef.current?.click()}
+                            disabled={isUploadingVideo}
+                            className="px-4 py-2 rounded-lg bg-white hover:bg-stone-100 text-slate-700 border border-stone-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all whitespace-nowrap shadow-xs"
+                          >
+                            <Upload className="w-3.5 h-3.5" />
+                            <span>Upload Mobile .mp4</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live Mobile Video Preview */}
+                      {(mobileVideoUrlInput || siteSettings.heroMobileVideoUrl) && (
+                        <div className="mt-3 pt-3 border-t border-stone-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-14 h-24 rounded-lg overflow-hidden border border-stone-300 bg-black shrink-0 relative shadow-xs">
+                              <video
+                                src={mobileVideoUrlInput || siteSettings.heroMobileVideoUrl}
+                                autoPlay
+                                loop
+                                muted
+                                playsInline
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                Mobile Video Active & Looping
+                              </p>
+                              <p className="text-[11px] text-slate-500 max-w-xs truncate">
+                                {mobileVideoUrlInput || siteSettings.heroMobileVideoUrl}
+                              </p>
+                              <p className="text-[10px] text-emerald-700 font-medium bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 inline-block">
+                                ✓ Always-playing is 100% free (cached by visitor browsers, 0 streaming fees)
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Hidden Video Inputs */}
+                    <input
+                      type="file"
+                      ref={videoInputRef}
+                      onChange={(e) => handleVideoFileChange(e, 'desktop')}
+                      accept="video/mp4,video/webm"
+                      className="hidden"
+                    />
+                    <input
+                      type="file"
+                      ref={mobileVideoInputRef}
+                      onChange={(e) => handleVideoFileChange(e, 'mobile')}
+                      accept="video/mp4,video/webm"
+                      className="hidden"
+                    />
+                  </div>
+                ) : (
+                  /* ================= STATIC IMAGE BANNER MODE ================= */
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Laptop / Desktop Background Card */}
+                    <div className="p-3.5 rounded-xl border border-stone-200 bg-stone-50/50 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                          💻 Laptop & Desktop Layout
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-medium">16:9 / 21:9 Widescreen</span>
+                      </div>
+
+                      <div className="relative w-full h-36 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 group shadow-2xs">
+                        <img
+                          src={siteSettings.heroBannerUrl || '/konichiwalaptopbackground.png'}
+                          alt="Current Laptop Banner"
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <button
+                            onClick={() => bannerInputRef.current?.click()}
+                            disabled={isUploadingBanner}
+                            className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                          >
+                            {isUploadingBanner ? 'Uploading...' : 'Replace Laptop Image'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <button
+                          type="button"
                           onClick={() => bannerInputRef.current?.click()}
                           disabled={isUploadingBanner}
-                          className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                          className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 text-slate-700 border border-stone-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
                         >
-                          {isUploadingBanner ? 'Uploading...' : 'Replace Laptop Image'}
+                          <Upload className="w-3.5 h-3.5 text-slate-500" />
+                          <span>{isUploadingBanner ? 'Uploading...' : 'Upload Laptop BG'}</span>
                         </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="button"
-                        onClick={() => bannerInputRef.current?.click()}
-                        disabled={isUploadingBanner}
-                        className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 text-slate-700 border border-stone-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-slate-500" />
-                        <span>{isUploadingBanner ? 'Uploading...' : 'Upload Laptop BG'}</span>
-                      </button>
-                    </div>
-                  </div>
+                    {/* Mobile Background Card */}
+                    <div className="p-3.5 rounded-xl border border-pink-200 bg-pink-50/30 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-pink-900">
+                          📱 Mobile Layout Image
+                        </span>
+                        <span className="text-[10px] text-pink-600/80 font-medium">Vertical / 9:16 Portrait</span>
+                      </div>
 
-                  {/* Mobile Background Card */}
-                  <div className="p-3.5 rounded-xl border border-pink-200 bg-pink-50/30 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-pink-900">
-                        📱 Mobile Layout Image
-                      </span>
-                      <span className="text-[10px] text-pink-600/80 font-medium">Vertical / 9:16 Portrait</span>
-                    </div>
+                      <div className="relative w-full h-36 rounded-lg overflow-hidden border border-pink-200 bg-pink-50 group shadow-2xs">
+                        <img
+                          src={siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'}
+                          alt="Current Mobile Banner"
+                          className="w-full h-full object-contain bg-slate-900/5"
+                        />
+                        <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <button
+                            onClick={() => mobileBannerInputRef.current?.click()}
+                            disabled={isUploadingMobileBanner}
+                            className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                          >
+                            {isUploadingMobileBanner ? 'Uploading...' : 'Replace Mobile Image'}
+                          </button>
+                        </div>
+                      </div>
 
-                    <div className="relative w-full h-36 rounded-lg overflow-hidden border border-pink-200 bg-pink-50 group shadow-2xs">
-                      <img
-                        src={siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'}
-                        alt="Current Mobile Banner"
-                        className="w-full h-full object-contain bg-slate-900/5"
-                      />
-                      <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <div className="flex items-center justify-between pt-1">
                         <button
+                          type="button"
                           onClick={() => mobileBannerInputRef.current?.click()}
                           disabled={isUploadingMobileBanner}
-                          className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                          className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 border border-pink-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
                         >
-                          {isUploadingMobileBanner ? 'Uploading...' : 'Replace Mobile Image'}
+                          <Upload className="w-3.5 h-3.5 text-pink-500" />
+                          <span>{isUploadingMobileBanner ? 'Uploading...' : 'Upload Mobile BG'}</span>
                         </button>
                       </div>
                     </div>
-
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="button"
-                        onClick={() => mobileBannerInputRef.current?.click()}
-                        disabled={isUploadingMobileBanner}
-                        className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 border border-pink-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-                      >
-                        <Upload className="w-3.5 h-3.5 text-pink-500" />
-                        <span>{isUploadingMobileBanner ? 'Uploading...' : 'Upload Mobile BG'}</span>
-                      </button>
-                    </div>
                   </div>
-                </div>
+                )}
 
-                {/* Hidden File Inputs */}
+                {/* Hidden File Inputs for Images */}
                 <input
                   type="file"
                   ref={bannerInputRef}
