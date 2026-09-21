@@ -46,13 +46,23 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     return localStorage.getItem('km_hero_mobile_banner_data') || FALLBACK_MOBILE_BANNERS[0];
   });
 
-  // Stored or custom hero video URL (default to elegant botanical flower bloom aesthetic)
+  // Stored or custom hero video URL (never use dummy video, purge any legacy flower.mp4)
   const [internalVideoUrl, setInternalVideoUrl] = useState<string>(() => {
-    return localStorage.getItem('km_hero_video_url') || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+    const stored = localStorage.getItem('km_hero_video_url');
+    if (stored && (stored.includes('flower.mp4') || stored.includes('interactive-examples'))) {
+      try { localStorage.removeItem('km_hero_video_url'); } catch {}
+      return '';
+    }
+    return stored || '';
   });
 
   const [internalMobileVideoUrl, setInternalMobileVideoUrl] = useState<string>(() => {
-    return localStorage.getItem('km_hero_mobile_video_url') || '';
+    const stored = localStorage.getItem('km_hero_mobile_video_url');
+    if (stored && (stored.includes('flower.mp4') || stored.includes('interactive-examples'))) {
+      try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
+      return '';
+    }
+    return stored || '';
   });
 
   const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
@@ -75,13 +85,17 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const mobileBannerUrl = customMobileBannerUrl || internalMobileBannerUrl;
   const setBannerUrl = setInternalBannerUrl;
 
-  const activeVideoUrl = customVideoUrl !== undefined ? customVideoUrl : internalVideoUrl;
-  const activeMobileVideoUrl = customMobileVideoUrl !== undefined ? customMobileVideoUrl : internalMobileVideoUrl;
+  const rawVideoUrl = customVideoUrl !== undefined ? customVideoUrl : internalVideoUrl;
+  const rawMobileVideoUrl = customMobileVideoUrl !== undefined ? customMobileVideoUrl : internalMobileVideoUrl;
 
-  // Dynamically select portrait video when on mobile screens, or fallback to desktop video
-  const effectiveVideoUrl = (isMobileScreen && activeMobileVideoUrl)
-    ? activeMobileVideoUrl
-    : (activeVideoUrl || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4');
+  // Never use dummy video URL
+  const activeVideoUrl = (rawVideoUrl && !rawVideoUrl.includes('flower.mp4') && !rawVideoUrl.includes('interactive-examples')) ? rawVideoUrl : '';
+  const activeMobileVideoUrl = (rawMobileVideoUrl && !rawMobileVideoUrl.includes('flower.mp4') && !rawMobileVideoUrl.includes('interactive-examples')) ? rawMobileVideoUrl : '';
+
+  // For laptop layout: ONLY show video if user explicitly uploaded/configured a video, otherwise show the photo
+  const effectiveVideoUrl = isMobileScreen
+    ? (activeMobileVideoUrl || activeVideoUrl || '')
+    : (activeVideoUrl || '');
   const effectivePoster = isMobileScreen ? (mobileBannerUrl || bannerUrl) : bannerUrl;
 
   // Video playback & state
@@ -94,8 +108,8 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Determine if video should be rendered
-  const shouldRenderVideo = (heroMediaType === 'video' || Boolean(activeVideoUrl) || Boolean(activeMobileVideoUrl)) && Boolean(effectiveVideoUrl) && !videoError;
+  // Determine if video should be rendered: NEVER show dummy video, only show video if real video exists
+  const shouldRenderVideo = Boolean(effectiveVideoUrl) && !videoError;
 
   // Keep video playing continuously whenever someone is in the hero section
   useEffect(() => {

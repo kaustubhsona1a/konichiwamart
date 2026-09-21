@@ -721,8 +721,19 @@ export default function App() {
     const explicitlyTurnedOff = localStorage.getItem('km_flower_drift_user_enabled') === 'false';
     const storedDesktop = localStorage.getItem('km_hero_banner_data');
     const storedMobile = localStorage.getItem('km_hero_mobile_banner_data');
-    const storedVideo = localStorage.getItem('km_hero_video_url');
-    const storedMobileVideo = localStorage.getItem('km_hero_mobile_video_url');
+    const rawStoredVideo = localStorage.getItem('km_hero_video_url');
+    const rawStoredMobileVideo = localStorage.getItem('km_hero_mobile_video_url');
+
+    // Purge any dummy flower.mp4 from cache
+    if (rawStoredVideo && (rawStoredVideo.includes('flower.mp4') || rawStoredVideo.includes('interactive-examples'))) {
+      try { localStorage.removeItem('km_hero_video_url'); } catch {}
+    }
+    if (rawStoredMobileVideo && (rawStoredMobileVideo.includes('flower.mp4') || rawStoredMobileVideo.includes('interactive-examples'))) {
+      try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
+    }
+
+    const storedVideo = (rawStoredVideo && !rawStoredVideo.includes('flower.mp4') && !rawStoredVideo.includes('interactive-examples')) ? rawStoredVideo : '';
+    const storedMobileVideo = (rawStoredMobileVideo && !rawStoredMobileVideo.includes('flower.mp4') && !rawStoredMobileVideo.includes('interactive-examples')) ? rawStoredMobileVideo : '';
 
     try {
       const saved = localStorage.getItem('km_site_settings');
@@ -740,6 +751,14 @@ export default function App() {
           ? parsed.mobileHeroBannerUrl
           : (storedMobile || parsed.mobileHeroBannerUrl || '/konichiwamobilebg.png');
 
+        const validParsedVideo = (parsed.heroVideoUrl && !parsed.heroVideoUrl.includes('flower.mp4') && !parsed.heroVideoUrl.includes('interactive-examples'))
+          ? parsed.heroVideoUrl
+          : storedVideo;
+
+        const validParsedMobileVideo = (parsed.heroMobileVideoUrl && !parsed.heroMobileVideoUrl.includes('flower.mp4') && !parsed.heroMobileVideoUrl.includes('interactive-examples'))
+          ? parsed.heroMobileVideoUrl
+          : storedMobileVideo;
+
         return {
           backgroundHintOpacity: 'balanced',
           flowerDriftSpeed: 'gentle',
@@ -747,9 +766,9 @@ export default function App() {
           ...parsed,
           heroBannerUrl: activeHero,
           mobileHeroBannerUrl: activeMobileHero,
-          heroVideoUrl: parsed.heroVideoUrl || storedVideo || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
-          heroMobileVideoUrl: parsed.heroMobileVideoUrl || storedMobileVideo || '',
-          heroMediaType: parsed.heroMediaType || 'video',
+          heroVideoUrl: validParsedVideo || '',
+          heroMobileVideoUrl: validParsedMobileVideo || '',
+          heroMediaType: validParsedVideo ? 'video' : 'image',
           backgroundImageUrl: activeHero,
           mobileBackgroundImageUrl: activeMobileHero,
           storeTagline: tagline,
@@ -762,9 +781,9 @@ export default function App() {
       storeTagline: 'Japanese Skincare',
       heroBannerUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileHeroBannerUrl: storedMobile || '/konichiwamobilebg.png',
-      heroVideoUrl: storedVideo || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4',
+      heroVideoUrl: storedVideo || '',
       heroMobileVideoUrl: storedMobileVideo || '',
-      heroMediaType: 'video',
+      heroMediaType: storedVideo ? 'video' : 'image',
       backgroundImageUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileBackgroundImageUrl: storedMobile || '/konichiwamobilebg.png',
       backgroundHintOpacity: 'balanced',

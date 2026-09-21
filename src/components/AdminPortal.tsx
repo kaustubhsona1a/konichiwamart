@@ -2503,41 +2503,73 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 {siteSettings.heroMediaType !== 'image' ? (
                   /* ================= VIDEO MODE ================= */
                   <div className="space-y-5">
-                    {/* Live Video Preview Box */}
+                    {/* Live Preview Box */}
                     <div className="relative w-full rounded-2xl overflow-hidden border border-slate-800 bg-stone-950 aspect-[16/8] sm:aspect-[21/9] max-h-72 shadow-md group">
-                      <video
-                        key={siteSettings.heroVideoUrl || 'default-preview'}
-                        src={siteSettings.heroVideoUrl || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
-                        className="w-full h-full object-cover brightness-[0.95]"
-                      />
+                      {siteSettings.heroVideoUrl ? (
+                        <video
+                          key={siteSettings.heroVideoUrl}
+                          src={siteSettings.heroVideoUrl}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          className="w-full h-full object-cover brightness-[0.95]"
+                        />
+                      ) : (
+                        <img
+                          src={siteSettings.heroBannerUrl || '/konichiwalaptopbackground.png'}
+                          alt="Laptop Hero Banner"
+                          className="w-full h-full object-cover brightness-[0.95]"
+                        />
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/30 pointer-events-none" />
                       
                       {/* Top Overlay Badge */}
                       <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-full bg-pink-600/90 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-sm flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-                          Live Hero Background Video
-                        </span>
+                        {siteSettings.heroVideoUrl ? (
+                          <span className="px-2.5 py-1 rounded-full bg-pink-600/90 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-sm flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                            Live Hero Background Video
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-1 rounded-full bg-emerald-600/90 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-sm flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                            Laptop Photo Banner Active
+                          </span>
+                        )}
                       </div>
 
                       {/* Video Quick Controls / Info */}
                       <div className="absolute bottom-3 left-3 right-3 z-10 flex items-center justify-between text-white text-xs">
                         <span className="text-[11px] font-mono text-white/80 truncate max-w-[70%]">
-                          {siteSettings.heroVideoUrl || 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4'}
+                          {siteSettings.heroVideoUrl || 'konichiwalaptopbackground.png (Photo)'}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => videoInputRef.current?.click()}
-                          disabled={isUploadingVideo}
-                          className="px-3 py-1.5 rounded-lg bg-white/95 hover:bg-white text-slate-900 font-bold text-[11px] uppercase tracking-wider transition-all shadow-md cursor-pointer flex items-center gap-1.5"
-                        >
-                          <Upload className="w-3 h-3 text-pink-600" />
-                          <span>{isUploadingVideo ? 'Uploading...' : 'Replace Video'}</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          {siteSettings.heroVideoUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVideoUrlInput('');
+                                try { localStorage.removeItem('km_hero_video_url'); } catch {}
+                                onUpdateSiteSettings({ heroVideoUrl: '', heroMediaType: 'image' });
+                                setSettingsSuccessMsg('Reverted laptop hero to photo banner!');
+                                setTimeout(() => setSettingsSuccessMsg(null), 3000);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-stone-800/80 hover:bg-stone-700 text-stone-200 font-bold text-[10px] uppercase tracking-wider transition-all cursor-pointer"
+                            >
+                              Use Photo Instead
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => videoInputRef.current?.click()}
+                            disabled={isUploadingVideo}
+                            className="px-3 py-1.5 rounded-lg bg-white/95 hover:bg-white text-slate-900 font-bold text-[11px] uppercase tracking-wider transition-all shadow-md cursor-pointer flex items-center gap-1.5"
+                          >
+                            <Upload className="w-3 h-3 text-pink-600" />
+                            <span>{isUploadingVideo ? 'Uploading...' : (siteSettings.heroVideoUrl ? 'Replace Video' : 'Upload Video')}</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -2645,23 +2677,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </div>
                       </div>
 
-                      {/* Quick Presets */}
-                      <div className="flex items-center gap-2 pt-1">
-                        <span className="text-[11px] text-slate-500 font-medium">Quick Test:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const demoUrl = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
-                            setVideoUrlInput(demoUrl);
-                            localStorage.setItem('km_hero_video_url', demoUrl);
-                            onUpdateSiteSettings({ heroVideoUrl: demoUrl, heroMediaType: 'video' });
-                            setSettingsSuccessMsg('Botanical blooming flower video applied!');
-                            setTimeout(() => setSettingsSuccessMsg(null), 3000);
-                          }}
-                          className="text-[11px] font-semibold text-pink-700 hover:underline cursor-pointer bg-pink-50 px-2 py-0.5 rounded border border-pink-200/60"
-                        >
-                          🌸 Botanical Sakura Flower (Bloom Demo)
-                        </button>
+                      {/* Photo Default Indicator */}
+                      <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-500">
+                        <span className="font-medium text-emerald-700">✓ Default:</span>
+                        <span>Photo banner (<code className="bg-stone-100 px-1 py-0.5 rounded text-[10px]">konichiwalaptopbackground.png</code>) is displayed automatically on laptops until you upload or link a custom video.</span>
                       </div>
                     </div>
 
