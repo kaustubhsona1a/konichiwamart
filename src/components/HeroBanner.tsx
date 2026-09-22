@@ -60,9 +60,9 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     const stored = localStorage.getItem('km_hero_mobile_video_url');
     if (stored && (stored.includes('flower.mp4') || stored.includes('interactive-examples'))) {
       try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
-      return '';
+      return '/videos/hero-video-mobile.mp4';
     }
-    return stored || '';
+    return stored || '/videos/hero-video-mobile.mp4';
   });
 
   const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
@@ -88,13 +88,16 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const rawVideoUrl = customVideoUrl !== undefined ? customVideoUrl : internalVideoUrl;
   const rawMobileVideoUrl = customMobileVideoUrl !== undefined ? customMobileVideoUrl : internalMobileVideoUrl;
 
-  // Never use dummy video URL
+  // Never use external dummy video URL
   const activeVideoUrl = (rawVideoUrl && !rawVideoUrl.includes('flower.mp4') && !rawVideoUrl.includes('interactive-examples')) ? rawVideoUrl : '';
-  const activeMobileVideoUrl = (rawMobileVideoUrl && !rawMobileVideoUrl.includes('flower.mp4') && !rawMobileVideoUrl.includes('interactive-examples')) ? rawMobileVideoUrl : '';
+  const activeMobileVideoUrl = (rawMobileVideoUrl && !rawMobileVideoUrl.includes('flower.mp4') && !rawMobileVideoUrl.includes('interactive-examples'))
+    ? rawMobileVideoUrl
+    : '/videos/hero-video-mobile.mp4';
 
   // For laptop layout: ONLY show video if user explicitly uploaded/configured a video, otherwise show the photo
+  // For mobile layout: show mobile video (/videos/hero-video-mobile.mp4)
   const effectiveVideoUrl = isMobileScreen
-    ? (activeMobileVideoUrl || activeVideoUrl || '')
+    ? (activeMobileVideoUrl || '/videos/hero-video-mobile.mp4')
     : (activeVideoUrl || '');
   const effectivePoster = isMobileScreen ? (mobileBannerUrl || bannerUrl) : bannerUrl;
 
@@ -108,7 +111,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Determine if video should be rendered: NEVER show dummy video, only show video if real video exists
+  // Determine if video should be rendered: only if effectiveVideoUrl is present and valid
   const shouldRenderVideo = Boolean(effectiveVideoUrl) && !videoError;
 
   // Keep video playing continuously whenever someone is in the hero section
@@ -117,11 +120,15 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     if (!video || !shouldRenderVideo) return;
 
     const ensurePlay = () => {
-      if (video && video.paused) {
+      if (video) {
+        video.defaultMuted = true;
         video.muted = true;
-        video.play().catch((err) => {
-          console.warn('Hero video continuous play notice:', err?.message);
-        });
+        video.playsInline = true;
+        if (video.paused) {
+          video.play().catch((err) => {
+            console.warn('Hero video continuous play notice:', err?.message);
+          });
+        }
       }
     };
 
@@ -333,26 +340,24 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
                 onLoadedData={() => {
                   setVideoLoaded(true);
                   setVideoError(false);
-                  videoRef.current?.play().catch(() => {});
+                  if (videoRef.current) {
+                    videoRef.current.defaultMuted = true;
+                    videoRef.current.muted = true;
+                    videoRef.current.play().catch(() => {});
+                  }
                 }}
                 onEnded={() => {
                   videoRef.current?.play().catch(() => {});
                 }}
                 onError={() => {
                   console.warn('Hero video failed to stream, falling back to banner image.');
-                  setVideoError(true);
+                  // Only set video error if there's genuinely no video playing
+                  if (videoRef.current && (!videoRef.current.videoWidth || videoRef.current.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)) {
+                    setVideoError(true);
+                  }
                 }}
                 className="w-full h-full sm:h-auto sm:min-h-[420px] md:min-h-[500px] lg:min-h-[580px] sm:max-h-[85vh] object-cover object-center block select-none pointer-events-none align-bottom transition-[filter,opacity] duration-700 brightness-[0.96] contrast-[1.02] dark:brightness-[0.78] dark:contrast-[1.05]"
-              >
-                <source src={effectiveVideoUrl} type="video/mp4" />
-                <source src={effectiveVideoUrl} type="video/webm" />
-                {/* Fallback image */}
-                <img
-                  src={effectivePoster}
-                  alt="Konichiwa Mart - Japanese Beauty"
-                  className="w-full h-full object-cover object-center block select-none"
-                />
-              </video>
+              />
             </div>
           ) : (
             /* STATIC ART-DIRECTED IMAGE BANNER */
