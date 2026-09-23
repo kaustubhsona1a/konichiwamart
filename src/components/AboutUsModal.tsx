@@ -7,9 +7,12 @@ import {
   Award, 
   HeartHandshake, 
   MapPin, 
-  CheckCircle2 
+  CheckCircle2,
+  ExternalLink,
+  Star
 } from 'lucide-react';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
+import { STORE_LOCATION_CONFIG } from '../data/storeLocation';
 
 interface AboutUsModalProps {
   isOpen: boolean;

@@ -173,20 +173,25 @@ export const verifyPaymentSignature = async (
       body: JSON.stringify(payload)
     });
 
-    if (res.ok) {
-      const data = await safeParseJson(res);
-      if (data && data.success) return data;
+    const data = await safeParseJson(res);
+    if (res.ok && data && data.success) {
+      return data;
     }
+    return {
+      success: false,
+      error: data?.error || 'Payment signature verification failed. Untrusted transaction.',
+      order_id: payload.razorpay_order_id,
+      payment_id: payload.razorpay_payment_id
+    };
   } catch (err: any) {
-    console.warn('Backend payment verification fallback:', err);
+    console.error('Backend payment verification error:', err);
+    return {
+      success: false,
+      error: err?.message || 'Network error verifying payment signature with server.',
+      order_id: payload.razorpay_order_id,
+      payment_id: payload.razorpay_payment_id
+    };
   }
-
-  return {
-    success: true,
-    message: 'Payment verified successfully.',
-    order_id: payload.razorpay_order_id,
-    payment_id: payload.razorpay_payment_id
-  };
 };
 
 /**

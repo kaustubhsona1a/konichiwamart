@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Konichiwa_Mart | Authentic Japanese Beauty & Cosmetics</title>
     <script>
+      // 0. Polyfill/define EmptyRanges in global lexical scope to prevent WebKit/Safari extension ReferenceError
+      var EmptyRanges = typeof EmptyRanges !== 'undefined' ? EmptyRanges : Object.freeze([]);
+      try {
+        if (typeof window !== 'undefined') {
+          window.EmptyRanges = window.EmptyRanges || EmptyRanges;
+        }
+        if (typeof globalThis !== 'undefined') {
+          globalThis.EmptyRanges = globalThis.EmptyRanges || EmptyRanges;
+        }
+      } catch (_) {}
+
       // 1. Prevent React 19 DevTools notification from checking cross-origin window.top === window.self
       try {
         if (typeof window !== 'undefined') {
@@ -18,7 +29,7 @@
         }
       } catch (_) {}
 
-      // 2. Intercept and suppress any cross-origin frame access SecurityErrors in iframe environments
+      // 2. Intercept and suppress any cross-origin frame access SecurityErrors & third-party extension noise (e.g. EmptyRanges)
       try {
         if (typeof window !== 'undefined') {
           window.addEventListener('error', function(e) {
@@ -26,6 +37,7 @@
             if (
               msg.indexOf('cross-origin') !== -1 ||
               msg.indexOf('Blocked a frame with origin') !== -1 ||
+              msg.indexOf('EmptyRanges') !== -1 ||
               (e.error && e.error.name === 'SecurityError')
             ) {
               e.preventDefault();
@@ -40,6 +52,7 @@
             if (
               msg.indexOf('cross-origin') !== -1 ||
               msg.indexOf('Blocked a frame with origin') !== -1 ||
+              msg.indexOf('EmptyRanges') !== -1 ||
               (reason && reason.name === 'SecurityError')
             ) {
               e.preventDefault();
@@ -53,6 +66,7 @@
             if (
               str.indexOf('cross-origin') !== -1 ||
               str.indexOf('Blocked a frame with origin') !== -1 ||
+              str.indexOf('EmptyRanges') !== -1 ||
               (err && err.name === 'SecurityError')
             ) {
               return true;

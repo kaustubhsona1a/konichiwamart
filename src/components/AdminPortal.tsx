@@ -205,6 +205,41 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
+  // Shiprocket Test State
+  const [isTestingShiprocket, setIsTestingShiprocket] = useState(false);
+  const [shiprocketTestResult, setShiprocketTestResult] = useState<{
+    success: boolean;
+    message?: string;
+    accountEmail?: string;
+    tokenGenerated?: boolean;
+    configuredPickupLocation?: string;
+    pickupLocationFound?: boolean;
+    availablePickupLocations?: string[];
+    walletBalance?: string;
+    error?: string;
+  } | null>(null);
+
+  const handleTestShiprocket = async () => {
+    setIsTestingShiprocket(true);
+    setShiprocketTestResult(null);
+    try {
+      const res = await fetch('/api/admin/test-shiprocket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      setShiprocketTestResult(data);
+    } catch (err: any) {
+      setShiprocketTestResult({
+        success: false,
+        error: err.message || 'Failed to reach server test endpoint'
+      });
+    } finally {
+      setIsTestingShiprocket(false);
+    }
+  };
+
   // Add Product Modal / State inside Portal
   const [showAddProductModal, setShowAddProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -3192,6 +3227,157 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <span>{testEmailStatus.message}</span>
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* MODULE 5: SHIPROCKET LOGISTICS & AUTO-AWB DISPATCH */}
+              <div className="bg-white border border-pink-100 rounded-2xl p-6 space-y-5 shadow-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-200/80 flex items-center justify-center text-indigo-600">
+                      <Truck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-sm tracking-wider uppercase text-slate-900">
+                        SHIPROCKET LOGISTICS & AUTO-AWB DISPATCH
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Automated courier assignment (Blue Dart, Delhivery, Shadowfax), live AWB tracking, and warehouse pickup.
+                      </p>
+                    </div>
+                  </div>
+                  <span className="self-start sm:self-center inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-indigo-50 text-indigo-800 border border-indigo-300">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                    KYC Verified / Ready
+                  </span>
+                </div>
+
+                {/* Configuration Overview */}
+                <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-3">
+                  <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Logistics Setup & Warehouse Routing
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">API Integration</span>
+                      <span className="font-mono font-medium text-slate-800">Shiprocket REST v2</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Default Pickup Nickname</span>
+                      <span className="font-mono font-medium text-slate-800">Primary Warehouse</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Coverage</span>
+                      <span className="font-mono font-medium text-slate-800">29,000+ Indian Pincodes</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Test Connection Button & Result Card */}
+                <div className="space-y-3 pt-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                        Live Connection & Wallet Verification
+                      </label>
+                      <p className="text-xs text-slate-500">
+                        Verify your Shiprocket API credentials, check shipping wallet balance, and validate pickup locations.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleTestShiprocket}
+                      disabled={isTestingShiprocket}
+                      className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 flex-shrink-0"
+                    >
+                      {isTestingShiprocket ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Testing Connection...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>Test Shiprocket Connection</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {shiprocketTestResult && (
+                    <div className={`p-4 rounded-xl border text-xs space-y-2.5 animate-in fade-in ${
+                      shiprocketTestResult.success 
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
+                        : 'bg-rose-50 border-rose-200 text-rose-900'
+                    }`}>
+                      <div className="flex items-center gap-2 font-bold">
+                        {shiprocketTestResult.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                        )}
+                        <span>{shiprocketTestResult.message || (shiprocketTestResult.success ? 'Connected!' : 'Connection issue')}</span>
+                      </div>
+
+                      {shiprocketTestResult.error && (
+                        <div className="text-rose-700 font-medium">
+                          {shiprocketTestResult.error}
+                        </div>
+                      )}
+
+                      {shiprocketTestResult.success && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-emerald-200/60 text-[11px]">
+                          <div>
+                            <span className="font-semibold text-emerald-800">Account:</span>{' '}
+                            <span className="font-mono">{shiprocketTestResult.accountEmail}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-emerald-800">Wallet Balance:</span>{' '}
+                            <span className="font-bold">{shiprocketTestResult.walletBalance}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-emerald-800">Configured Pickup Location:</span>{' '}
+                            <span className="font-mono">{shiprocketTestResult.configuredPickupLocation}</span>
+                            {shiprocketTestResult.pickupLocationFound ? (
+                              <span className="ml-1 text-emerald-700 font-bold">(Matched ✓)</span>
+                            ) : (
+                              <span className="ml-1 text-amber-600 font-bold">(Not found in Shiprocket addresses)</span>
+                            )}
+                          </div>
+                          <div>
+                            <span className="font-semibold text-emerald-800">Registered Addresses in Shiprocket:</span>{' '}
+                            <span className="font-mono">
+                              {shiprocketTestResult.availablePickupLocations && shiprocketTestResult.availablePickupLocations.length > 0
+                                ? shiprocketTestResult.availablePickupLocations.join(', ')
+                                : 'None registered yet'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Moving Forward Checklist */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>How We Move Forward (Next Steps):</span>
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-600 leading-relaxed text-[11px]">
+                    <li>
+                      <strong>Add Pickup Address</strong>: In your Shiprocket dashboard (<a href="https://app.shiprocket.in" target="_blank" rel="noreferrer" className="text-pink-600 underline">app.shiprocket.in</a>), go to <em>Settings &gt; Pickup Addresses</em> and add your warehouse address with nickname <code className="bg-stone-200 px-1 py-0.5 rounded text-slate-800 font-mono">Primary Warehouse</code>.
+                    </li>
+                    <li>
+                      <strong>Recharge Shipping Wallet</strong>: Add a starter balance (₹500–₹1,000) so couriers can deduct freight fees when generating shipping labels and AWBs.
+                    </li>
+                    <li>
+                      <strong>Set Environment Variables</strong>: Ensure <code className="bg-stone-200 px-1 py-0.5 rounded text-slate-800 font-mono">SHIPROCKET_EMAIL</code> and <code className="bg-stone-200 px-1 py-0.5 rounded text-slate-800 font-mono">SHIPROCKET_PASSWORD</code> are added to your hosting settings (Vercel / Cloud Run / .env).
+                    </li>
+                    <li>
+                      <strong>Click &quot;Test Shiprocket Connection&quot; above</strong> to confirm your credentials and pickup location match with 100% certainty.
+                    </li>
+                  </ol>
                 </div>
               </div>
 

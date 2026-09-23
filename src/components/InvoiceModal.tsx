@@ -198,9 +198,9 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 KONICHIWA_MART PRIVATE LIMITED
               </p>
               <p className="text-[#64748B] dark:text-zinc-400 text-[11px] leading-relaxed print:text-[#64748B] mt-0.5">
-                Shop no.3, Opposite Model Town Society, Near Takshila society,<br />
-                Mahakali caves road, Andheri(E), Mumbai:- 400093<br />
-                <strong>Landmark:</strong> Near Takshila CHS & Poonam nagar<br />
+                Beaupride, Hill Road, Ranwar,<br />
+                Bandra West, Mumbai:- 400050<br />
+                <strong>Landmark:</strong> Near Elco Market & Ranwar Village<br />
                 <strong>State:</strong> Maharashtra (State Code: 27)
               </p>
             </div>

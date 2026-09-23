@@ -279,12 +279,22 @@ app.post('/api/verify-payment', (req: Request, res: Response) => {
     let keyId = (process.env.RAZORPAY_KEY_ID || process.env.VITE_RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY || '').trim();
     let keySecret = (process.env.RAZORPAY_KEY_SECRET || process.env.RAZORPAY_KEY_SECRE || process.env.RAZORPAY_SECRET_KEY || '').trim();
 
+    if (!keySecret) {
+      console.error('[VerifyPayment Error] RAZORPAY_KEY_SECRET is not configured on server.');
+      return res.status(500).json({
+        success: false,
+        error: 'Payment verification secret is not configured on server.'
+      });
+    }
+
     const expectedSignature = crypto
       .createHmac('sha256', keySecret)
       .update(`${actualOrderId}|${actualPaymentId}`)
       .digest('hex');
 
-    const isMatch = expectedSignature === actualSignature;
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const actualBuf = Buffer.from(actualSignature.trim(), 'utf8');
+    const isMatch = expectedBuf.length === actualBuf.length && crypto.timingSafeEqual(expectedBuf, actualBuf);
 
     if (!isMatch) {
       // Signature mismatch: return 400, do NOT mark as paid
@@ -744,6 +754,78 @@ app.get('/api/banner-status', (_req: Request, res: Response) => {
     desktopVideoUrl: desktopVideoResult,
     mobileVideoUrl: mobileVideoResult
   });
+});
+
+/**
+ * GET /videos/:filename
+ * High-performance video streaming endpoint with HTTP Range / 206 Partial Content support.
+ * Essential for iOS Safari, Android Chrome, and cloud container deployments.
+ */
+app.get('/videos/:filename', (req: Request, res: Response) => {
+  try {
+    const rawFilename = req.params.filename || '';
+    const safeFilename = path.basename(rawFilename.split('?')[0]);
+
+    if (!safeFilename) {
+      return res.status(400).send('Invalid video filename');
+    }
+
+    const possiblePaths = [
+      path.join(process.cwd(), 'public', 'videos', safeFilename),
+      path.join(process.cwd(), 'dist', 'videos', safeFilename),
+      path.join(process.cwd(), 'public', safeFilename),
+      path.join(process.cwd(), 'dist', safeFilename)
+    ];
+
+    const videoPath = possiblePaths.find(p => fs.existsSync(p));
+    if (!videoPath) {
+      return res.status(404).send('Video not found');
+    }
+
+    const stat = fs.statSync(videoPath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+
+    const ext = path.extname(safeFilename).toLowerCase();
+    const contentType = ext === '.webm' ? 'video/webm' : (ext === '.mov' ? 'video/quicktime' : 'video/mp4');
+
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize || start > end) {
+        res.setHeader('Content-Range', `bytes */${fileSize}`);
+        return res.status(416).send('Requested Range Not Satisfiable');
+      }
+
+      const chunksize = (end - start) + 1;
+      const fileStream = fs.createReadStream(videoPath, { start, end });
+
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Content-Length': chunksize,
+        'Content-Type': contentType,
+      });
+
+      fileStream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': fileSize,
+        'Content-Type': contentType,
+      });
+
+      fs.createReadStream(videoPath).pipe(res);
+    }
+  } catch (err: any) {
+    console.error('[Video Stream Error]:', err);
+    if (!res.headersSent) {
+      res.status(500).send('Error streaming video');
+    }
+  }
 });
 
 /**
@@ -1243,16 +1325,21 @@ async function ensureOperatorUserProvisioned() {
     const adminClient = createClient(url, serviceKey);
     const { data: list } = await adminClient.auth.admin.listUsers();
     
-    // Ensure admin@konichiwamart.com
+    // Ensure admin@konichiwamart.com only if OPERATOR_PASSWORD is provided in environment
+    const adminPassword = (process.env.OPERATOR_PASSWORD || process.env.ADMIN_PASSWORD || '').trim();
     const adminUser = list?.users?.find(u => u.email === 'admin@konichiwamart.com');
-    if (!adminUser) {
+    if (!adminUser && adminPassword) {
       await adminClient.auth.admin.createUser({
         email: 'admin@konichiwamart.com',
-        password: 'admin123',
+        password: adminPassword,
         email_confirm: true,
         user_metadata: { role: 'operator', name: 'Store Operator' }
       });
       console.log('[Server] Created operator user admin@konichiwamart.com in Supabase Auth');
+    } else if (adminUser && adminPassword) {
+      await adminClient.auth.admin.updateUserById(adminUser.id, {
+        password: adminPassword
+      });
     }
 
     // Ensure kaustubhsona1a@gmail.com has customer role, not operator
@@ -2201,6 +2288,91 @@ app.patch('/api/admin/orders/:orderId', async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, message: 'Order modified successfully.' });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/test-shiprocket
+ * Tests live connection with Shiprocket API, validates credentials, checks wallet balance,
+ * and lists registered pickup addresses.
+ */
+app.post('/api/admin/test-shiprocket', async (req: Request, res: Response) => {
+  try {
+    const email = (req.body?.email || process.env.SHIPROCKET_EMAIL || '').trim();
+    const password = (req.body?.password || process.env.SHIPROCKET_PASSWORD || '').trim();
+    const configuredPickup = (req.body?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Shiprocket credentials missing. Please set SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in your environment variables.'
+      });
+    }
+
+    // 1. Test Login & Token Generation
+    const authRes = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    if (!authRes.ok) {
+      const errData = await authRes.json().catch(() => ({}));
+      return res.status(401).json({
+        success: false,
+        error: errData.message || 'Shiprocket authentication failed. Please verify your registered email and password.'
+      });
+    }
+
+    const authData = await authRes.json();
+    const token = authData.token;
+
+    // 2. Fetch Pickup Locations
+    let pickupLocations: any[] = [];
+    try {
+      const pickupRes = await fetch('https://apiv2.shiprocket.in/v1/external/settings/company/pickup', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (pickupRes.ok) {
+        const pData = await pickupRes.json();
+        pickupLocations = pData?.data?.shipping_address || [];
+      }
+    } catch (e) {
+      console.warn('[Shiprocket Test] Could not fetch pickup locations:', e);
+    }
+
+    // 3. Fetch Wallet Balance
+    let walletBalance: string | null = null;
+    try {
+      const walletRes = await fetch('https://apiv2.shiprocket.in/v1/external/wallet/balance', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (walletRes.ok) {
+        const wData = await walletRes.json();
+        walletBalance = wData?.data?.balance_amount || null;
+      }
+    } catch (e) {
+      console.warn('[Shiprocket Test] Could not fetch wallet balance:', e);
+    }
+
+    const availableNicknames = pickupLocations.map((p: any) => p.pickup_location);
+    const pickupMatch = availableNicknames.some(
+      (name: string) => name.toLowerCase() === configuredPickup.toLowerCase()
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Shiprocket connected successfully!',
+      accountEmail: email,
+      tokenGenerated: Boolean(token),
+      configuredPickupLocation: configuredPickup,
+      pickupLocationFound: pickupMatch,
+      availablePickupLocations: availableNicknames,
+      walletBalance: walletBalance ? `₹${walletBalance}` : 'Available in Dashboard'
+    });
+  } catch (err: any) {
+    console.error('[Shiprocket Test Exception]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Internal connection test failure.' });
   }
 });
 
@@ -3263,7 +3435,7 @@ async function startServer() {
     }));
   }
 
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !process.env.NOW_REGION && !process.env.VERCEL_ENV) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -9,3 +9,6 @@ coverage/
 *.sh
 *.cjs
 *.local
+data/customer_addresses.json
+*.db
+*.sqlite

@@ -56,13 +56,15 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     return stored || '';
   });
 
+  const AUTHENTIC_MOBILE_VIDEO_URL = 'https://nhcgwxvfuupkflhixxmj.supabase.co/storage/v1/object/public/product-images/hero_video_mobile_1790012980481.mp4';
+
   const [internalMobileVideoUrl, setInternalMobileVideoUrl] = useState<string>(() => {
     const stored = localStorage.getItem('km_hero_mobile_video_url');
     if (stored && (stored.includes('flower.mp4') || stored.includes('interactive-examples'))) {
       try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
-      return '/videos/hero-video-mobile.mp4';
+      return AUTHENTIC_MOBILE_VIDEO_URL;
     }
-    return stored || '/videos/hero-video-mobile.mp4';
+    return stored || AUTHENTIC_MOBILE_VIDEO_URL;
   });
 
   const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
@@ -92,13 +94,22 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const activeVideoUrl = (rawVideoUrl && !rawVideoUrl.includes('flower.mp4') && !rawVideoUrl.includes('interactive-examples')) ? rawVideoUrl : '';
   const activeMobileVideoUrl = (rawMobileVideoUrl && !rawMobileVideoUrl.includes('flower.mp4') && !rawMobileVideoUrl.includes('interactive-examples'))
     ? rawMobileVideoUrl
-    : '/videos/hero-video-mobile.mp4';
+    : AUTHENTIC_MOBILE_VIDEO_URL;
 
-  // For laptop layout: ONLY show video if user explicitly uploaded/configured a video, otherwise show the photo
+    // For laptop layout: ONLY show video if user explicitly uploaded/configured a desktop video, otherwise show the photo
   // For mobile layout: show mobile video (/videos/hero-video-mobile.mp4)
+  const isCustomDesktopVideo = Boolean(
+    activeVideoUrl && 
+    !activeVideoUrl.includes('flower.mp4') && 
+    !activeVideoUrl.includes('interactive-examples') &&
+    activeVideoUrl !== '/videos/hero-video-mobile.mp4' &&
+    activeVideoUrl !== '/videos/konichiwamobilebg.mp4'
+  );
+
   const effectiveVideoUrl = isMobileScreen
     ? (activeMobileVideoUrl || '/videos/hero-video-mobile.mp4')
-    : (activeVideoUrl || '');
+    : (isCustomDesktopVideo ? activeVideoUrl : '');
+
   const effectivePoster = isMobileScreen ? (mobileBannerUrl || bannerUrl) : bannerUrl;
 
   // Video playback & state
@@ -124,10 +135,10 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
         video.defaultMuted = true;
         video.muted = true;
         video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.setAttribute('webkit-playsinline', '');
         if (video.paused) {
-          video.play().catch((err) => {
-            console.warn('Hero video continuous play notice:', err?.message);
-          });
+          video.play().catch(() => {});
         }
       }
     };
@@ -135,7 +146,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     // Immediate playback attempt on mount or video source change
     ensurePlay();
 
-    // Observe hero section visibility - keep playing whenever someone is in the hero section
+    // Observe hero section visibility - keep playing continuously whenever someone is in the hero section
     let observer: IntersectionObserver | null = null;
     if (typeof window !== 'undefined' && 'IntersectionObserver' in window && heroSectionRef.current) {
       observer = new IntersectionObserver((entries) => {
@@ -144,7 +155,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
             ensurePlay();
           }
         });
-      }, { threshold: [0, 0.2, 0.5] });
+      }, { threshold: [0, 0.1, 0.5] });
       observer.observe(heroSectionRef.current);
     }
 
@@ -295,7 +306,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     <section 
       id="hero-banner" 
       ref={heroSectionRef}
-      className="relative w-full overflow-hidden bg-[#FAF0F2] dark:bg-[#09090b] h-[calc(100dvh-var(--navbar-height,56px))] min-h-[calc(100dvh-var(--navbar-height,56px))] sm:h-auto sm:min-h-0 flex flex-col"
+      className="relative w-full overflow-hidden bg-stone-950 dark:bg-black h-[calc(100svh-56px)] min-h-[calc(100svh-56px)] sm:h-[72vh] md:h-[78vh] lg:h-[84vh] 2xl:max-h-[900px] flex flex-col m-0 p-0"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -320,86 +331,85 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       )}
 
       {/* FULL-VIEWPORT LAPTOP & DESKTOP HERO CONTAINER */}
-      <div className="relative w-full max-w-[1920px] mx-auto overflow-hidden h-full flex-1 flex flex-col">
-        <div className="relative w-full h-full flex-1 overflow-hidden flex items-center justify-center bg-stone-900">
-          
-          {shouldRenderVideo ? (
-            /* CINEMATIC LOOPING BACKGROUND VIDEO (CONTINUOUS AMBIENT PLAYBACK - NO CONTROLS) */
-            <div className="relative w-full h-full flex-1 overflow-hidden flex items-center justify-center">
-              <video
-                ref={videoRef}
-                key={effectiveVideoUrl}
-                src={effectiveVideoUrl}
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="auto"
-                poster={effectivePoster}
-                controls={false}
-                onLoadedData={() => {
-                  setVideoLoaded(true);
-                  setVideoError(false);
-                  if (videoRef.current) {
-                    videoRef.current.defaultMuted = true;
-                    videoRef.current.muted = true;
-                    videoRef.current.play().catch(() => {});
-                  }
-                }}
-                onEnded={() => {
-                  videoRef.current?.play().catch(() => {});
-                }}
-                onError={() => {
-                  console.warn('Hero video failed to stream, falling back to banner image.');
-                  // Only set video error if there's genuinely no video playing
-                  if (videoRef.current && (!videoRef.current.videoWidth || videoRef.current.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)) {
-                    setVideoError(true);
-                  }
-                }}
-                className="w-full h-full sm:h-auto sm:min-h-[420px] md:min-h-[500px] lg:min-h-[580px] sm:max-h-[85vh] object-cover object-center block select-none pointer-events-none align-bottom transition-[filter,opacity] duration-700 brightness-[0.96] contrast-[1.02] dark:brightness-[0.78] dark:contrast-[1.05]"
-              />
-            </div>
-          ) : (
-            /* STATIC ART-DIRECTED IMAGE BANNER */
-            <picture className="w-full h-full sm:h-auto flex-1 block align-bottom">
-              {/* Desktop / Laptop Layout: show laptop background */}
-              <source media="(min-width: 640px)" srcSet={bannerUrl} />
-              {/* Mobile Layout: show mobile layout background */}
-              <source media="(max-width: 639px)" srcSet={mobileBannerUrl} />
-              <img
-                src={mobileBannerUrl}
-                alt="Konichiwa Mart - Japanese Beauty, Made for You"
-                loading="eager"
-                fetchPriority="high"
-                onError={() => {
-                  if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
-                    const nextIdx = fallbackIndex + 1;
-                    setFallbackIndex(nextIdx);
-                    setBannerUrl(FALLBACK_BANNERS[nextIdx]);
-                  }
-                }}
-                className="w-full h-full sm:h-auto sm:max-h-[85vh] object-cover object-center block select-none align-bottom transition-[filter,opacity] duration-500 brightness-[0.98] contrast-[1.01] dark:brightness-[0.75] dark:contrast-[1.05]"
-              />
-            </picture>
-          )}
+      <div className="relative w-full h-full flex-1 overflow-hidden m-0 p-0">
+        
+        {shouldRenderVideo ? (
+          /* CINEMATIC LOOPING BACKGROUND VIDEO (CONTINUOUS AMBIENT PLAYBACK - NO PLAY/MUTE BUTTONS) */
+          <video
+            ref={videoRef}
+            key={effectiveVideoUrl}
+            src={effectiveVideoUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="auto"
+            poster={effectivePoster}
+            controls={false}
+            tabIndex={-1}
+            onLoadedData={() => {
+              setVideoLoaded(true);
+              setVideoError(false);
+              if (videoRef.current) {
+                videoRef.current.defaultMuted = true;
+                videoRef.current.muted = true;
+                videoRef.current.play().catch(() => {});
+              }
+            }}
+            onEnded={() => {
+              videoRef.current?.play().catch(() => {});
+            }}
+            onError={() => {
+              console.warn('Hero video failed to stream, falling back to banner image.');
+              if (videoRef.current && (!videoRef.current.videoWidth || videoRef.current.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)) {
+                setVideoError(true);
+              }
+            }}
+            className="absolute inset-0 w-full h-full object-cover object-center block select-none pointer-events-none brightness-[0.96] contrast-[1.02] dark:brightness-[0.80] dark:contrast-[1.05]"
+          />
+        ) : (
+          /* STATIC ART-DIRECTED IMAGE BANNER (FOR LAPTOP PHOTO AND IMAGE FALLBACKS) */
+          <picture className="absolute inset-0 w-full h-full block">
+            {/* Desktop / Laptop Layout: show laptop background photo */}
+            <source media="(min-width: 640px)" srcSet={bannerUrl} />
+            {/* Mobile Layout: show mobile layout background */}
+            <source media="(max-width: 639px)" srcSet={mobileBannerUrl} />
+            <img
+              src={isMobileScreen ? mobileBannerUrl : bannerUrl}
+              alt="Konichiwa Mart - Japanese Beauty, Made for You"
+              loading="eager"
+              fetchPriority="high"
+              onError={() => {
+                if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
+                  const nextIdx = fallbackIndex + 1;
+                  setFallbackIndex(nextIdx);
+                  setBannerUrl(FALLBACK_BANNERS[nextIdx]);
+                }
+              }}
+              className="w-full h-full object-cover object-center block select-none brightness-[0.98] contrast-[1.01] dark:brightness-[0.78] dark:contrast-[1.05]"
+            />
+          </picture>
+        )}
 
-          {/* Ambient Dimmer Scrim Layer for smoother lighting in both light & dark mode */}
-          <div className="absolute inset-0 bg-slate-900/[0.08] dark:bg-black/35 pointer-events-none transition-colors duration-500 z-10" />
+        {/* Ambient Dimmer Scrim Layer for smoother lighting in both light & dark mode */}
+        <div className="absolute inset-0 bg-slate-900/[0.08] dark:bg-black/35 pointer-events-none z-10" />
 
-          {/* EXACT POSITIONED CLICKABLE [SHOP NOW →] BUTTON OVERLAY */}
-          {/* Centered on mobile for maximum visibility, docked left on tablet/desktop */}
-          <div className="absolute left-1/2 -translate-x-1/2 sm:left-[8%] sm:translate-x-0 md:left-[10%] bottom-8 sm:bottom-[8%] md:bottom-[10%] z-20 w-auto text-center">
-            <button
-              id="hero-shop-now-button"
-              onClick={handleShopNowClick}
-              className="group relative inline-flex items-center justify-center gap-2 sm:gap-3 px-7 sm:px-9 py-3 sm:py-4 rounded-full bg-gradient-to-r from-[#C52857] via-[#B8224E] to-[#912B52] hover:from-[#A81E46] hover:to-[#7E2245] text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-xl shadow-pink-950/40 hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/60 ring-2 ring-pink-500/25 whitespace-nowrap"
-            >
-              <span>SHOP NOW</span>
-              <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1.5 transition-transform duration-200" />
-            </button>
-          </div>
+        {/* Bottom subtle edge blend to eliminate any seam or white strip before the collection */}
+        <div className="absolute inset-x-0 bottom-0 h-16 sm:h-24 bg-gradient-to-t from-black/50 via-black/20 to-transparent pointer-events-none z-10" />
 
+        {/* EXACT POSITIONED CLICKABLE [SHOP NOW →] BUTTON OVERLAY */}
+        {/* Centered on mobile for maximum visibility, docked left on tablet/desktop */}
+        <div className="absolute left-1/2 -translate-x-1/2 sm:left-[8%] sm:translate-x-0 md:left-[10%] bottom-8 sm:bottom-[8%] md:bottom-[10%] z-20 w-auto text-center">
+          <button
+            id="hero-shop-now-button"
+            onClick={handleShopNowClick}
+            className="group relative inline-flex items-center justify-center gap-2 sm:gap-3 px-7 sm:px-9 py-3 sm:py-4 rounded-full bg-gradient-to-r from-[#C52857] via-[#B8224E] to-[#912B52] hover:from-[#A81E46] hover:to-[#7E2245] text-white font-bold text-xs sm:text-sm tracking-wider uppercase shadow-xl shadow-pink-950/40 hover:shadow-2xl hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer border border-white/60 ring-2 ring-pink-500/25 whitespace-nowrap"
+          >
+            <span>SHOP NOW</span>
+            <ArrowRight className="w-4 h-4 sm:w-5 sm:h-5 group-hover:translate-x-1.5 transition-transform duration-200" />
+          </button>
         </div>
+
       </div>
     </section>
   );

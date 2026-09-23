@@ -31,8 +31,8 @@ export function verifyWebhookSignature(rawBody: string, signatureHeader: string 
   const webhookSecret = (process.env.RAZORPAY_WEBHOOK_SECRET || process.env.VITE_RAZORPAY_WEBHOOK_SECRET || '').replace(/['"\s]/g, '').trim();
   
   if (!webhookSecret) {
-    console.warn('[Webhook Security] RAZORPAY_WEBHOOK_SECRET is not set in environment. Skipping HMAC verification for local test mode.');
-    return true; // Allow local testing if secret not configured
+    console.error('[Webhook Security Alert] RAZORPAY_WEBHOOK_SECRET is not configured on server. Rejecting unverified webhook request.');
+    return false;
   }
 
   if (!signatureHeader) {

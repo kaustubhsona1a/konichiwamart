@@ -830,13 +830,35 @@ export default function App() {
 
   // Fetch site settings from server/Supabase on mount
   useEffect(() => {
+    // Purge any lingering dummy flower video from client storage
+    const rawStored = localStorage.getItem('km_hero_video_url');
+    if (rawStored && (rawStored.includes('flower.mp4') || rawStored.includes('interactive-examples'))) {
+      try { localStorage.removeItem('km_hero_video_url'); } catch {}
+    }
+    const rawStoredMobile = localStorage.getItem('km_hero_mobile_video_url');
+    if (rawStoredMobile && (rawStoredMobile.includes('flower.mp4') || rawStoredMobile.includes('interactive-examples'))) {
+      try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
+    }
+
     fetch('/api/site-settings')
       .then(r => r.json())
       .then(data => {
         if (data?.success && data?.settings && typeof data.settings === 'object') {
           const s = data.settings;
+
+          // Strip out dummy flower.mp4 if present in database
+          const cleanDesktopVideo = (s.heroVideoUrl && !s.heroVideoUrl.includes('flower.mp4') && !s.heroVideoUrl.includes('interactive-examples'))
+            ? s.heroVideoUrl
+            : '';
+          const cleanMobileVideo = (s.heroMobileVideoUrl && !s.heroMobileVideoUrl.includes('flower.mp4') && !s.heroMobileVideoUrl.includes('interactive-examples'))
+            ? s.heroMobileVideoUrl
+            : 'https://nhcgwxvfuupkflhixxmj.supabase.co/storage/v1/object/public/product-images/hero_video_mobile_1790012980481.mp4';
+
+          s.heroVideoUrl = cleanDesktopVideo;
+          s.heroMobileVideoUrl = cleanMobileVideo;
+
           setSiteSettings(prev => {
-            const merged = { ...prev, ...s };
+            const merged = { ...prev, ...s, heroVideoUrl: cleanDesktopVideo, heroMobileVideoUrl: cleanMobileVideo };
             localStorage.setItem('km_site_settings', JSON.stringify(merged));
             if (s.heroBannerUrl) {
               try { localStorage.setItem('km_hero_banner_data', s.heroBannerUrl); } catch {}
@@ -844,11 +866,13 @@ export default function App() {
             if (s.mobileHeroBannerUrl) {
               try { localStorage.setItem('km_hero_mobile_banner_data', s.mobileHeroBannerUrl); } catch {}
             }
-            if (s.heroVideoUrl) {
-              try { localStorage.setItem('km_hero_video_url', s.heroVideoUrl); } catch {}
+            if (cleanDesktopVideo) {
+              try { localStorage.setItem('km_hero_video_url', cleanDesktopVideo); } catch {}
+            } else {
+              try { localStorage.removeItem('km_hero_video_url'); } catch {}
             }
-            if (s.heroMobileVideoUrl) {
-              try { localStorage.setItem('km_hero_mobile_video_url', s.heroMobileVideoUrl); } catch {}
+            if (cleanMobileVideo) {
+              try { localStorage.setItem('km_hero_mobile_video_url', cleanMobileVideo); } catch {}
             }
             return merged;
           });
@@ -1317,7 +1341,18 @@ export default function App() {
   }, [productsList, selectedCategory, selectedConcern, selectedSkinType, searchQuery, displayCategories, productSortBy]);
 
   // Cart operations
-  const handleAddToCart = (product: Product, quantity = 1, shade?: ProductShade) => {
+  const handleAddToCart = (product: Product, quantityOrShade?: number | ProductShade, possibleShade?: ProductShade) => {
+    let quantity = 1;
+    let shade: ProductShade | undefined = undefined;
+
+    if (typeof quantityOrShade === 'number') {
+      quantity = quantityOrShade;
+      shade = possibleShade;
+    } else if (quantityOrShade && typeof quantityOrShade === 'object') {
+      shade = quantityOrShade;
+      quantity = 1;
+    }
+
     setCart((prev) => {
       const existingIdx = prev.findIndex(
         (item) => item.product.id === product.id && item.selectedShade?.id === shade?.id
@@ -1739,7 +1774,7 @@ export default function App() {
           />
 
           {/* 2. MAIN PRODUCT CATALOG */}
-          <main id="collection" className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pt-12 sm:pt-16 md:pt-20 pb-12 sm:pb-20">
+          <main id="collection" className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pt-8 sm:pt-12 md:pt-16 pb-12 sm:pb-20">
             
             {/* Collection Section Header with Product Order / Sort Option */}
             <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">

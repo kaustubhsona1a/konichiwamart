@@ -24,6 +24,7 @@ export interface ProductShade {
 export interface Product {
   id: string;
   dbId?: string;
+  slug?: string;
   title: string;
   subtitle: string;
   price: number;

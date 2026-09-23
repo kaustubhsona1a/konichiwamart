@@ -4,8 +4,6 @@ import { Product, Order } from '../types';
 import { PRODUCTS } from '../data/products';
 
 const env = (import.meta as any).env || {};
-const FALLBACK_SUPABASE_URL = 'https://nhcgwxvfuupkflhixxmj.supabase.co';
-const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oY2d3eHZmdXVwa2ZsaGl4eG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4ODAxNDUsImV4cCI6MjEwNDQ1NjE0NX0.ZQ-Y13BuS347Y1MJ-9YKbUm1r0J4UZ4Vs5NoNgIihmQ';
 
 const cleanStr = (val?: string): string => {
   if (!val || typeof val !== 'string') return '';
@@ -13,9 +11,9 @@ const cleanStr = (val?: string): string => {
 };
 
 let activeSupabaseUrl: string = 
-  cleanStr(env.VITE_SUPABASE_URL || env.SUPABASE_URL || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL : '')) || FALLBACK_SUPABASE_URL;
+  cleanStr(env.VITE_SUPABASE_URL || env.SUPABASE_URL || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL : ''));
 let activeSupabaseAnonKey: string = 
-  cleanStr(env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY : '')) || FALLBACK_SUPABASE_ANON_KEY;
+  cleanStr(env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY : ''));
 
 export const isSupabaseConfigured = (): boolean => {
   return Boolean(activeSupabaseUrl && activeSupabaseAnonKey && activeSupabaseUrl.startsWith('http'));
@@ -42,12 +40,18 @@ export const ensureSupabaseClient = async (): Promise<SupabaseClient | null> => 
           clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
           return clientInstance;
         }
-        clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
-        return clientInstance;
+        if (activeSupabaseUrl && activeSupabaseAnonKey) {
+          clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
+          return clientInstance;
+        }
+        return null;
       })
       .catch(() => {
-        clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
-        return clientInstance;
+        if (activeSupabaseUrl && activeSupabaseAnonKey) {
+          clientInstance = createClient(activeSupabaseUrl, activeSupabaseAnonKey);
+          return clientInstance;
+        }
+        return null;
       });
   }
   return initPromise;

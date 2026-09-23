@@ -47,10 +47,12 @@ export async function createShiprocketOrder(order: Order): Promise<{ order_id: n
     const date = new Date(order.date);
     const orderDateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 
+    const pickupLocation = (process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+
     const payload = {
       order_id: order.orderNumber,
       order_date: orderDateStr,
-      pickup_location: "Primary",
+      pickup_location: pickupLocation,
       channel_id: "",
       comment: "Konichiwa Mart Order",
       billing_customer_name: order.shippingAddress?.fullName || 'Customer',

@@ -130,25 +130,15 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
   for (const itemReq of items) {
     let canonicalProduct = catalog.find(p => p.id === itemReq.productId);
     if (!canonicalProduct) {
-      if ((itemReq as any).title && (itemReq as any).price) {
-        canonicalProduct = {
-          id: itemReq.productId,
-          title: (itemReq as any).title,
-          price: Number((itemReq as any).price),
-          stock: 999,
-          image: (itemReq as any).image || ''
-        } as any;
-      } else {
-        throw new Error(`Product with ID "${itemReq.productId}" does not exist in store catalog.`);
-      }
+      throw new Error(`Product with ID "${itemReq.productId}" does not exist in store catalog.`);
     }
 
     if (itemReq.quantity <= 0) {
-      throw new Error(`Invalid quantity for "${canonicalProduct!.title}". Quantity must be at least 1.`);
+      throw new Error(`Invalid quantity for "${canonicalProduct.title}". Quantity must be at least 1.`);
     }
 
-    if (canonicalProduct!.stock < itemReq.quantity) {
-      throw new Error(`Insufficient stock for "${canonicalProduct!.title}". Only ${canonicalProduct!.stock} units available.`);
+    if (canonicalProduct.stock < itemReq.quantity) {
+      throw new Error(`Insufficient stock for "${canonicalProduct.title}". Only ${canonicalProduct.stock} units available.`);
     }
 
     // Resolve variant / shade if provided
@@ -191,8 +181,12 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
   if (discountCode) {
     const upperCode = discountCode.trim().toUpperCase();
     if (upperCode === '18MONKEYS') {
-      discountAmount = calculatedSubtotal - 1;
-      verifiedCode = upperCode;
+      // Guard: Test code only permitted if explicitly enabled by server environment or designated operator
+      const isTestAllowed = process.env.ALLOW_TEST_PROMO === 'true' || customer.email.toLowerCase() === 'admin@konichiwamart.com';
+      if (isTestAllowed) {
+        discountAmount = calculatedSubtotal - 1;
+        verifiedCode = upperCode;
+      }
     } else {
       const promo = PROMO_CODES[upperCode];
       if (promo && calculatedSubtotal >= promo.minAmount) {

@@ -11,21 +11,15 @@ let appHandler: any = null;
 async function getApp() {
   if (!appHandler) {
     try {
-      // First try pre-bundled CommonJS server
+      // Use pre-bundled server
       // @ts-ignore
       const serverModule = await import('../dist/server.cjs');
       appHandler = serverModule.default?.default || serverModule.default || serverModule;
-    } catch (bundleErr) {
-      try {
-        // Fallback to JS / TS source
-        // @ts-ignore
-        const serverModule: any = await import('../server.js');
-        appHandler = serverModule.default?.default || serverModule.default || serverModule;
-      } catch (jsErr) {
-        // @ts-ignore
-        const serverModule: any = await import('../server.ts');
-        appHandler = serverModule.default?.default || serverModule.default || serverModule;
-      }
+    } catch {
+      // Direct source fallback
+      // @ts-ignore
+      const serverModule: any = await import('../server.ts');
+      appHandler = serverModule.default?.default || serverModule.default || serverModule;
     }
   }
   return appHandler;
