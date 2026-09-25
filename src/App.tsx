@@ -772,9 +772,9 @@ export default function App() {
           ...parsed,
           heroBannerUrl: activeHero,
           mobileHeroBannerUrl: activeMobileHero,
-          heroVideoUrl: validParsedVideo || '',
-          heroMobileVideoUrl: validParsedMobileVideo || '/videos/hero-video-mobile.mp4',
-          heroMediaType: (parsed.heroMediaType === 'video') ? 'video' : 'image',
+          heroVideoUrl: '',
+          heroMobileVideoUrl: '',
+          heroMediaType: 'image',
           backgroundImageUrl: activeHero,
           mobileBackgroundImageUrl: activeMobileHero,
           storeTagline: tagline,
@@ -787,8 +787,8 @@ export default function App() {
       storeTagline: 'Japanese Skincare',
       heroBannerUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileHeroBannerUrl: storedMobile || '/konichiwamobilebg.png',
-      heroVideoUrl: storedVideo || '',
-      heroMobileVideoUrl: storedMobileVideo || '/videos/hero-video-mobile.mp4',
+      heroVideoUrl: '',
+      heroMobileVideoUrl: '',
       heroMediaType: 'image',
       backgroundImageUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileBackgroundImageUrl: storedMobile || '/konichiwamobilebg.png',
@@ -836,35 +836,23 @@ export default function App() {
 
   // Fetch site settings from server/Supabase on mount
   useEffect(() => {
-    // Purge any lingering dummy flower video from client storage
-    const rawStored = localStorage.getItem('km_hero_video_url');
-    if (rawStored && (rawStored.includes('flower.mp4') || rawStored.includes('interactive-examples'))) {
-      try { localStorage.removeItem('km_hero_video_url'); } catch {}
-    }
-    const rawStoredMobile = localStorage.getItem('km_hero_mobile_video_url');
-    if (rawStoredMobile && (rawStoredMobile.includes('flower.mp4') || rawStoredMobile.includes('interactive-examples'))) {
-      try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
-    }
+    // Purge any lingering video settings from client storage
+    try {
+      localStorage.removeItem('km_hero_video_url');
+      localStorage.removeItem('km_hero_mobile_video_url');
+    } catch {}
 
     fetch('/api/site-settings')
       .then(r => r.json())
       .then(data => {
         if (data?.success && data?.settings && typeof data.settings === 'object') {
           const s = data.settings;
-
-          // Strip out dummy flower.mp4 if present in database
-          const cleanDesktopVideo = (s.heroVideoUrl && !s.heroVideoUrl.includes('flower.mp4') && !s.heroVideoUrl.includes('interactive-examples'))
-            ? s.heroVideoUrl
-            : '';
-          const cleanMobileVideo = (s.heroMobileVideoUrl && !s.heroMobileVideoUrl.includes('flower.mp4') && !s.heroMobileVideoUrl.includes('interactive-examples'))
-            ? s.heroMobileVideoUrl
-            : 'https://nhcgwxvfuupkflhixxmj.supabase.co/storage/v1/object/public/product-images/hero_video_mobile_1790012980481.mp4';
-
-          s.heroVideoUrl = cleanDesktopVideo;
-          s.heroMobileVideoUrl = cleanMobileVideo;
+          s.heroMediaType = 'image';
+          s.heroVideoUrl = '';
+          s.heroMobileVideoUrl = '';
 
           setSiteSettings(prev => {
-            const merged = { ...prev, ...s, heroVideoUrl: cleanDesktopVideo, heroMobileVideoUrl: cleanMobileVideo };
+            const merged = { ...prev, ...s, heroMediaType: 'image', heroVideoUrl: '', heroMobileVideoUrl: '' };
             localStorage.setItem('km_site_settings', JSON.stringify(merged));
             if (s.heroBannerUrl) {
               try { localStorage.setItem('km_hero_banner_data', s.heroBannerUrl); } catch {}
@@ -872,19 +860,11 @@ export default function App() {
             if (s.mobileHeroBannerUrl) {
               try { localStorage.setItem('km_hero_mobile_banner_data', s.mobileHeroBannerUrl); } catch {}
             }
-            if (cleanDesktopVideo) {
-              try { localStorage.setItem('km_hero_video_url', cleanDesktopVideo); } catch {}
-            } else {
-              try { localStorage.removeItem('km_hero_video_url'); } catch {}
-            }
-            if (cleanMobileVideo) {
-              try { localStorage.setItem('km_hero_mobile_video_url', cleanMobileVideo); } catch {}
-            }
             return merged;
           });
         }
       })
-      .catch(err => console.warn('Failed to fetch server site settings:', err));
+      .catch(() => {});
   }, []);
 
   // Community Reels State with Local Storage Persistence & Server Sync
