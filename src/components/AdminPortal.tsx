@@ -34,7 +34,8 @@ import { X,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  ListOrdered } from 'lucide-react';
+  ListOrdered,
+  Bell } from 'lucide-react';
 import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
@@ -168,6 +169,57 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setActiveTab(initialTab as any);
     }
   }, [initialTab]);
+
+  // Real-time new order chime & instant alert banner for store owner
+  const prevOrdersCountRef = useRef(orders.length);
+  const [newOrderAlert, setNewOrderAlert] = useState<Order | null>(null);
+
+  const playOrderChime = () => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const now = ctx.currentTime;
+
+      // Primary tone (A5 - 880Hz)
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(880, now);
+      gain1.gain.setValueAtTime(0.12, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.35);
+
+      // Harmonizing chime (D6 - 1174.66Hz)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1174.66, now + 0.15);
+      gain2.gain.setValueAtTime(0.15, now + 0.15);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.55);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.15);
+      osc2.stop(now + 0.55);
+    } catch {}
+  };
+
+  React.useEffect(() => {
+    if (orders.length > prevOrdersCountRef.current && prevOrdersCountRef.current > 0) {
+      const latestOrder = orders[0];
+      if (latestOrder) {
+        setNewOrderAlert(latestOrder);
+        playOrderChime();
+        const timer = setTimeout(() => setNewOrderAlert(null), 9000);
+        return () => clearTimeout(timer);
+      }
+    }
+    prevOrdersCountRef.current = orders.length;
+  }, [orders.length]);
+
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
@@ -178,7 +230,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [removeToastMessage, setRemoveToastMessage] = useState<string | null>(null);
 
   // Resend Email Test State
-  const [testEmailRecipient, setTestEmailRecipient] = useState('kaustubhsona1a@gmail.com');
+  const [testEmailRecipient, setTestEmailRecipient] = useState('info@konichiwamart.com');
   const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
   const [testEmailStatus, setTestEmailStatus] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -248,7 +300,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [newSubtitle, setNewSubtitle] = useState('');
   const [newCategory, setNewCategory] = useState<ProductCategory>('Face Mask');
   const [newIsComingSoon, setNewIsComingSoon] = useState(false);
-  const [newDisplayOrder, setNewDisplayOrder] = useState<string>('');
+  const [newDisplayOrder, setNewDisplayOrder] = useState<string>('1');
   
   const resetProductForm = () => {
     setEditingProduct(null);
@@ -261,7 +313,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setNewStock('50');
     setNewVolume('150ml');
     setNewPhotos([]);
-    setNewDisplayOrder(String(products.length + 1));
+    setNewDisplayOrder('1');
     setPhotoUploadError(null);
     setProductFormMsg(null);
   };
@@ -724,36 +776,60 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       const processedUrls: string[] = [];
 
       for (const file of filesToProcess) {
-        // Fallback to base64 if Supabase client isn't available
-        if (!supabase) {
-           const base64 = await resizeAndOptimizeImage(file);
-           processedUrls.push(base64);
-           continue;
+        // Optimize direct file into clean web JPEG
+        const base64 = await resizeAndOptimizeImage(file);
+        let uploadedUrl: string | null = null;
+        const ext = file.name.split('.').pop() || 'jpg';
+        const fileName = `km_prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+        // Attempt 1: Direct Supabase Storage
+        if (supabase) {
+          try {
+            const { data, error } = await supabase.storage
+              .from('product-images')
+              .upload(fileName, file, {
+                cacheControl: '3600',
+                upsert: true
+              });
+
+            if (!error && data) {
+              const { data: publicUrlData } = supabase.storage
+                .from('product-images')
+                .getPublicUrl(fileName);
+              if (publicUrlData?.publicUrl) {
+                uploadedUrl = publicUrlData.publicUrl;
+              }
+            }
+          } catch (storageErr) {
+            console.warn('Direct Supabase storage upload notice:', storageErr);
+          }
         }
 
-        // Generate unique filename
-        const ext = file.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${ext}`;
-
-        const { data, error } = await supabase.storage
-          .from('product-images')
-          .upload(fileName, file, {
-            cacheControl: '3600',
-            upsert: false
-          });
-
-        if (error) {
-          console.warn('Supabase storage upload error, falling back to optimized base64 encoding:', error);
-          const base64 = await resizeAndOptimizeImage(file);
-          processedUrls.push(base64);
-          continue;
+        // Attempt 2: Server-side proxy upload (bypasses RLS with service-role or writes to public directory)
+        if (!uploadedUrl) {
+          try {
+            const res = await fetch('/api/upload-product-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ imageBase64: base64, fileName })
+            });
+            if (res.ok) {
+              const json = await res.json();
+              if (json?.success && json.url) {
+                uploadedUrl = json.url;
+              }
+            }
+          } catch (serverErr) {
+            console.warn('Server upload-product-image notice:', serverErr);
+          }
         }
 
-        const { data: publicUrlData } = supabase.storage
-          .from('product-images')
-          .getPublicUrl(fileName);
-          
-        processedUrls.push(publicUrlData.publicUrl);
+        // Attempt 3: High quality optimized base64
+        if (!uploadedUrl) {
+          uploadedUrl = base64;
+        }
+
+        processedUrls.push(uploadedUrl);
       }
 
       setNewPhotos((prev) => [...prev, ...processedUrls].slice(0, 5));
@@ -785,10 +861,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     e.preventDefault();
     if (!newTitle.trim() || newPrice.trim() === '') return;
 
-    if (newPhotos.length === 0) {
-      setPhotoUploadError('Please upload at least 1 photo of the product (recommended 4–5 photos).');
-      return;
-    }
+    // Use uploaded photos or graceful default Japanese skincare image
+    const photosToUse = newPhotos.length > 0 ? newPhotos : ['/products/keana-rice-mask.png'];
 
     const rawPrice = parseInt(newPrice, 10);
     const parsedPrice = isNaN(rawPrice) ? 0 : Math.max(0, rawPrice);
@@ -799,8 +873,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     const rawStock = parseInt(newStock, 10);
     const parsedStock = isNaN(rawStock) ? 0 : Math.max(0, rawStock);
 
-    const mainCover = newPhotos[0] || '/products/keana-rice-mask.png';
-    const secondary = newPhotos[1] || undefined;
+    const mainCover = photosToUse[0] || '/products/keana-rice-mask.png';
+    const secondary = photosToUse[1] || undefined;
 
     setIsSavingProduct(true);
     setPhotoUploadError(null);
@@ -823,7 +897,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           volume: newVolume || '100ml',
           image: mainCover,
           secondaryImage: secondary,
-          images: newPhotos,
+          images: photosToUse,
           stock: parsedStock,
           badges: currentBadges,
           isComingSoon: newIsComingSoon,
@@ -856,7 +930,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           isComingSoon: newIsComingSoon,
           image: mainCover,
           secondaryImage: secondary,
-          images: newPhotos,
+          images: photosToUse,
           accentColor: '#C52857',
           bgGradient: 'from-pink-50 to-rose-100',
           stock: parsedStock,
@@ -1284,6 +1358,37 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* ========================================================================= */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-[#FAF7F2]">
         
+        {/* Floating Real-Time New Order Alert */}
+        {newOrderAlert && (
+          <div className="fixed top-4 right-4 z-50 max-w-md bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-4 rounded-2xl shadow-2xl border border-white/20 animate-in fade-in slide-in-from-top-4 duration-300 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0 animate-pulse">
+              <Bell className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-extrabold text-sm flex items-center justify-between">
+                <span>🎉 New Order Placed!</span>
+                <button onClick={() => setNewOrderAlert(null)} className="text-white/80 hover:text-white text-xs cursor-pointer p-1">✕</button>
+              </div>
+              <p className="text-xs font-bold text-white mt-0.5 truncate">
+                Order #{newOrderAlert.orderNumber} • {formatINR(newOrderAlert.totalAmount)}
+              </p>
+              <p className="text-[11px] text-emerald-100 mt-0.5 truncate">
+                Customer: {newOrderAlert.customerName} {newOrderAlert.customerPhone ? `(${newOrderAlert.customerPhone})` : ''}
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('orders'); setNewOrderAlert(null); }}
+                  className="px-2.5 py-1 rounded-lg bg-white text-emerald-800 text-[11px] font-bold shadow-xs hover:bg-emerald-50 cursor-pointer"
+                >
+                  View Order Details &rarr;
+                </button>
+                <span className="text-[10px] text-emerald-200">Email alert sent to owner</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* TOP APP BAR (Search + Website link + Close + Mobile Drawer Toggle) */}
         <header className="h-14 sm:h-16 border-b border-pink-100 px-3 sm:px-6 flex items-center justify-between flex-shrink-0 bg-white/95 backdrop-blur-md gap-2">
           {/* Left: Mobile hamburger or brand indicator */}
@@ -2199,6 +2304,42 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingOrders ? 'animate-spin' : ''}`} />
                   <span>{isRefreshingOrders ? 'Syncing...' : 'Refresh Orders'}</span>
                 </button>
+              </div>
+
+              {/* STORE OWNER NOTIFICATION CHANNELS CARD */}
+              <div className="bg-gradient-to-r from-stone-900 via-slate-900 to-stone-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-stone-800 space-y-3">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                      </span>
+                      <h3 className="font-extrabold text-xs sm:text-sm tracking-wide text-white uppercase flex items-center gap-2">
+                        <span>Store Owner Instant Order Notification Channels</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Active</span>
+                      </h3>
+                    </div>
+                    <p className="text-xs text-stone-300">
+                      The moment a customer completes checkout, the order is automatically delivered to you across all channels:
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-xs text-stone-200">
+                      <Mail className="w-3.5 h-3.5 text-pink-400" />
+                      <span>Email: <strong className="text-white">info@konichiwamart.com</strong></span>
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-xs text-stone-200">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Live Supabase WebSocket</span>
+                    </div>
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-xs text-stone-200">
+                      <Truck className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Auto Shiprocket AWB</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {orders.length === 0 ? (
@@ -3649,9 +3790,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
 
             {productFormMsg && (
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                 <span>{productFormMsg}</span>
+              </div>
+            )}
+
+            {photoUploadError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 animate-in fade-in">
+                <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                <span>{photoUploadError}</span>
               </div>
             )}
 
@@ -3787,7 +3935,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
                     Price (₹)
@@ -3805,7 +3953,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                 <div>
                   <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                    Original (₹)
+                    Original Price (₹)
                   </label>
                   <input
                     type="number"
@@ -3831,19 +3979,82 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1" title="Display sequence on website">
-                    Order Rank
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={newDisplayOrder}
-                    onChange={(e) => setNewDisplayOrder(e.target.value)}
-                    placeholder="1"
-                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
-                  />
+              {/* STOREFRONT DISPLAY POSITION (EXPLICIT TOP OF STOREFRONT CHOICE) */}
+              <div className="p-3.5 bg-gradient-to-r from-pink-50/80 via-rose-50/40 to-white rounded-2xl border border-pink-200 shadow-2xs space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ArrowUpDown className="w-4 h-4 text-pink-600" />
+                    <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                      Storefront Catalog Position
+                    </label>
+                  </div>
+                  <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                    newDisplayOrder === '1' || !newDisplayOrder
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                      : 'bg-pink-100 text-pink-800 border border-pink-300'
+                  }`}>
+                    {newDisplayOrder === '1' || !newDisplayOrder ? '⭐️ Position #1 (Top of Storefront)' : `Position #${newDisplayOrder}`}
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-600">
+                  Choose where this product appears on the homepage and customer catalog:
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewDisplayOrder('1')}
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-0.5 ${
+                      newDisplayOrder === '1' || !newDisplayOrder
+                        ? 'bg-pink-600 text-white border-pink-600 shadow-xs ring-2 ring-pink-500/20'
+                        : 'bg-white text-slate-700 border-stone-200 hover:border-pink-300 hover:bg-stone-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs">⭐️ Top of Storefront</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${newDisplayOrder === '1' || !newDisplayOrder ? 'bg-white/20 text-white' : 'bg-pink-50 text-pink-700'}`}>Rank #1</span>
+                    </div>
+                    <span className={`text-[10px] ${newDisplayOrder === '1' || !newDisplayOrder ? 'text-pink-100' : 'text-slate-500'}`}>
+                      First item customers see (Recommended)
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setNewDisplayOrder(String(products.length + 1))}
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-0.5 ${
+                      newDisplayOrder === String(products.length + 1)
+                        ? 'bg-pink-600 text-white border-pink-600 shadow-xs ring-2 ring-pink-500/20'
+                        : 'bg-white text-slate-700 border-stone-200 hover:border-pink-300 hover:bg-stone-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-xs">📍 End of Storefront</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${newDisplayOrder === String(products.length + 1) ? 'bg-white/20 text-white' : 'bg-stone-100 text-slate-700'}`}>Rank #{products.length + 1}</span>
+                    </div>
+                    <span className={`text-[10px] ${newDisplayOrder === String(products.length + 1) ? 'text-pink-100' : 'text-slate-500'}`}>
+                      Place after all current products
+                    </span>
+                  </button>
+
+                  <div className="p-2.5 rounded-xl border bg-white border-stone-200 flex flex-col justify-between">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-bold text-xs text-slate-700">🔢 Custom Rank</span>
+                      <span className="text-[10px] text-slate-400">1 to {products.length + 1}</span>
+                    </div>
+                    <input
+                      type="number"
+                      min="1"
+                      max={products.length + 50}
+                      value={newDisplayOrder}
+                      onChange={(e) => setNewDisplayOrder(e.target.value)}
+                      placeholder="1"
+                      className="w-full px-2 py-1 text-xs font-bold rounded-lg bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -3883,9 +4094,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <label className="block font-semibold text-slate-700 uppercase tracking-wider text-xs">
                     Product Photos (Upload 4–5 Photos)
                   </label>
-                  <span className={`text-[11px] font-semibold ${newPhotos.length >= 4 ? 'text-emerald-600 font-bold' : newPhotos.length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
-                    {newPhotos.length} / 5 photos {newPhotos.length >= 4 ? '✓ Ready' : '(Min 1, Recommended 4–5)'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {newPhotos.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setNewPhotos(['/products/keana-rice-mask.png'])}
+                        className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 cursor-pointer underline"
+                      >
+                        Use Sample Photo
+                      </button>
+                    )}
+                    <span className={`text-[11px] font-semibold ${newPhotos.length >= 4 ? 'text-emerald-600 font-bold' : newPhotos.length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                      {newPhotos.length} / 5 photos {newPhotos.length >= 4 ? '✓ Ready' : '(Min 1, Recommended 4–5)'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Hidden File Input */}
@@ -4006,12 +4228,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingProduct}
+                  disabled={isSavingProduct || isProcessingPhotos}
                   className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-md shadow-pink-600/20 flex items-center gap-2"
                 >
-                  {isSavingProduct && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  {(isSavingProduct || isProcessingPhotos) && <RefreshCw className="w-4 h-4 animate-spin" />}
                   <span>
-                    {isSavingProduct
+                    {isProcessingPhotos
+                      ? 'Uploading Photos...'
+                      : isSavingProduct
                       ? 'Saving to Database...'
                       : (editingProduct ? 'Save Changes' : 'Publish Item')}
                   </span>

@@ -20,7 +20,7 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   customMobileBannerUrl,
   customVideoUrl,
   customMobileVideoUrl,
-  heroMediaType = 'video'
+  heroMediaType = 'image'
 }) => {
   // Desktop Fallback image sources served directly by website server (No external GitHub dependency)
   const FALLBACK_BANNERS = [
@@ -102,13 +102,13 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     activeVideoUrl && 
     !activeVideoUrl.includes('flower.mp4') && 
     !activeVideoUrl.includes('interactive-examples') &&
-    activeVideoUrl !== '/videos/hero-video-mobile.mp4' &&
-    activeVideoUrl !== '/videos/konichiwamobilebg.mp4'
+    activeVideoUrl !== '/videos/hero-video-mobile.mp4'
   );
 
-  const effectiveVideoUrl = isMobileScreen
-    ? (activeMobileVideoUrl || '/videos/hero-video-mobile.mp4')
-    : (isCustomDesktopVideo ? activeVideoUrl : '');
+  // When heroMediaType is 'image' (default), video is completely disabled to display the photo banner
+  const effectiveVideoUrl = heroMediaType === 'video'
+    ? (isMobileScreen ? activeMobileVideoUrl : (isCustomDesktopVideo ? activeVideoUrl : ''))
+    : '';
 
   const effectivePoster = isMobileScreen ? (mobileBannerUrl || bannerUrl) : bannerUrl;
 
@@ -122,8 +122,8 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Determine if video should be rendered: only if effectiveVideoUrl is present and valid
-  const shouldRenderVideo = Boolean(effectiveVideoUrl) && !videoError;
+  // Determine if video should be rendered: strictly only if heroMediaType is 'video' and effectiveVideoUrl is present
+  const shouldRenderVideo = heroMediaType === 'video' && Boolean(effectiveVideoUrl) && !videoError;
 
   // Keep video playing continuously whenever someone is in the hero section
   useEffect(() => {

@@ -11,7 +11,8 @@ import Razorpay from 'razorpay';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createValidatedOrder, orderStore } from './src/lib/orderService';
 import { processRazorpayWebhook } from './src/lib/webhookHandler';
-import { sendOrderInvoiceEmail, sendTestEmail, sendPasswordResetEmail } from './src/lib/email';
+import { sendOrderInvoiceEmail, sendNewOrderOwnerNotification, sendTestEmail, sendPasswordResetEmail, sendCustomerWelcomeEmail } from './src/lib/email';
+import { InvoiceData } from './src/lib/invoice';
 import { PRODUCTS } from './src/data/products';
 import { Product } from './src/types';
 
@@ -542,7 +543,7 @@ app.post('/api/send-invoice-email', async (req: Request, res: Response) => {
 app.post('/api/send-test-email', async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
-    const targetEmail = email || process.env.USER_EMAIL || 'kaustubhsona1a@gmail.com';
+    const targetEmail = email || process.env.STORE_OWNER_EMAIL || 'info@konichiwamart.com';
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!targetEmail || !emailRegex.test(targetEmail)) {
@@ -611,6 +612,80 @@ app.post('/api/upload-banner', (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('Error saving banner image:', err);
     return res.status(500).json({ success: false, error: err.message || 'Failed to save banner image' });
+  }
+});
+
+/**
+ * Direct Product Image Upload Endpoint
+ * Uploads product photos to Supabase Storage ('product-images' bucket)
+ * with robust local static disk fallback so image uploading never fails.
+ */
+app.post('/api/upload-product-image', async (req: Request, res: Response) => {
+  try {
+    const { imageBase64, fileName: requestedName } = req.body;
+    if (!imageBase64) {
+      return res.status(400).json({ success: false, error: 'No image data provided' });
+    }
+
+    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    const extMatch = imageBase64.match(/^data:image\/(\w+);base64,/);
+    const ext = extMatch ? (extMatch[1] === 'jpeg' ? 'jpg' : extMatch[1]) : 'jpg';
+    const filename = requestedName || `km_prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${ext}`;
+
+    // 1. Try Supabase Storage upload via Service Role client (bypasses RLS)
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        const contentType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+        const { data, error } = await supabase.storage
+          .from('product-images')
+          .upload(filename, buffer, {
+            contentType,
+            cacheControl: '3600',
+            upsert: true
+          });
+
+        if (!error && data) {
+          const { data: publicUrlData } = supabase.storage
+            .from('product-images')
+            .getPublicUrl(filename);
+          if (publicUrlData?.publicUrl) {
+            return res.json({
+              success: true,
+              source: 'supabase_storage',
+              url: publicUrlData.publicUrl
+            });
+          }
+        } else if (error) {
+          console.warn('[Server] Supabase storage upload notice:', error.message);
+        }
+      } catch (storageErr: any) {
+        console.warn('[Server] Supabase storage upload exception:', storageErr?.message || storageErr);
+      }
+    }
+
+    // 2. Fallback: Save to public/products and dist/products
+    const publicProductsDir = path.join(process.cwd(), 'public', 'products');
+    if (!fs.existsSync(publicProductsDir)) {
+      fs.mkdirSync(publicProductsDir, { recursive: true });
+    }
+    const publicFilePath = path.join(publicProductsDir, filename);
+    fs.writeFileSync(publicFilePath, buffer);
+
+    const distProductsDir = path.join(process.cwd(), 'dist', 'products');
+    if (fs.existsSync(distProductsDir)) {
+      fs.writeFileSync(path.join(distProductsDir, filename), buffer);
+    }
+
+    return res.json({
+      success: true,
+      source: 'local_public',
+      url: `/products/${filename}`
+    });
+  } catch (err: any) {
+    console.error('[Server] Product image upload error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to upload product image' });
   }
 });
 
@@ -1070,6 +1145,12 @@ app.post('/api/customer/register', async (req: Request, res: Response) => {
       console.warn('[Server] Customer profile upsert exception:', profEx);
     }
 
+    // Dispatch branded welcome email from info@konichiwamart.com asynchronously
+    const recipientName = cleanName || cleanEmail.split('@')[0];
+    sendCustomerWelcomeEmail(cleanEmail, recipientName).catch(welcomeErr => {
+      console.warn('[Server] Welcome email dispatch notice:', welcomeErr);
+    });
+
     return res.status(200).json({
       success: true,
       user: {
@@ -1192,37 +1273,80 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    // Always use the official production domain for professional branding in reset links
-    const siteDomain = process.env.PUBLIC_SITE_URL || process.env.SITE_URL || 'https://konichiwamart.com';
-    const redirectUrl = `${siteDomain.replace(/\/$/, '')}/?action=reset-password`;
+    
+    // Dynamically resolve site domain, strictly rejecting localhost/127.0.0.1
+    let siteDomain = 'https://www.konichiwamart.com';
+    const origin = req.get('origin') || req.get('referer');
+    if (origin) {
+      try {
+        const parsed = new URL(origin);
+        const host = parsed.hostname.toLowerCase();
+        if (
+          host !== 'localhost' && 
+          host !== '127.0.0.1' && 
+          host !== '0.0.0.0' && 
+          !host.endsWith('.local') &&
+          !host.includes('run.app')
+        ) {
+          siteDomain = `${parsed.protocol}//${parsed.host}`;
+        }
+      } catch {}
+    }
+    if (process.env.PUBLIC_SITE_URL && !process.env.PUBLIC_SITE_URL.includes('localhost')) {
+      siteDomain = process.env.PUBLIC_SITE_URL;
+    } else if (process.env.SITE_URL && !process.env.SITE_URL.includes('localhost')) {
+      siteDomain = process.env.SITE_URL;
+    }
 
     const client = getSupabaseServerClient();
-    let resetUrl = redirectUrl;
+    let tokenHash = '';
+    let emailOtp = '';
 
     if (client) {
       try {
-        const { data: linkData, error: linkErr } = await client.auth.admin.generateLink({
+        let { data: linkData, error: linkErr } = await client.auth.admin.generateLink({
           type: 'recovery',
-          email: cleanEmail,
-          options: { redirectTo: redirectUrl }
+          email: cleanEmail
         });
 
-        if (!linkErr && linkData?.properties?.action_link) {
-          resetUrl = linkData.properties.action_link;
-        } else {
-          const { error: resetErr } = await client.auth.resetPasswordForEmail(cleanEmail, { redirectTo: redirectUrl });
-          if (resetErr) {
-            console.warn('[Server] Supabase resetPasswordForEmail warning:', resetErr.message);
+        // If user was not found in auth.users, provision their auth user account so password recovery works cleanly
+        if (linkErr && (linkErr.message?.toLowerCase().includes('not found') || (linkErr as any).code === 'user_not_found')) {
+          console.log('[Server] User not in auth.users, auto-provisioning for recovery:', cleanEmail);
+          const { error: createErr } = await client.auth.admin.createUser({
+            email: cleanEmail,
+            email_confirm: true,
+            user_metadata: { role: 'customer' }
+          });
+          if (!createErr) {
+            const retryLink = await client.auth.admin.generateLink({
+              type: 'recovery',
+              email: cleanEmail
+            });
+            linkData = retryLink.data;
+            linkErr = retryLink.error;
           }
+        }
+
+        if (!linkErr && linkData?.properties) {
+          tokenHash = linkData.properties.hashed_token || '';
+          emailOtp = linkData.properties.email_otp || '';
+        } else if (linkErr) {
+          console.warn('[Server] Supabase admin generateLink notice:', linkErr.message);
         }
       } catch (authErr: any) {
         console.warn('[Server] Supabase reset exception:', authErr?.message);
       }
     }
 
+    // Build direct recovery link pointing to our application (prevents Supabase localhost:3000 redirect issues)
+    const baseSite = siteDomain.replace(/\/$/, '');
+    const resetUrl = tokenHash 
+      ? `${baseSite}/?action=reset-password&token_hash=${tokenHash}&email=${encodeURIComponent(cleanEmail)}`
+      : `${baseSite}/?action=reset-password&email=${encodeURIComponent(cleanEmail)}`;
+
     // Direct Resend email dispatch if RESEND_API_KEY is active
     if (process.env.RESEND_API_KEY) {
-      const dispatchResult = await sendPasswordResetEmail(cleanEmail, resetUrl);
+      const dispatchResult = await sendPasswordResetEmail(cleanEmail, resetUrl, emailOtp);
       if (!dispatchResult.success) {
         console.warn('[Server] Resend reset email dispatch warning:', dispatchResult.error);
       } else {
@@ -1258,7 +1382,7 @@ app.get('/api/config', (_req: Request, res: Response) => {
  */
 app.post('/api/customer/update-password', async (req: Request, res: Response) => {
   try {
-    const { password, accessToken, refreshToken } = req.body;
+    const { password, token_hash, tokenHash, otp, email, accessToken, refreshToken } = req.body;
     if (!password || typeof password !== 'string' || password.length < 6) {
       return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
     }
@@ -1268,7 +1392,70 @@ app.post('/api/customer/update-password', async (req: Request, res: Response) =>
       return res.status(500).json({ success: false, error: 'Database service is currently unavailable.' });
     }
 
-    // Option 1: Handle token pair provided in request body
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
+    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
+    const targetHash = token_hash || tokenHash;
+
+    // Option 1: Verify token_hash directly via Supabase Auth verifyOtp
+    if (targetHash && supabaseUrl && supabaseAnonKey) {
+      try {
+        const anonClient = createClient(supabaseUrl, supabaseAnonKey);
+        const { data: verifyData, error: verifyErr } = await anonClient.auth.verifyOtp({
+          token_hash: targetHash,
+          type: 'recovery'
+        });
+
+        if (!verifyErr && verifyData?.user) {
+          const { error: updateErr } = await client.auth.admin.updateUserById(verifyData.user.id, { password });
+          if (!updateErr) {
+            return res.json({
+              success: true,
+              message: 'Password updated successfully!',
+              user: {
+                id: verifyData.user.id,
+                email: verifyData.user.email,
+                name: verifyData.user.user_metadata?.full_name || ''
+              },
+              session: verifyData.session
+            });
+          }
+        }
+      } catch (hashErr) {
+        console.warn('[Server] token_hash verify exception:', hashErr);
+      }
+    }
+
+    // Option 2: Verify email + OTP code directly via Supabase Auth
+    if (email && otp && supabaseUrl && supabaseAnonKey) {
+      try {
+        const anonClient = createClient(supabaseUrl, supabaseAnonKey);
+        const { data: verifyData, error: verifyErr } = await anonClient.auth.verifyOtp({
+          email: email.trim().toLowerCase(),
+          token: otp.trim(),
+          type: 'recovery'
+        });
+
+        if (!verifyErr && verifyData?.user) {
+          const { error: updateErr } = await client.auth.admin.updateUserById(verifyData.user.id, { password });
+          if (!updateErr) {
+            return res.json({
+              success: true,
+              message: 'Password updated successfully!',
+              user: {
+                id: verifyData.user.id,
+                email: verifyData.user.email,
+                name: verifyData.user.user_metadata?.full_name || ''
+              },
+              session: verifyData.session
+            });
+          }
+        }
+      } catch (otpErr) {
+        console.warn('[Server] email+otp verify exception:', otpErr);
+      }
+    }
+
+    // Option 3: Handle token pair provided in request body
     if (accessToken) {
       const { data: sessionData, error: sessionErr } = await client.auth.setSession({
         access_token: accessToken,
@@ -1287,7 +1474,7 @@ app.post('/api/customer/update-password', async (req: Request, res: Response) =>
       }
     }
 
-    // Option 2: Check Authorization Bearer header
+    // Option 4: Check Authorization Bearer header
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
@@ -1327,7 +1514,7 @@ async function ensureOperatorUserProvisioned() {
     
     // Ensure admin@konichiwamart.com only if OPERATOR_PASSWORD is provided in environment
     const adminPassword = (process.env.OPERATOR_PASSWORD || process.env.ADMIN_PASSWORD || '').trim();
-    const adminUser = list?.users?.find(u => u.email === 'admin@konichiwamart.com');
+    const adminUser = (list?.users as any[])?.find((u: any) => u.email === 'admin@konichiwamart.com');
     if (!adminUser && adminPassword) {
       await adminClient.auth.admin.createUser({
         email: 'admin@konichiwamart.com',
@@ -1343,7 +1530,7 @@ async function ensureOperatorUserProvisioned() {
     }
 
     // Ensure kaustubhsona1a@gmail.com has customer role, not operator
-    const ownerUser = list?.users?.find(u => u.email?.toLowerCase() === 'kaustubhsona1a@gmail.com');
+    const ownerUser = (list?.users as any[])?.find((u: any) => u.email?.toLowerCase() === 'kaustubhsona1a@gmail.com');
     if (ownerUser && ownerUser.user_metadata?.role === 'operator') {
       await adminClient.auth.admin.updateUserById(ownerUser.id, {
         user_metadata: { ...ownerUser.user_metadata, role: 'customer', name: ownerUser.user_metadata?.name || 'Kaustubh' }
@@ -1596,6 +1783,48 @@ app.post('/api/save-order', async (req: Request, res: Response) => {
     }
 
     console.log(`[Supabase SUCCESS] Order ${order.orderNumber} saved into Supabase tables!`);
+
+    // 4. Dispatch Automated Emails (Customer Tax Invoice & Instant Owner Alert)
+    const invoicePayload: InvoiceData = {
+      invoiceNumber: order.invoiceNumber,
+      orderNumber: order.orderNumber,
+      date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      customerName: order.shippingAddress?.fullName || 'Valued Customer',
+      customerEmail: cleanEmail,
+      customerPhone: order.customerPhone || order.shippingAddress?.phone || '',
+      addressLine1: order.shippingAddress?.addressLine1 || '',
+      addressLine2: order.shippingAddress?.addressLine2 || '',
+      city: order.shippingAddress?.city || '',
+      state: order.shippingAddress?.state || '',
+      pincode: order.shippingAddress?.pincode || '',
+      items: (order.items || []).map((it: any) => ({
+        name: it.product?.title || it.title || 'Japanese Skincare Product',
+        sku: it.selectedShade?.sku || it.sku || it.product?.id || 'SKU-KM',
+        hsn: '3304',
+        quantity: Number(it.quantity || 1),
+        unitPrice: Number(it.product?.price || it.unitPrice || it.price || 0),
+        totalPrice: Number((it.product?.price || it.unitPrice || it.price || 0) * (it.quantity || 1)),
+        shade: it.selectedShade?.name || it.shadeName || it.shade || undefined
+      })),
+      subtotal: Number(order.subtotal || 0),
+      cgst: isInterstate ? 0 : Number(order.cgst || 0),
+      sgst: isInterstate ? 0 : Number(order.sgst || 0),
+      igst: isInterstate ? totalGst : 0,
+      shippingFee: Number(order.shippingFee || 0),
+      discountAmount: Number(order.discountAmount || 0),
+      totalAmount: Number(order.totalAmount || 0),
+      paymentMethod: order.paymentMethod || 'RAZORPAY',
+      paymentId: order.paymentId || 'Prepaid',
+      awbNumber: awbNumber,
+      courierPartner: courierPartner
+    };
+
+    // Non-blocking automated email dispatch to customer AND owner
+    Promise.all([
+      sendOrderInvoiceEmail(invoicePayload).catch(e => console.warn('[Email Error] Customer invoice failure:', e)),
+      sendNewOrderOwnerNotification(invoicePayload).catch(e => console.warn('[Email Error] Owner alert failure:', e))
+    ]).catch(() => {});
+
     return res.status(200).json({ success: true, order: insertedOrder, addressSaved: true });
   } catch (err: any) {
     console.error('[Server Save Order Exception]:', err);
@@ -2942,26 +3171,27 @@ function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>
 }
 
 function mapProductToSupabaseRow(p: Product): any {
+  const defaultImg = p.image || (p.images && p.images[0]) || '/products/keana-rice-mask.png';
   return {
     slug: p.id,
     title: p.title,
     subtitle: p.subtitle || '',
-    category_name: p.category,
-    description: p.description || '',
-    benefits: p.benefits || [],
-    usage_how_to: p.usageHowTo || '',
-    key_actives: p.keyActives || [],
-    full_ingredients: p.fullIngredients || '',
+    category_name: p.category || 'Skincare',
+    description: p.description || 'Official direct imported Japanese skincare formulation.',
+    benefits: Array.isArray(p.benefits) && p.benefits.length > 0 ? p.benefits : ['Direct Japan import', 'Authentic quality'],
+    usage_how_to: p.usageHowTo || 'Apply onto cleansed skin. Gently pat with palms until absorbed.',
+    key_actives: Array.isArray(p.keyActives) ? p.keyActives : [],
+    full_ingredients: p.fullIngredients || 'Official Japanese formulation.',
     hsn_code: '3304',
-    base_price: p.price,
-    compare_at_price: p.originalPrice !== undefined ? p.originalPrice : p.price,
-    primary_image_url: p.image,
+    base_price: typeof p.price === 'number' && !isNaN(p.price) ? Math.max(0, p.price) : 0,
+    compare_at_price: p.originalPrice !== undefined ? Math.max(0, p.originalPrice) : (typeof p.price === 'number' ? Math.max(0, p.price) : 0),
+    primary_image_url: defaultImg,
     secondary_image_url: p.secondaryImage || null,
-    images: p.images || [p.image],
-    volume_or_weight: p.volume,
+    images: Array.isArray(p.images) && p.images.length > 0 ? p.images : [defaultImg],
+    volume_or_weight: p.volume || '100ml',
     accent_color: p.accentColor || '#E11D48',
-    skin_types: p.skinTypes || ['All'],
-    skin_concerns: p.skinConcerns || [],
+    skin_types: Array.isArray(p.skinTypes) && p.skinTypes.length > 0 ? p.skinTypes : ['All'],
+    skin_concerns: Array.isArray(p.skinConcerns) ? p.skinConcerns : [],
     routine: p.routine || 'AM/PM',
     is_bestseller: Boolean(p.isBestSeller),
     is_new: Boolean(p.isNew),
@@ -3017,7 +3247,14 @@ app.get('/api/products', async (_req: Request, res: Response) => {
           .map(row => mapSupabaseRowToProduct(row, invMap))
           .filter(p => !deletedIds.has(p.id));
 
-        const ordered = sortProductsByServerOrder(products);
+        // Preserve any custom products stored on server disk not yet reflected in Supabase
+        const custom = getCustomProducts();
+        const pendingCustom = custom.filter(
+          cp => !deletedIds.has(cp.id) && !products.some(p => p.id === cp.id || (cp.dbId && p.dbId === cp.dbId))
+        );
+        const combined = [...pendingCustom, ...products];
+
+        const ordered = sortProductsByServerOrder(combined);
         return res.json({ success: true, source: 'supabase', products: ordered });
       }
     } catch (e: any) {
@@ -3233,10 +3470,34 @@ app.post('/api/products', async (req: Request, res: Response) => {
     return res.status(400).json({ success: false, error: 'Valid product required' });
   }
 
-  // Save to custom products
+  // 1. Maintain custom products in correct sequence
   const custom = getCustomProducts().filter(p => p.id !== newProduct.id);
-  custom.unshift(newProduct);
+  const targetRank = typeof newProduct.displayOrder === 'number' && newProduct.displayOrder > 0 
+    ? newProduct.displayOrder 
+    : 1;
+  const insertIdx = Math.max(0, Math.min(custom.length, targetRank - 1));
+  custom.splice(insertIdx, 0, newProduct);
   saveCustomProducts(custom);
+
+  // 2. Update order list metadata on server and Supabase
+  try {
+    const existingOrder = getProductOrderServer();
+    const filteredOrder = existingOrder.filter(id => id !== newProduct.id);
+    const orderIdx = Math.max(0, Math.min(filteredOrder.length, targetRank - 1));
+    filteredOrder.splice(orderIdx, 0, newProduct.id);
+    saveProductOrderServer(filteredOrder);
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      await supabase.from('categories').upsert({
+        slug: '_app_product_order',
+        name: 'Store Product Ordering Metadata',
+        description: JSON.stringify(filteredOrder)
+      }, { onConflict: 'slug' });
+    }
+  } catch (reorderErr) {
+    console.warn('[Server] Product order sync notice on insert:', reorderErr);
+  }
 
   // If was in deleted list, un-delete
   const deleted = getDeletedProductIds().filter(d => d !== newProduct.id);
@@ -3248,9 +3509,18 @@ app.post('/api/products', async (req: Request, res: Response) => {
   const supabase = getSupabaseServerClient();
   if (supabase) {
     try {
-      await supabase
+      const row = mapProductToSupabaseRow(newProduct);
+      const { data, error } = await supabase
         .from('products')
-        .insert([mapProductToSupabaseRow(newProduct)]);
+        .upsert([row], { onConflict: 'slug' })
+        .select();
+
+      if (error) {
+        console.error('[Server] Supabase product insert error:', error.message);
+      } else if (data && data[0]) {
+        newProduct.dbId = data[0].id;
+        console.log('[Server] Successfully inserted product to Supabase with dbId:', data[0].id);
+      }
 
       if (newProduct.stock !== undefined) {
         await updateSupabaseInventoryServer(supabase, newProduct.id, newProduct.stock);

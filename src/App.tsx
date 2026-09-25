@@ -408,7 +408,13 @@ export default function App() {
     if (typeof window !== 'undefined') {
       const hash = window.location.hash || '';
       const search = window.location.search || '';
-      if (hash.includes('type=recovery') || hash.includes('access_token=') || search.includes('action=reset-password')) {
+      if (
+        hash.includes('type=recovery') || 
+        hash.includes('access_token=') || 
+        search.includes('action=reset-password') ||
+        search.includes('token_hash=') ||
+        search.includes('type=recovery')
+      ) {
         setIsResetPasswordOpen(true);
       }
     }
@@ -768,7 +774,7 @@ export default function App() {
           mobileHeroBannerUrl: activeMobileHero,
           heroVideoUrl: validParsedVideo || '',
           heroMobileVideoUrl: validParsedMobileVideo || '/videos/hero-video-mobile.mp4',
-          heroMediaType: validParsedVideo ? 'video' : 'image',
+          heroMediaType: (parsed.heroMediaType === 'video') ? 'video' : 'image',
           backgroundImageUrl: activeHero,
           mobileBackgroundImageUrl: activeMobileHero,
           storeTagline: tagline,
@@ -783,7 +789,7 @@ export default function App() {
       mobileHeroBannerUrl: storedMobile || '/konichiwamobilebg.png',
       heroVideoUrl: storedVideo || '',
       heroMobileVideoUrl: storedMobileVideo || '/videos/hero-video-mobile.mp4',
-      heroMediaType: storedVideo ? 'video' : 'image',
+      heroMediaType: 'image',
       backgroundImageUrl: storedDesktop || '/konichiwalaptopbackground.png',
       mobileBackgroundImageUrl: storedMobile || '/konichiwamobilebg.png',
       backgroundHintOpacity: 'balanced',
@@ -1028,10 +1034,22 @@ export default function App() {
 
   // New Product Upload Handler
   const handleAddProduct = async (newProduct: Product) => {
+    const targetRank = typeof newProduct.displayOrder === 'number' && newProduct.displayOrder > 0
+      ? newProduct.displayOrder
+      : 1;
+
     setProductsList((prev) => {
-      const updated = [newProduct, ...prev.filter(p => p.id !== newProduct.id)];
-      localStorage.setItem('km_custom_products', JSON.stringify(updated));
-      return updated;
+      const filtered = prev.filter(p => p.id !== newProduct.id);
+      const insertIdx = Math.max(0, Math.min(filtered.length, targetRank - 1));
+      filtered.splice(insertIdx, 0, newProduct);
+      const withOrder = filtered.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+      try {
+        localStorage.setItem('km_custom_products', JSON.stringify(withOrder));
+        localStorage.setItem('km_product_order', JSON.stringify(withOrder.map(p => p.id)));
+      } catch (err) {
+        console.warn('LocalStorage save warning:', err);
+      }
+      return withOrder;
     });
 
     const ok = await addProductToStore(newProduct);
@@ -1045,14 +1063,18 @@ export default function App() {
   const handleEditProduct = async (updatedProduct: Product) => {
     setProductsList((prev) => {
       const updated = prev.map(p => p.id === updatedProduct.id ? updatedProduct : p);
-      localStorage.setItem('km_custom_products', JSON.stringify(updated));
+      try {
+        localStorage.setItem('km_custom_products', JSON.stringify(updated));
+      } catch (err) {
+        console.warn('LocalStorage save warning:', err);
+      }
       return updated;
     });
 
     const ok = await updateProductInStore(updatedProduct.id, updatedProduct);
     const fresh = await fetchProductsFromStore();
     if (fresh && fresh.length > 0) {
-      setProductsList(fresh);
+      setProductsList(fresh.map(p => p.id === updatedProduct.id ? { ...p, ...updatedProduct } : p));
     }
     return ok;
   };
@@ -1770,7 +1792,7 @@ export default function App() {
             customMobileBannerUrl={siteSettings.mobileHeroBannerUrl || '/konichiwamobilebg.png'}
             customVideoUrl={siteSettings.heroVideoUrl}
             customMobileVideoUrl={siteSettings.heroMobileVideoUrl}
-            heroMediaType={siteSettings.heroMediaType || 'video'}
+            heroMediaType={siteSettings.heroMediaType || 'image'}
           />
 
           {/* 2. MAIN PRODUCT CATALOG */}

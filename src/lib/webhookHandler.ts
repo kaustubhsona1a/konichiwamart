@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { orderStore, ValidatedOrder } from './orderService';
 import { createShiprocketOrder } from './shiprocket';
-import { sendOrderInvoiceEmail } from './email';
+import { sendOrderInvoiceEmail, sendNewOrderOwnerNotification } from './email';
 import { InvoiceData } from './invoice';
 
 export interface WebhookProcessingResult {
@@ -285,9 +285,12 @@ export async function processRazorpayWebhook(
       courierPartner: existingOrder.courierPartner
     };
 
-    await sendOrderInvoiceEmail(invoiceData);
+    await Promise.all([
+      sendOrderInvoiceEmail(invoiceData).catch(err => console.error('[Webhook] Customer invoice email error:', err)),
+      sendNewOrderOwnerNotification(invoiceData).catch(err => console.error('[Webhook] Owner alert email error:', err))
+    ]);
   } catch (emailErr) {
-    console.error('[Email Dispatch Error] Non-blocking invoice email failure:', emailErr);
+    console.error('[Email Dispatch Error] Non-blocking email notifications failure:', emailErr);
   }
 
   return {

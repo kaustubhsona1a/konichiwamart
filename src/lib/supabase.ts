@@ -439,16 +439,6 @@ export const customerForgotPassword = async (email: string): Promise<{ success: 
     }
     return { success: true, message: data.message || 'Password reset link sent to your email.' };
   } catch (err: any) {
-    const client = getSupabaseClient();
-    if (client) {
-      try {
-        const { error } = await client.auth.resetPasswordForEmail(cleanEmail);
-        if (error) throw error;
-        return { success: true, message: `Password reset instructions sent to ${cleanEmail}.` };
-      } catch (clientErr: any) {
-        throw new Error(clientErr.message || 'Password reset failed.');
-      }
-    }
     throw new Error(err.message || 'Could not send password reset email.');
   }
 };
@@ -1459,9 +1449,7 @@ function mapProductToSupabaseRowClient(p: Product): any {
     routine: p.routine || 'AM/PM',
     is_bestseller: Boolean(p.isBestSeller),
     is_new: Boolean(p.isNew),
-    is_coming_soon: Boolean(p.isComingSoon),
     is_active: true,
-    display_order: typeof p.displayOrder === 'number' ? p.displayOrder : undefined,
     rating: Number(p.rating) || 4.9,
     reviews_count: Number(p.reviewsCount) || 10,
     updated_at: new Date().toISOString()
@@ -1658,12 +1646,23 @@ export const applyProductOrderClient = (products: Product[], customOrderIds?: st
 
   if (orderIds && Array.isArray(orderIds) && orderIds.length > 0) {
     const idToPos = new Map<string, number>();
-    orderIds.forEach((id, idx) => idToPos.set(id, idx));
+    orderIds.forEach((id, idx) => {
+      idToPos.set(id, idx);
+    });
 
     const sorted = [...products].sort((a, b) => {
-      const posA = idToPos.has(a.id) ? idToPos.get(a.id)! : (a.displayOrder !== undefined ? a.displayOrder + 1000 : 9999);
-      const posB = idToPos.has(b.id) ? idToPos.get(b.id)! : (b.displayOrder !== undefined ? b.displayOrder + 1000 : 9999);
-      return posA - posB;
+      const getPos = (p: Product) => {
+        if (idToPos.has(p.id)) return idToPos.get(p.id)!;
+        if (p.dbId && idToPos.has(p.dbId)) return idToPos.get(p.dbId)!;
+        if ((p as any).slug && idToPos.has((p as any).slug)) return idToPos.get((p as any).slug)!;
+        // Respect explicit displayOrder: rank 1 gets -0.1 (ahead of index 0), rank 2 gets 0.9 (between 0 and 1)
+        if (typeof p.displayOrder === 'number' && p.displayOrder > 0) {
+          return (p.displayOrder - 1) - 0.1;
+        }
+        return 9999;
+      };
+
+      return getPos(a) - getPos(b);
     });
 
     return sorted.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
@@ -1799,8 +1798,25 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
           .map((row) => mapSupabaseRowToProductClient(row, inventoryMap, categoryMap))
           .filter((p) => !localDeletedIds.has(p.id));
 
-        const ordered = applyProductOrderClient(mapped, supabaseOrderIds);
-        localStorage.setItem('km_custom_products', JSON.stringify(ordered));
+        // Preserve any custom products saved locally that are not yet in Supabase
+        let customLocal: Product[] = [];
+        try {
+          const saved = localStorage.getItem('km_custom_products');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              customLocal = parsed.filter(
+                (p) => !localDeletedIds.has(p.id) && !mapped.some((m) => m.id === p.id || (m.dbId && m.dbId === p.dbId))
+              );
+            }
+          }
+        } catch {}
+
+        const combined = [...customLocal, ...mapped];
+        const ordered = applyProductOrderClient(combined, supabaseOrderIds);
+        try {
+          localStorage.setItem('km_custom_products', JSON.stringify(ordered));
+        } catch {}
         return ordered;
       }
     } catch (err) {
@@ -1949,7 +1965,6 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
       if (updates.isBestSeller !== undefined) patch.is_bestseller = updates.isBestSeller;
       if (updates.isNew !== undefined) patch.is_new = updates.isNew;
       if (updates.isComingSoon !== undefined) {
-        patch.is_coming_soon = updates.isComingSoon;
         const currBenefits = Array.isArray(updates.benefits) ? [...updates.benefits] : [];
         patch.benefits = updates.isComingSoon
           ? Array.from(new Set([...currBenefits, '__coming_soon__']))
@@ -1981,9 +1996,10 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
       };
 
       let { count: updatedCount, error: updateErr } = await executeProductUpdate(patch);
-      if (updatedCount === 0 && updateErr && (updateErr.message?.includes('is_coming_soon') || updateErr.code === '42703')) {
+      if (updatedCount === 0 && updateErr && (updateErr.message?.includes('is_coming_soon') || updateErr.code === '42703' || updateErr.code === 'PGRST204')) {
         const fallbackPatch = { ...patch };
         delete fallbackPatch.is_coming_soon;
+        delete fallbackPatch.display_order;
         const retryResult = await executeProductUpdate(fallbackPatch);
         updatedCount = retryResult.count;
       }
@@ -2072,32 +2088,82 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
  * Adds a new product to server and Supabase.
  */
 export const addProductToStore = async (product: Product): Promise<boolean> => {
-  // 1. Local cache update
+  // 1. Maintain local product order cache
+  const targetRank = typeof product.displayOrder === 'number' && product.displayOrder > 0 
+    ? product.displayOrder 
+    : 1;
+
+  try {
+    const savedOrder = localStorage.getItem('km_product_order');
+    let orderIds: string[] = savedOrder ? JSON.parse(savedOrder) : [];
+    if (!Array.isArray(orderIds)) orderIds = [];
+    orderIds = orderIds.filter(id => id !== product.id && (product.dbId ? id !== product.dbId : true));
+    const insertIdx = Math.max(0, Math.min(orderIds.length, targetRank - 1));
+    orderIds.splice(insertIdx, 0, product.id);
+    localStorage.setItem('km_product_order', JSON.stringify(orderIds));
+    await saveProductOrderToStore(orderIds);
+  } catch (orderErr) {
+    console.warn('[addProductToStore] Order update warning:', orderErr);
+  }
+
+  // 2. Local cache update
   try {
     const saved = localStorage.getItem('km_custom_products');
     const list: Product[] = saved ? JSON.parse(saved) : [];
-    if (!list.some(p => p.id === product.id)) {
-      localStorage.setItem('km_custom_products', JSON.stringify([product, ...list]));
-    }
-  } catch {}
+    const filtered = list.filter(p => p.id !== product.id);
+    const insertIdx = Math.max(0, Math.min(filtered.length, targetRank - 1));
+    filtered.splice(insertIdx, 0, product);
+    const reordered = filtered.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
+    localStorage.setItem('km_custom_products', JSON.stringify(reordered));
+  } catch (err) {
+    console.warn('[addProductToStore] Local storage warning:', err);
+  }
 
   let supabaseSuccess = false;
 
-  // 2. Direct Supabase insert FIRST
+  // 2. Direct Supabase upsert FIRST
   const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
     try {
       const row = mapProductToSupabaseRowClient(product);
-      let { data, error } = await client.from('products').insert([row]).select();
-      if (error && (error.message?.includes('is_coming_soon') || (error as any).code === '42703')) {
-        // Fallback: If table doesn't have is_coming_soon column yet, retry without it
-        // The __coming_soon__ flag in benefits guarantees detection across the app!
-        const fallbackRow = { ...row };
-        delete fallbackRow.is_coming_soon;
-        const retryRes = await client.from('products').insert([fallbackRow]).select();
+      let { data, error } = await client.from('products').upsert([row], { onConflict: 'slug' }).select();
+
+      // If any unexpected column mismatch occurs, retry with strictly verified columns
+      if (error && (error.code === 'PGRST204' || (error as any).code === '42703')) {
+        console.warn('[addProductToStore] Retrying with strictly validated columns:', error.message);
+        const safeRow: any = {
+          slug: row.slug,
+          title: row.title,
+          subtitle: row.subtitle,
+          category_name: row.category_name,
+          description: row.description,
+          benefits: row.benefits,
+          usage_how_to: row.usage_how_to,
+          key_actives: row.key_actives,
+          full_ingredients: row.full_ingredients,
+          hsn_code: row.hsn_code,
+          base_price: row.base_price,
+          compare_at_price: row.compare_at_price,
+          primary_image_url: row.primary_image_url,
+          secondary_image_url: row.secondary_image_url,
+          images: row.images,
+          volume_or_weight: row.volume_or_weight,
+          accent_color: row.accent_color,
+          skin_types: row.skin_types,
+          skin_concerns: row.skin_concerns,
+          routine: row.routine,
+          is_bestseller: row.is_bestseller,
+          is_new: row.is_new,
+          is_active: row.is_active,
+          rating: row.rating,
+          reviews_count: row.reviews_count,
+          updated_at: row.updated_at
+        };
+        const retryRes = await client.from('products').upsert([safeRow], { onConflict: 'slug' }).select();
         data = retryRes.data;
         error = retryRes.error;
       }
+
       if (error) {
         console.error('[Supabase Store] Error adding product to Supabase:', error);
       } else if (data && data.length > 0) {
@@ -2123,14 +2189,23 @@ export const addProductToStore = async (product: Product): Promise<boolean> => {
     }
   }
 
-  // 3. Server API
+  // 3. Server API with await
   try {
-    fetch('/api/products', {
+    const res = await fetch('/api/products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(product)
-    }).catch(() => {});
-  } catch {}
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.product?.dbId && !product.dbId) {
+        product.dbId = data.product.dbId;
+      }
+      supabaseSuccess = true;
+    }
+  } catch (apiErr) {
+    console.warn('[Products Store] Server add API warning:', apiErr);
+  }
 
   return supabaseSuccess || true;
 };
