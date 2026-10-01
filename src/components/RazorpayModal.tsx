@@ -119,6 +119,14 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
   const [keyId, setKeyId] = useState<string>('');
   const [isRazorpayConfigured, setIsRazorpayConfigured] = useState<boolean>(true);
   const [confirmedOrder, setConfirmedOrder] = useState<Order | null>(null);
+  const [deliveryEstimate, setDeliveryEstimate] = useState<{
+    estimatedDays?: number;
+    estimatedDeliveryDate?: string;
+    fastestCourier?: string;
+    serviceable?: boolean;
+    city?: string;
+    state?: string;
+  } | null>(null);
 
   // Price calculations
   const taxableAmount = subtotal - discountAmount;
@@ -290,12 +298,49 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
     }
   }, [isOpen, userProfile]);
 
-  // Sync city & state when pincode changes
+  // Sync city, state & courier delivery estimation when pincode changes
   useEffect(() => {
     if (pincode && pincode.length === 6) {
       const info = lookupPincode(pincode);
       if (info.city && !city) setCity(info.city);
       if (info.state && !stateName) setStateName(info.state);
+
+      const fallbackDays = info.estimatedDays || 3;
+      const targetDate = new Date(Date.now() + fallbackDays * 24 * 60 * 60 * 1000).toLocaleDateString('en-IN', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short'
+      });
+
+      setDeliveryEstimate({
+        estimatedDays: fallbackDays,
+        estimatedDeliveryDate: targetDate,
+        fastestCourier: info.couriers?.[0] || 'Blue Dart Air Express',
+        serviceable: info.isServiceable,
+        city: info.city,
+        state: info.state
+      });
+
+      // Async live query to Shiprocket serviceability engine
+      fetch(`/api/shiprocket/serviceability?pincode=${pincode}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.success) {
+            setDeliveryEstimate({
+              estimatedDays: data.estimatedDays,
+              estimatedDeliveryDate: data.estimatedDeliveryDate,
+              fastestCourier: data.fastestCourier,
+              serviceable: data.serviceable,
+              city: data.city,
+              state: data.state
+            });
+            if (data.city && !city) setCity(data.city);
+            if (data.state && !stateName) setStateName(data.state);
+          }
+        })
+        .catch(() => {});
+    } else {
+      setDeliveryEstimate(null);
     }
   }, [pincode]);
 
@@ -559,8 +604,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       status: 'CONFIRMED',
       shippingAddress: targetAddress,
       awbNumber: '',
-      courierPartner: "Pending Dispatch",
-      estimatedDeliveryDate: '3-5 business days for delivery',
+      courierPartner: deliveryEstimate?.fastestCourier || "Pending Dispatch",
+      estimatedDeliveryDate: deliveryEstimate?.estimatedDeliveryDate || '3-5 business days for delivery',
       trackingHistory: [
         {
           time: 'Just Now',
@@ -1096,6 +1141,21 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                     />
                   </div>
                 </div>
+
+                {/* Live Shiprocket Delivery Estimation */}
+                {deliveryEstimate && deliveryEstimate.serviceable && (
+                  <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-[11px] text-emerald-900 dark:text-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 animate-in fade-in">
+                    <div className="flex items-center gap-2">
+                      <Truck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                      <span>
+                        Estimated Delivery by <strong className="font-bold underline decoration-emerald-400">{deliveryEstimate.estimatedDeliveryDate}</strong> ({deliveryEstimate.estimatedDays} Days) via <strong>{deliveryEstimate.fastestCourier}</strong>
+                      </span>
+                    </div>
+                    <span className="self-start sm:self-center font-bold text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-md flex-shrink-0">
+                      ⚡ Serviceable Pincode
+                    </span>
+                  </div>
+                )}
 
                 {/* Address Tag */}
                 <div className="flex items-center gap-3 pt-1">

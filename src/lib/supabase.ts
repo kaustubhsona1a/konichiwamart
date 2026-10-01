@@ -1745,6 +1745,27 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
     }
   } catch {}
 
+  // Sync deleted IDs from server so Chrome, mobile & incognito sessions never show deleted products
+  try {
+    const delRes = await fetch('/api/products/deleted');
+    if (delRes.ok) {
+      const delData = await delRes.json();
+      if (delData?.success && Array.isArray(delData.deletedIds)) {
+        delData.deletedIds.forEach((id: string) => localDeletedIds.add(id));
+        try {
+          localStorage.setItem('km_deleted_product_ids', JSON.stringify(Array.from(localDeletedIds)));
+        } catch {}
+      }
+    }
+  } catch {}
+
+  const isDeleted = (p: Product): boolean => {
+    if (localDeletedIds.has(p.id)) return true;
+    if (p.dbId && localDeletedIds.has(p.dbId)) return true;
+    if (p.slug && localDeletedIds.has(p.slug)) return true;
+    return false;
+  };
+
   // 1. Direct Supabase Client FIRST (Single source of truth for cloud catalog and stock)
   const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
@@ -1796,9 +1817,9 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
       if (!prodRes.error && Array.isArray(prodRes.data) && prodRes.data.length > 0) {
         const mapped = prodRes.data
           .map((row) => mapSupabaseRowToProductClient(row, inventoryMap, categoryMap))
-          .filter((p) => !localDeletedIds.has(p.id));
+          .filter((p) => !isDeleted(p));
 
-        // Preserve any custom products saved locally that are not yet in Supabase
+        // Preserve only genuine user-created custom products saved locally that are not yet in Supabase
         let customLocal: Product[] = [];
         try {
           const saved = localStorage.getItem('km_custom_products');
@@ -1806,7 +1827,9 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
             const parsed = JSON.parse(saved);
             if (Array.isArray(parsed)) {
               customLocal = parsed.filter(
-                (p) => !localDeletedIds.has(p.id) && !mapped.some((m) => m.id === p.id || (m.dbId && m.dbId === p.dbId))
+                (p: Product) => Boolean(p.isCustom || p.id.startsWith('km-prod-') || p.id.startsWith('custom-')) &&
+                  !isDeleted(p) && 
+                  !mapped.some((m) => m.id === p.id || (m.dbId && m.dbId === p.dbId) || (m.slug && m.slug === p.id))
               );
             }
           }
@@ -1815,7 +1838,10 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
         const combined = [...customLocal, ...mapped];
         const ordered = applyProductOrderClient(combined, supabaseOrderIds);
         try {
-          localStorage.setItem('km_custom_products', JSON.stringify(ordered));
+          // Save only genuine custom products into km_custom_products so standard products never get resurrected
+          localStorage.setItem('km_custom_products', JSON.stringify(customLocal));
+          // Save full catalog snapshot to km_catalog_cache for offline fallback
+          localStorage.setItem('km_catalog_cache', JSON.stringify(ordered.filter(p => !isDeleted(p))));
         } catch {}
         return ordered;
       }
@@ -1830,10 +1856,11 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
     if (res.ok) {
       const data = await res.json();
       if (data?.success && Array.isArray(data.products) && data.products.length > 0) {
-        const filtered = data.products.filter((p: Product) => !localDeletedIds.has(p.id));
+        const filtered = data.products.filter((p: Product) => !isDeleted(p));
         const ordered = applyProductOrderClient(filtered);
-        // Update local cache
-        localStorage.setItem('km_custom_products', JSON.stringify(ordered));
+        try {
+          localStorage.setItem('km_catalog_cache', JSON.stringify(ordered));
+        } catch {}
         return ordered;
       }
     }
@@ -1853,17 +1880,17 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
   ]);
 
   try {
-    const saved = localStorage.getItem('km_custom_products');
-    if (saved) {
-      const parsed = JSON.parse(saved);
+    const cached = localStorage.getItem('km_catalog_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        const valid = parsed.filter((p: Product) => !localDeletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
+        const valid = parsed.filter((p: Product) => !isDeleted(p) && !LEGACY_MOCK_IDS.has(p.id));
         if (valid.length > 0) return applyProductOrderClient(valid);
       }
     }
   } catch {}
 
-  const defaultProducts = PRODUCTS.filter((p) => !localDeletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
+  const defaultProducts = PRODUCTS.filter((p) => !isDeleted(p) && !LEGACY_MOCK_IDS.has(p.id));
   return applyProductOrderClient(defaultProducts);
 };
 
@@ -1872,41 +1899,79 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
  * Ensures the product NEVER reappears across refreshes, other tabs, or new devices.
  */
 export const deleteProductFromStore = async (productId: string, dbId?: string): Promise<boolean> => {
-  // 1. Local optimistic update
+  // 1. Local optimistic update across all identifiers
+  const targetIds = new Set<string>();
+  if (productId) targetIds.add(productId);
+  if (dbId) targetIds.add(dbId);
+
   try {
     const deletedJson = localStorage.getItem('km_deleted_product_ids');
-    const deletedIds: string[] = deletedJson ? JSON.parse(deletedJson) : [];
-    if (!deletedIds.includes(productId)) {
-      deletedIds.push(productId);
-      localStorage.setItem('km_deleted_product_ids', JSON.stringify(deletedIds));
-    }
+    const existingDeleted: string[] = deletedJson ? JSON.parse(deletedJson) : [];
+    existingDeleted.forEach(id => targetIds.add(id));
+    localStorage.setItem('km_deleted_product_ids', JSON.stringify(Array.from(targetIds)));
+
+    // Clean km_custom_products
     const saved = localStorage.getItem('km_custom_products');
     if (saved) {
       const parsed: Product[] = JSON.parse(saved);
-      localStorage.setItem('km_custom_products', JSON.stringify(parsed.filter(p => p.id !== productId && (!dbId || p.dbId !== dbId))));
+      const filtered = parsed.filter(p => 
+        !targetIds.has(p.id) && 
+        (!p.dbId || !targetIds.has(p.dbId)) && 
+        (!p.slug || !targetIds.has(p.slug))
+      );
+      localStorage.setItem('km_custom_products', JSON.stringify(filtered));
+    }
+
+    // Clean km_catalog_cache
+    const cached = localStorage.getItem('km_catalog_cache');
+    if (cached) {
+      const parsed: Product[] = JSON.parse(cached);
+      const filtered = parsed.filter(p => 
+        !targetIds.has(p.id) && 
+        (!p.dbId || !targetIds.has(p.dbId)) && 
+        (!p.slug || !targetIds.has(p.slug))
+      );
+      localStorage.setItem('km_catalog_cache', JSON.stringify(filtered));
     }
   } catch {}
 
-  // 2. Direct Supabase deletion FIRST
+  // 2. Direct Supabase deletion across UUID and slug
   const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
     try {
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
-      const targetUuid = dbId || (isUuid ? productId : null);
-      if (targetUuid) {
-        await client.from('products').delete().eq('id', targetUuid);
-        await client.from('products').update({ is_active: false }).eq('id', targetUuid);
+      
+      // If we don't have dbId but productId is a slug, look up the row to get the UUID
+      if (!dbId && !isUuid) {
+        try {
+          const { data: row } = await client.from('products').select('id, slug').eq('slug', productId).maybeSingle();
+          if (row?.id) {
+            targetIds.add(row.id);
+            if (row.slug) targetIds.add(row.slug);
+            localStorage.setItem('km_deleted_product_ids', JSON.stringify(Array.from(targetIds)));
+          }
+        } catch {}
       }
-      await client.from('products').delete().eq('slug', productId);
-      await client.from('products').update({ is_active: false }).eq('slug', productId);
+
+      for (const tid of Array.from(targetIds)) {
+        const idIsUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tid);
+        if (idIsUuid) {
+          await client.from('products').update({ is_active: false }).eq('id', tid);
+          await client.from('products').delete().eq('id', tid);
+        } else {
+          await client.from('products').update({ is_active: false }).eq('slug', tid);
+          await client.from('products').delete().eq('slug', tid);
+        }
+      }
     } catch (err) {
       console.warn('[Products Store] Direct Supabase delete error:', err);
     }
   }
 
-  // 3. Server API deletion
+  // 3. Server API deletion passing dbId if known
   try {
-    await fetch(`/api/products/${encodeURIComponent(productId)}`, {
+    const url = `/api/products/${encodeURIComponent(productId)}${dbId ? `?dbId=${encodeURIComponent(dbId)}` : ''}`;
+    await fetch(url, {
       method: 'DELETE'
     });
   } catch (err) {

@@ -28,8 +28,10 @@ import {
   ProductShade,
   UserAddress,
   SiteSettings,
-  ReelItem
+  ReelItem,
+  Review
 } from './types';
+import { INITIAL_REVIEWS } from './data/reviews';
 import { PRODUCTS, CATEGORIES } from './data/products';
 import { 
   getStoredReels, 
@@ -287,6 +289,34 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+
+  // Customer Reviews state synced across Storefront, ProductModal, and AdminPortal
+  const [appReviews, setAppReviews] = useState<Review[]>(() => {
+    try {
+      const saved = localStorage.getItem('konichiwa_customer_reviews_v5');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return INITIAL_REVIEWS;
+  });
+
+  useEffect(() => {
+    let isCancelled = false;
+    fetch('/api/reviews')
+      .then(r => r.json())
+      .then(d => {
+        if (!isCancelled && d?.success && Array.isArray(d.reviews) && d.reviews.length > 0) {
+          setAppReviews(d.reviews);
+          try {
+            localStorage.setItem('konichiwa_customer_reviews_v5', JSON.stringify(d.reviews));
+          } catch {}
+        }
+      })
+      .catch(() => {});
+    return () => { isCancelled = true; };
+  }, []);
 
   // Dedicated helper to refresh orders from Supabase & backend API
   const handleRefreshOrders = async (): Promise<Order[]> => {
@@ -725,8 +755,10 @@ export default function App() {
   // Site Settings (Store background, Logo, Flower drift controls)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
     const explicitlyTurnedOff = localStorage.getItem('km_flower_drift_user_enabled') === 'false';
-    const storedDesktop = localStorage.getItem('km_hero_banner_data');
-    const storedMobile = localStorage.getItem('km_hero_mobile_banner_data');
+    const rawStoredDesktop = localStorage.getItem('km_hero_banner_data');
+    const storedDesktop = (rawStoredDesktop && !rawStoredDesktop.includes('mobile')) ? rawStoredDesktop : '/konichiwalaptopbackground.png';
+    const rawStoredMobile = localStorage.getItem('km_hero_mobile_banner_data');
+    const storedMobile = (rawStoredMobile && !rawStoredMobile.includes('laptop')) ? rawStoredMobile : '/konichiwamobilebg.png';
     const rawStoredVideo = localStorage.getItem('km_hero_video_url');
     const rawStoredMobileVideo = localStorage.getItem('km_hero_mobile_video_url');
 
@@ -738,9 +770,6 @@ export default function App() {
       try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
     }
 
-    const storedVideo = (rawStoredVideo && !rawStoredVideo.includes('flower.mp4') && !rawStoredVideo.includes('interactive-examples')) ? rawStoredVideo : '';
-    const storedMobileVideo = (rawStoredMobileVideo && !rawStoredMobileVideo.includes('flower.mp4') && !rawStoredMobileVideo.includes('interactive-examples')) ? rawStoredMobileVideo : '';
-
     try {
       const saved = localStorage.getItem('km_site_settings');
       if (saved) {
@@ -749,21 +778,15 @@ export default function App() {
           ? 'Japanese Skincare'
           : parsed.storeTagline;
 
-        const activeHero = parsed.heroBannerUrl && !parsed.heroBannerUrl.includes('konichiwalaptopbg.png')
-          ? parsed.heroBannerUrl
-          : (storedDesktop || parsed.heroBannerUrl || '/konichiwalaptopbackground.png');
+        const rawHero = parsed.heroBannerUrl;
+        const activeHero = (rawHero && !rawHero.includes('mobile')) 
+          ? rawHero 
+          : storedDesktop;
 
-        const activeMobileHero = parsed.mobileHeroBannerUrl && !parsed.mobileHeroBannerUrl.includes('konichiwamobilebg.png')
-          ? parsed.mobileHeroBannerUrl
-          : (storedMobile || parsed.mobileHeroBannerUrl || '/konichiwamobilebg.png');
-
-        const validParsedVideo = (parsed.heroVideoUrl && !parsed.heroVideoUrl.includes('flower.mp4') && !parsed.heroVideoUrl.includes('interactive-examples'))
-          ? parsed.heroVideoUrl
-          : storedVideo;
-
-        const validParsedMobileVideo = (parsed.heroMobileVideoUrl && !parsed.heroMobileVideoUrl.includes('flower.mp4') && !parsed.heroMobileVideoUrl.includes('interactive-examples'))
-          ? parsed.heroMobileVideoUrl
-          : storedMobileVideo;
+        const rawMobileHero = parsed.mobileHeroBannerUrl;
+        const activeMobileHero = (rawMobileHero && !rawMobileHero.includes('laptop'))
+          ? rawMobileHero
+          : storedMobile;
 
         return {
           backgroundHintOpacity: 'balanced',
@@ -852,14 +875,25 @@ export default function App() {
           s.heroMobileVideoUrl = '';
 
           setSiteSettings(prev => {
-            const merged = { ...prev, ...s, heroMediaType: 'image', heroVideoUrl: '', heroMobileVideoUrl: '' };
+            const rawHero = s.heroBannerUrl;
+            const validHero = (rawHero && !rawHero.includes('mobile')) ? rawHero : '/konichiwalaptopbackground.png';
+            const rawMobile = s.mobileHeroBannerUrl;
+            const validMobile = (rawMobile && !rawMobile.includes('laptop')) ? rawMobile : '/konichiwamobilebg.png';
+
+            const merged = { 
+              ...prev, 
+              ...s, 
+              heroMediaType: 'image', 
+              heroVideoUrl: '', 
+              heroMobileVideoUrl: '',
+              heroBannerUrl: validHero,
+              backgroundImageUrl: validHero,
+              mobileHeroBannerUrl: validMobile,
+              mobileBackgroundImageUrl: validMobile
+            };
             localStorage.setItem('km_site_settings', JSON.stringify(merged));
-            if (s.heroBannerUrl) {
-              try { localStorage.setItem('km_hero_banner_data', s.heroBannerUrl); } catch {}
-            }
-            if (s.mobileHeroBannerUrl) {
-              try { localStorage.setItem('km_hero_mobile_banner_data', s.mobileHeroBannerUrl); } catch {}
-            }
+            try { localStorage.setItem('km_hero_banner_data', validHero); } catch {}
+            try { localStorage.setItem('km_hero_mobile_banner_data', validMobile); } catch {}
             return merged;
           });
         }
@@ -925,28 +959,6 @@ export default function App() {
       handleRequestAdminAccess();
     }
 
-    // Verify if custom hero banner and video exist on the server and ensure latest versions are loaded
-    fetch('/api/banner-status')
-      .then(res => res.json())
-      .then(data => {
-        if (data?.exists || data?.desktopVideoUrl || data?.mobileVideoUrl) {
-          setSiteSettings(prev => {
-            const next = { ...prev };
-            if (data.url) next.heroBannerUrl = `${data.url}?v=${Date.now()}`;
-            if (data.mobileUrl) next.mobileHeroBannerUrl = `${data.mobileUrl}?v=${Date.now()}`;
-            if (data.desktopVideoUrl) {
-              next.heroVideoUrl = data.desktopVideoUrl;
-              localStorage.setItem('km_hero_video_url', data.desktopVideoUrl);
-            }
-            if (data.mobileVideoUrl) {
-              next.heroMobileVideoUrl = data.mobileVideoUrl;
-              localStorage.setItem('km_hero_mobile_video_url', data.mobileVideoUrl);
-            }
-            return next;
-          });
-        }
-      })
-      .catch(() => {});
 
     // Fetch products from server / Supabase on initial load
     fetchProductsFromStore().then((freshList) => {
@@ -1024,7 +1036,8 @@ export default function App() {
       filtered.splice(insertIdx, 0, newProduct);
       const withOrder = filtered.map((p, idx) => ({ ...p, displayOrder: idx + 1 }));
       try {
-        localStorage.setItem('km_custom_products', JSON.stringify(withOrder));
+        localStorage.setItem('km_catalog_cache', JSON.stringify(withOrder));
+        localStorage.setItem('km_custom_products', JSON.stringify(withOrder.filter(p => Boolean(p.isCustom || p.id.startsWith('km-prod-')))));
         localStorage.setItem('km_product_order', JSON.stringify(withOrder.map(p => p.id)));
       } catch (err) {
         console.warn('LocalStorage save warning:', err);
@@ -1044,7 +1057,8 @@ export default function App() {
     setProductsList((prev) => {
       const updated = prev.map(p => p.id === updatedProduct.id ? updatedProduct : p);
       try {
-        localStorage.setItem('km_custom_products', JSON.stringify(updated));
+        localStorage.setItem('km_catalog_cache', JSON.stringify(updated));
+        localStorage.setItem('km_custom_products', JSON.stringify(updated.filter(p => Boolean(p.isCustom || p.id.startsWith('km-prod-')))));
       } catch (err) {
         console.warn('LocalStorage save warning:', err);
       }
@@ -1060,25 +1074,48 @@ export default function App() {
   };
 
   // Remove Product Handler (Permanently deletes from Supabase, Server Storage, and Local state)
-  const handleRemoveProduct = async (productId: string) => {
-    const target = productsList.find(p => p.id === productId);
+  const handleRemoveProduct = async (productId: string, explicitDbId?: string) => {
+    const target = productsList.find(p => p.id === productId || p.dbId === productId || (p.slug && p.slug === productId));
+    const targetDbId = explicitDbId || target?.dbId;
+    const targetSlug = target?.slug;
+
+    // Filter optimistically matching all identifiers
     setProductsList((prev) => {
-      const updated = prev.filter((p) => p.id !== productId);
-      localStorage.setItem('km_custom_products', JSON.stringify(updated));
+      const updated = prev.filter((p) => 
+        p.id !== productId && 
+        p.id !== targetDbId && 
+        (!targetDbId || p.dbId !== targetDbId) &&
+        (!targetSlug || (p.slug !== targetSlug && p.id !== targetSlug))
+      );
+      try {
+        localStorage.setItem('km_catalog_cache', JSON.stringify(updated));
+        localStorage.setItem('km_custom_products', JSON.stringify(updated.filter(p => Boolean(p.isCustom || p.id.startsWith('km-prod-')))));
+      } catch {}
       return updated;
     });
 
     // Also remove from cart if present
-    setCart((prev) => prev.filter((item) => item.product.id !== productId));
-    if (inspectProduct?.id === productId) {
+    setCart((prev) => prev.filter((item) => 
+      item.product.id !== productId && 
+      item.product.id !== targetDbId && 
+      (!targetDbId || item.product.dbId !== targetDbId)
+    ));
+    if (inspectProduct?.id === productId || inspectProduct?.dbId === targetDbId) {
       setInspectProduct(null);
     }
 
     // Sync deletion across Supabase and persistent backend storage
-    const ok = await deleteProductFromStore(productId, target?.dbId);
+    const ok = await deleteProductFromStore(productId, targetDbId);
     const fresh = await fetchProductsFromStore();
     if (fresh && fresh.length > 0) {
-      setProductsList(fresh);
+      // Ensure the deleted product never slips back into fresh
+      const cleanedFresh = fresh.filter(p => 
+        p.id !== productId && 
+        p.id !== targetDbId && 
+        (!targetDbId || p.dbId !== targetDbId) &&
+        (!targetSlug || (p.slug !== targetSlug && p.id !== targetSlug))
+      );
+      setProductsList(cleanedFresh);
     }
     return ok;
   };
@@ -1888,10 +1925,14 @@ export default function App() {
           </main>
 
           {/* 3. CUSTOMER REVIEWS SECTION */}
-          <ReviewsSection
-            onSelectProduct={setInspectProduct}
-            products={productsList}
-          />
+          <div id="customer-reviews">
+            <ReviewsSection
+              onSelectProduct={setInspectProduct}
+              products={productsList}
+              reviews={appReviews}
+              onAddReview={(newRev) => setAppReviews(prev => [newRev, ...prev])}
+            />
+          </div>
 
           {/* 4. INSTAGRAM REEL FEED SECTION: Video reviews & community as social proof */}
           <InstagramReelFeed
@@ -1924,6 +1965,12 @@ export default function App() {
           onAddToCart={handleAddToCart}
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted(inspectProduct.id)}
+          reviews={appReviews}
+          onOpenWriteReview={(prodId) => {
+            setInspectProduct(null);
+            const el = document.getElementById('customer-reviews');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          }}
         />
       )}
 
@@ -2021,6 +2068,8 @@ export default function App() {
         onUpdateSiteSettings={handleUpdateSiteSettings}
         reels={reels}
         onUpdateReels={handleUpdateReels}
+        reviews={appReviews}
+        onUpdateReviews={(revs) => setAppReviews(revs)}
         initialTab={adminInitialTab}
       />
 

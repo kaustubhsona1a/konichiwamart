@@ -448,6 +448,32 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
                             </div>
                           ))}
                         </div>
+
+                        {/* Courier Partner & AWB Live Tracking Info */}
+                        <div className="pt-2 border-t border-stone-100 dark:border-zinc-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-[11px]">
+                          <div className="text-slate-600 dark:text-zinc-400">
+                            <span>Courier: <strong className="text-slate-900 dark:text-zinc-200">{normOrder.courierPartner || 'Blue Dart Air Express'}</strong></span>
+                            {normOrder.estimatedDeliveryDate && (
+                              <span className="ml-2">• Delivery: <strong className="text-slate-900 dark:text-zinc-200">{normOrder.estimatedDeliveryDate}</strong></span>
+                            )}
+                          </div>
+                          {normOrder.awbNumber && (
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-[10px] text-slate-500 dark:text-zinc-400">
+                                AWB: <strong className="text-slate-800 dark:text-zinc-200">{normOrder.awbNumber}</strong>
+                              </span>
+                              <a
+                                href={`https://shiprocket.co/tracking/${normOrder.awbNumber}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-pink-600 dark:text-pink-400 hover:underline"
+                              >
+                                <span>Track on Shiprocket</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ) : (
                       <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-xs text-rose-700 dark:text-rose-300 font-medium flex items-center gap-2">

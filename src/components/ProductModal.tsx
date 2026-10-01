@@ -10,8 +10,9 @@ import {
   MapPin,
   Check
 } from 'lucide-react';
-import { Product, ProductShade } from '../types';
+import { Product, ProductShade, Review } from '../types';
 import { formatINR } from '../data/pincodes';
+import { formatReviewTime } from '../data/reviews';
 
 interface ProductModalProps {
   product: Product;
@@ -19,6 +20,8 @@ interface ProductModalProps {
   onAddToCart: (product: Product, quantity: number, shade?: ProductShade) => void;
   onToggleWishlist: (productId: string) => void;
   isWishlisted: boolean;
+  reviews?: Review[];
+  onOpenWriteReview?: (productId: string) => void;
 }
 
 export const ProductModal: React.FC<ProductModalProps> = ({
@@ -26,7 +29,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   onClose,
   onAddToCart,
   onToggleWishlist,
-  isWishlisted
+  isWishlisted,
+  reviews,
+  onOpenWriteReview
 }) => {
   const [selectedShade, setSelectedShade] = useState<ProductShade | undefined>(
     product.shades && product.shades.length > 0 ? product.shades[0] : undefined
@@ -334,23 +339,79 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   )}
 
                   {activeTab === 'reviews' && (
-                    <div className="space-y-2">
-                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-semibold text-slate-900 dark:text-white">Ananya S. — Mumbai</span>
-                          <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">✓ Verified Buyer</span>
-                        </div>
-                        <div className="flex text-amber-500 text-xs my-0.5">★★★★★</div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300">"Authentic Japanese skincare delivered safely. Skin feels clean and fresh without any tightness. Fast shipping."</p>
-                      </div>
-                      <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-semibold text-slate-900 dark:text-white">Rhea K. — Bangalore</span>
-                          <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">✓ Verified Buyer</span>
-                        </div>
-                        <div className="flex text-amber-500 text-xs my-0.5">★★★★★</div>
-                        <p className="text-[11px] text-slate-600 dark:text-slate-300">"Super gentle and effective. Happy that Konichiwa_Mart stocks real Japanese formulas in India."</p>
-                      </div>
+                    <div className="space-y-2.5">
+                      {(() => {
+                        const productReviews = (reviews || []).filter(r => 
+                          r.productId === product.id || 
+                          (product.slug && r.productId === product.slug) ||
+                          (r.productName && r.productName.toLowerCase().includes(product.title.toLowerCase().slice(0, 8)))
+                        );
+
+                        if (productReviews.length === 0) {
+                          return (
+                            <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 text-center space-y-2">
+                              <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200">No reviews yet for this product</p>
+                              <p className="text-[11px] text-slate-500 dark:text-zinc-400">Be the first to share your experience with this Japan skincare essential!</p>
+                              {onOpenWriteReview && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onClose();
+                                    onOpenWriteReview(product.id);
+                                  }}
+                                  className="mt-1 px-3 py-1 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-[11px] font-semibold cursor-pointer"
+                                >
+                                  Write the First Review
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return productReviews.map((rev) => (
+                          <div key={rev.id} className="p-3 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 space-y-1 text-left">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-semibold text-slate-900 dark:text-white">{rev.author} {rev.location ? `• ${rev.location}` : ''}</span>
+                              <div className="flex items-center gap-1.5">
+                                {rev.verified && (
+                                  <span className="text-[9.5px] text-emerald-700 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded">
+                                    ✓ Verified Buyer
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                  {formatReviewTime(rev)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 text-amber-500 text-xs">
+                              {[...Array(5)].map((_, idx) => (
+                                <Star
+                                  key={idx}
+                                  className={`w-3 h-3 ${idx < rev.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'}`}
+                                />
+                              ))}
+                              {rev.headline && (
+                                <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 ml-1">
+                                  &ldquo;{rev.headline}&rdquo;
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                              {rev.comment}
+                            </p>
+                            {rev.imageUrl && (
+                              <div className="pt-1.5">
+                                <img
+                                  src={rev.imageUrl}
+                                  alt="Customer photo"
+                                  className="w-full max-h-40 object-cover rounded-lg border border-slate-200 dark:border-slate-800"
+                                  referrerPolicy="no-referrer"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ));
+                      })()}
                     </div>
                   )}
                 </div>

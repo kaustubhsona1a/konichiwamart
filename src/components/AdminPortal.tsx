@@ -35,12 +35,15 @@ import { X,
   ArrowUp,
   ArrowDown,
   ListOrdered,
-  Bell } from 'lucide-react';
-import { Order, Product, ProductCategory, SiteSettings, ReelItem } from '../types';
+  Copy,
+  Bell,
+  MessageSquare } from 'lucide-react';
+import { Order, Product, ProductCategory, SiteSettings, ReelItem, Review } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
 import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore, normalizeOrderItem } from '../lib/supabase';
 import { ReelsManager } from './admin/ReelsManager';
+import { ReviewsManager } from './admin/ReviewsManager';
 
 // Client-side image optimizer to compress direct photos into fast-loading web images
 const resizeAndOptimizeImage = (file: File): Promise<string> => {
@@ -100,7 +103,7 @@ interface AdminPortalProps {
   onUpdateProductPrice?: (productId: string, newPrice: number) => void | Promise<any>;
   onAddProduct: (product: Product) => void | Promise<any>;
   onEditProduct?: (product: Product) => void | Promise<any>;
-  onRemoveProduct?: (productId: string) => void | Promise<any>;
+  onRemoveProduct?: (productId: string, dbId?: string) => void | Promise<any>;
   onResetDefaultProducts?: () => void;
   onReorderProducts?: (reordered: Product[]) => void | Promise<any>;
   onLogout: () => void;
@@ -109,7 +112,9 @@ interface AdminPortalProps {
   onUpdateSiteSettings: (settings: Partial<SiteSettings>) => void;
   reels?: ReelItem[];
   onUpdateReels?: (reels: ReelItem[]) => void;
-  initialTab?: 'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels';
+  reviews?: Review[];
+  onUpdateReviews?: (reviews: Review[]) => void;
+  initialTab?: 'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels' | 'reviews';
   onRefreshOrders?: () => Promise<any> | any;
 }
 
@@ -136,12 +141,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onUpdateSiteSettings,
   reels = [],
   onUpdateReels,
+  reviews = [],
+  onUpdateReviews,
   initialTab
 }) => {
-  const validInitialTab = (typeof initialTab === 'string' && ['dashboard', 'inventory', 'orders', 'settings', 'reels'].includes(initialTab))
+  const validInitialTab = (typeof initialTab === 'string' && ['dashboard', 'inventory', 'orders', 'settings', 'reels', 'reviews'].includes(initialTab))
     ? initialTab
     : 'dashboard';
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels'>(validInitialTab);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels' | 'reviews'>(validInitialTab);
+  const [reviewsList, setReviewsList] = useState<Review[]>(reviews || []);
+
+  React.useEffect(() => {
+    if (reviews && reviews.length > 0) {
+      setReviewsList(reviews);
+    }
+  }, [reviews]);
+
+  const handleReviewsChange = (newReviews: Review[]) => {
+    setReviewsList(newReviews);
+    if (onUpdateReviews) {
+      onUpdateReviews(newReviews);
+    }
+  };
+
   const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
 
   const handleRefresh = async () => {
@@ -289,6 +311,59 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       });
     } finally {
       setIsTestingShiprocket(false);
+    }
+  };
+
+  // Shiprocket Tracking Sync State
+  const [isSyncingTracking, setIsSyncingTracking] = useState(false);
+  const [syncTrackingResult, setSyncTrackingResult] = useState<{
+    success: boolean;
+    totalChecked?: number;
+    updatedCount?: number;
+    updates?: any[];
+    error?: string;
+  } | null>(null);
+  const [copiedWebhookUrl, setCopiedWebhookUrl] = useState(false);
+
+  const handleSyncTracking = async () => {
+    setIsSyncingTracking(true);
+    setSyncTrackingResult(null);
+    try {
+      const res = await fetch('/api/admin/sync-shiprocket-tracking', { method: 'POST' });
+      const data = await res.json();
+      setSyncTrackingResult(data);
+    } catch (err: any) {
+      setSyncTrackingResult({ success: false, error: err.message || 'Tracking sync network error' });
+    } finally {
+      setIsSyncingTracking(false);
+    }
+  };
+
+  // Zero-Cost Test Order State
+  const [isSendingTestOrder, setIsSendingTestOrder] = useState(false);
+  const [testOrderResult, setTestOrderResult] = useState<{
+    success: boolean;
+    message?: string;
+    orderNumber?: string;
+    shiprocketOrderId?: number;
+    shiprocketShipmentId?: number;
+    cost?: string;
+    note?: string;
+    dashboardUrl?: string;
+    error?: string;
+  } | null>(null);
+
+  const handleSendTestOrder = async () => {
+    setIsSendingTestOrder(true);
+    setTestOrderResult(null);
+    try {
+      const res = await fetch('/api/admin/test-shiprocket-order', { method: 'POST' });
+      const data = await res.json();
+      setTestOrderResult(data);
+    } catch (err: any) {
+      setTestOrderResult({ success: false, error: err.message || 'Failed to dispatch test order' });
+    } finally {
+      setIsSendingTestOrder(false);
     }
   };
 
@@ -1176,6 +1251,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </span>
               </button>
 
+              {/* REVIEWS & RATINGS TAB */}
+              <button
+                onClick={() => setActiveTab('reviews')}
+                className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl transition-all cursor-pointer text-left font-medium ${
+                  activeTab === 'reviews'
+                    ? 'bg-pink-50 text-pink-700 shadow-xs font-bold border-l-4 border-pink-600'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-stone-50'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <MessageSquare className={`w-4 h-4 ${activeTab === 'reviews' ? 'text-pink-600' : 'text-slate-400'}`} />
+                  <span className="tracking-wide">REVIEWS & SOCIAL</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                  {reviewsList.length}
+                </span>
+              </button>
+
               {/* SITE SETTINGS TAB */}
               <button
                 onClick={() => setActiveTab('settings')}
@@ -1315,6 +1408,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
                     {reels.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('reviews'); setMobileDrawerOpen(false); }}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-bold transition-all ${
+                    activeTab === 'reviews'
+                      ? 'bg-pink-50 text-pink-700 border-l-4 border-pink-600 shadow-2xs'
+                      : 'text-slate-700 hover:bg-stone-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className={`w-4 h-4 ${activeTab === 'reviews' ? 'text-pink-600' : 'text-slate-400'}`} />
+                    <span>Customer Reviews</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-100 text-pink-700 font-bold">
+                    {reviewsList.length}
                   </span>
                 </button>
 
@@ -3425,25 +3535,127 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         Verify your Shiprocket API credentials, check shipping wallet balance, and validate pickup locations.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={handleTestShiprocket}
-                      disabled={isTestingShiprocket}
-                      className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 flex-shrink-0"
-                    >
-                      {isTestingShiprocket ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Testing Connection...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Truck className="w-3.5 h-3.5" />
-                          <span>Test Shiprocket Connection</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleSyncTracking}
+                        disabled={isSyncingTracking}
+                        className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 flex-shrink-0"
+                      >
+                        {isSyncingTracking ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
+                            <span>Syncing...</span>
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
+                            <span>Sync Tracking</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleTestShiprocket}
+                        disabled={isTestingShiprocket}
+                        className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 flex-shrink-0"
+                      >
+                        {isTestingShiprocket ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Testing Connection...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Test Connection</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleSendTestOrder}
+                        disabled={isSendingTestOrder}
+                        title="Creates a draft order in Shiprocket without assigning a courier. Cost = ₹0."
+                        className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 flex-shrink-0"
+                      >
+                        {isSendingTestOrder ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Sending Order...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Package className="w-3.5 h-3.5" />
+                            <span>Push Test Order (₹0)</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
+
+                  {testOrderResult && (
+                    <div className={`p-4 rounded-xl border text-xs space-y-2 animate-in fade-in ${
+                      testOrderResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+                    }`}>
+                      <div className="flex items-center gap-2 font-bold">
+                        {testOrderResult.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                        )}
+                        <span>{testOrderResult.message || (testOrderResult.success ? 'Order Created!' : 'Failed to create order')}</span>
+                      </div>
+                      {testOrderResult.error && (
+                        <div className="text-rose-700 font-medium">
+                          {testOrderResult.error}
+                        </div>
+                      )}
+                      {testOrderResult.success && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-emerald-200/60 text-[11px]">
+                          <div>
+                            <span className="font-semibold text-emerald-800">Order Number:</span>{' '}
+                            <span className="font-mono">{testOrderResult.orderNumber}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-emerald-800">Shiprocket Order ID:</span>{' '}
+                            <span className="font-mono">{testOrderResult.shiprocketOrderId}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-emerald-800">Wallet Cost:</span>{' '}
+                            <span className="font-bold text-emerald-700">{testOrderResult.cost}</span>
+                          </div>
+                          <div>
+                            <a 
+                              href={testOrderResult.dashboardUrl || 'https://app.shiprocket.in/orders'} 
+                              target="_blank" 
+                              rel="noreferrer" 
+                              className="font-bold text-pink-600 hover:underline inline-flex items-center gap-1"
+                            >
+                              <span>View in Shiprocket Dashboard</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </div>
+                          <div className="sm:col-span-2 text-slate-500 italic text-[10px]">
+                            {testOrderResult.note}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {syncTrackingResult && (
+                    <div className={`p-3.5 rounded-xl border text-xs animate-in fade-in ${
+                      syncTrackingResult.success ? 'bg-indigo-50 border-indigo-200 text-indigo-900' : 'bg-rose-50 border-rose-200 text-rose-900'
+                    }`}>
+                      <div className="flex items-center gap-2 font-semibold">
+                        <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                        <span>Tracking Sync Completed: Checked {syncTrackingResult.totalChecked || 0} active orders, updated {syncTrackingResult.updatedCount || 0} statuses.</span>
+                      </div>
+                    </div>
+                  )}
 
                   {shiprocketTestResult && (
                     <div className={`p-4 rounded-xl border text-xs space-y-2.5 animate-in fade-in ${
@@ -3499,6 +3711,46 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   )}
                 </div>
 
+                {/* Real-Time Automated Tracking Webhook */}
+                <div className="p-4 rounded-xl bg-violet-50/70 border border-violet-200 space-y-2 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="font-bold text-violet-950 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5 text-violet-700" />
+                        <span>Shiprocket Real-Time Status Webhook</span>
+                      </div>
+                      <p className="text-[11px] text-violet-800 mt-0.5">
+                        Couriers automatically push scans here so order statuses update from <strong>Ordered &rarr; Dispatched &rarr; In Transit &rarr; Out for Delivery &rarr; Delivered</strong> without manual effort.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const url = `${window.location.origin}/api/shiprocket/webhook`;
+                        navigator.clipboard?.writeText(url);
+                        setCopiedWebhookUrl(true);
+                        setTimeout(() => setCopiedWebhookUrl(false), 2500);
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors cursor-pointer self-start sm:self-center"
+                    >
+                      {copiedWebhookUrl ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy Webhook URL</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <div className="bg-white/80 border border-violet-200 rounded-lg p-2 font-mono text-[11px] text-slate-800 break-all select-all">
+                    {typeof window !== 'undefined' ? `${window.location.origin}/api/shiprocket/webhook` : 'https://konichiwamart.com/api/shiprocket/webhook'}
+                  </div>
+                </div>
+
                 {/* Moving Forward Checklist */}
                 <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2 text-xs">
                   <div className="font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
@@ -3516,7 +3768,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <strong>Set Environment Variables</strong>: Ensure <code className="bg-stone-200 px-1 py-0.5 rounded text-slate-800 font-mono">SHIPROCKET_EMAIL</code> and <code className="bg-stone-200 px-1 py-0.5 rounded text-slate-800 font-mono">SHIPROCKET_PASSWORD</code> are added to your hosting settings (Vercel / Cloud Run / .env).
                     </li>
                     <li>
-                      <strong>Click &quot;Test Shiprocket Connection&quot; above</strong> to confirm your credentials and pickup location match with 100% certainty.
+                      <strong>Add Webhook in Shiprocket</strong>: In Shiprocket &gt; <em>Settings &gt; API &gt; Webhooks</em>, paste the webhook URL above and select tracking events for automated instant status updates.
+                    </li>
+                    <li>
+                      <strong>Click &quot;Test Connection&quot; above</strong> to confirm your credentials and pickup location match with 100% certainty.
                     </li>
                   </ol>
                 </div>
@@ -3533,6 +3788,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               reels={reels}
               onUpdateReels={onUpdateReels || (() => {})}
               products={products}
+            />
+          )}
+
+          {/* ========================================================================= */}
+          {/* TAB: CUSTOMER REVIEWS (View, Upload, Add, Bulk Import & Moderate Reviews)   */}
+          {/* ========================================================================= */}
+          {activeTab === 'reviews' && (
+            <ReviewsManager
+              products={products}
+              reviews={reviewsList}
+              onReviewsChange={handleReviewsChange}
             />
           )}
 
@@ -4310,7 +4576,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 type="button"
                 onClick={() => {
                   if (onRemoveProduct) {
-                    onRemoveProduct(productToDelete.id);
+                    onRemoveProduct(productToDelete.id, productToDelete.dbId);
                   }
                   setRemoveToastMessage(`"${productToDelete.title}" was removed from the catalog.`);
                   setProductToDelete(null);
@@ -4644,6 +4910,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </span>
           </div>
           <span className="text-[10px] tracking-tight">Reels</span>
+        </button>
+
+        {/* Reviews */}
+        <button
+          onClick={() => setActiveTab('reviews')}
+          className={`relative flex flex-col items-center py-1 px-2.5 rounded-xl transition-colors cursor-pointer min-w-[58px] ${
+            activeTab === 'reviews' ? 'text-pink-600 font-bold' : 'text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <div className="relative">
+            <MessageSquare className="w-5 h-5 mb-0.5" />
+            <span className="absolute -top-1 -right-2 text-[9px] bg-pink-100 text-pink-700 font-extrabold px-1 rounded-full border border-pink-200">
+              {reviewsList.length}
+            </span>
+          </div>
+          <span className="text-[10px] tracking-tight">Reviews</span>
         </button>
 
         {/* Settings */}

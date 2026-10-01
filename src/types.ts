@@ -53,6 +53,7 @@ export interface Product {
   isComingSoon?: boolean;
   stock: number;
   displayOrder?: number;
+  isCustom?: boolean;
 }
 
 export interface CartItem {
@@ -159,6 +160,8 @@ export interface Review {
   location: string;
   rating: number;
   date: string;
+  createdAt?: string;
+  timestamp?: number;
   verified: boolean;
   productId?: string;
   productName?: string;
@@ -166,6 +169,8 @@ export interface Review {
   headline: string;
   comment: string;
   helpfulCount: number;
+  imageUrl?: string;
+  status?: 'approved' | 'pending';
 }
 
 export interface ReelItem {

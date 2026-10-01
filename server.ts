@@ -1,4 +1,10 @@
-import { createShiprocketOrder } from './src/lib/shiprocketServer';
+import { 
+  createShiprocketOrder, 
+  getShiprocketToken,
+  checkShiprocketServiceability, 
+  trackShiprocketAwb, 
+  normalizeShiprocketStatus 
+} from './src/lib/shiprocketServer';
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
 
@@ -14,7 +20,8 @@ import { processRazorpayWebhook } from './src/lib/webhookHandler';
 import { sendOrderInvoiceEmail, sendNewOrderOwnerNotification, sendTestEmail, sendPasswordResetEmail, sendCustomerWelcomeEmail } from './src/lib/email';
 import { InvoiceData } from './src/lib/invoice';
 import { PRODUCTS } from './src/data/products';
-import { Product } from './src/types';
+import { Product, Review } from './src/types';
+import { INITIAL_REVIEWS } from './src/data/reviews';
 
 const app = express();
 const PORT = 3000;
@@ -589,24 +596,28 @@ app.post('/api/upload-banner', (req: Request, res: Response) => {
       fs.mkdirSync(productsDir, { recursive: true });
     }
 
-    const filename = target === 'mobile' ? 'konichiwamobilebg.png' : 'konichiwalaptopbg.png';
-    const filePath = path.join(productsDir, filename);
-    fs.writeFileSync(filePath, buffer);
-    fs.writeFileSync(path.join(publicDir, filename), buffer);
+    const filenames = target === 'mobile' 
+      ? ['konichiwamobilebg.png'] 
+      : ['konichiwalaptopbackground.png', 'konichiwalaptopbg.png'];
 
-    // Also copy to dist if in production mode
     const distPath = path.join(process.cwd(), 'dist');
     const distProductsPath = path.join(distPath, 'products');
-    if (fs.existsSync(distProductsPath)) {
-      fs.writeFileSync(path.join(distProductsPath, filename), buffer);
-    }
-    if (fs.existsSync(distPath)) {
-      fs.writeFileSync(path.join(distPath, filename), buffer);
+
+    for (const fn of filenames) {
+      fs.writeFileSync(path.join(productsDir, fn), buffer);
+      fs.writeFileSync(path.join(publicDir, fn), buffer);
+      if (fs.existsSync(distProductsPath)) {
+        fs.writeFileSync(path.join(distProductsPath, fn), buffer);
+      }
+      if (fs.existsSync(distPath)) {
+        fs.writeFileSync(path.join(distPath, fn), buffer);
+      }
     }
 
+    const returnUrl = target === 'mobile' ? '/konichiwamobilebg.png' : '/konichiwalaptopbackground.png';
     return res.status(200).json({ 
       success: true, 
-      url: `/products/${filename}`,
+      url: returnUrl,
       message: `${target === 'mobile' ? 'Mobile' : 'Desktop'} background uploaded successfully` 
     });
   } catch (err: any) {
@@ -932,21 +943,28 @@ app.post('/api/fetch-github-banner', async (req: Request, res: Response) => {
     if (!fs.existsSync(destDir)) {
       fs.mkdirSync(destDir, { recursive: true });
     }
-    const filename = isMobile ? 'konichiwamobilebg.png' : 'konichiwalaptopbg.png';
-    const destPath = path.join(destDir, filename);
-    fs.writeFileSync(destPath, Buffer.from(buffer));
-    // Also save in root public/
-    fs.writeFileSync(path.join(process.cwd(), 'public', filename), Buffer.from(buffer));
+    const filenames = isMobile 
+      ? ['konichiwamobilebg.png'] 
+      : ['konichiwalaptopbackground.png', 'konichiwalaptopbg.png'];
 
-    // Also mirror to dist if exists
     const distProducts = path.join(process.cwd(), 'dist', 'products');
-    if (fs.existsSync(distProducts)) {
-      fs.writeFileSync(path.join(distProducts, filename), Buffer.from(buffer));
+    const distPath = path.join(process.cwd(), 'dist');
+
+    for (const fn of filenames) {
+      fs.writeFileSync(path.join(destDir, fn), Buffer.from(buffer));
+      fs.writeFileSync(path.join(process.cwd(), 'public', fn), Buffer.from(buffer));
+      if (fs.existsSync(distProducts)) {
+        fs.writeFileSync(path.join(distProducts, fn), Buffer.from(buffer));
+      }
+      if (fs.existsSync(distPath)) {
+        fs.writeFileSync(path.join(distPath, fn), Buffer.from(buffer));
+      }
     }
 
+    const returnUrl = isMobile ? '/konichiwamobilebg.png' : '/konichiwalaptopbackground.png';
     return res.json({ 
       success: true, 
-      url: `/products/${filename}`, 
+      url: returnUrl, 
       bytes: buffer.byteLength,
       message: `Successfully downloaded ${isMobile ? 'mobile' : 'laptop'} background from GitHub!` 
     });
@@ -2547,9 +2565,14 @@ app.post('/api/admin/test-shiprocket', async (req: Request, res: Response) => {
 
     if (!authRes.ok) {
       const errData = await authRes.json().catch(() => ({}));
-      return res.status(401).json({
+      let friendlyError = errData.message || 'Shiprocket authentication failed. Please verify your credentials.';
+      if (authRes.status === 403 || errData.message === 'Access forbidden') {
+        friendlyError = "Shiprocket returned 'Access forbidden' (403). Shiprocket requires creating an 'API User' credential instead of using your personal account login. In your Shiprocket Dashboard, go to Settings > API > API Users > 'Add New API User' (enter a secondary email like yourname+api@gmail.com, set permissions to All, and use that email & password).";
+      }
+      return res.status(authRes.status || 401).json({
         success: false,
-        error: errData.message || 'Shiprocket authentication failed. Please verify your registered email and password.'
+        statusCode: authRes.status,
+        error: friendlyError
       });
     }
 
@@ -2597,11 +2620,352 @@ app.post('/api/admin/test-shiprocket', async (req: Request, res: Response) => {
       configuredPickupLocation: configuredPickup,
       pickupLocationFound: pickupMatch,
       availablePickupLocations: availableNicknames,
-      walletBalance: walletBalance ? `₹${walletBalance}` : 'Available in Dashboard'
+      walletBalance: walletBalance ? `₹${walletBalance}` : '₹0.00'
     });
   } catch (err: any) {
     console.error('[Shiprocket Test Exception]:', err);
     return res.status(500).json({ success: false, error: err.message || 'Internal connection test failure.' });
+  }
+});
+
+/**
+ * POST /api/admin/test-shiprocket-order
+ * Pushes a zero-cost test draft order to Shiprocket (adhoc order creation).
+ * Shiprocket charges wallet balance ONLY when an AWB/courier is assigned, so creating an order
+ * is 100% free (₹0 balance needed).
+ */
+app.post('/api/admin/test-shiprocket-order', async (_req: Request, res: Response) => {
+  try {
+    const token = await getShiprocketToken();
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Shiprocket credentials missing or invalid. Please check SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in your environment variables.'
+      });
+    }
+
+    const pickupLocation = (process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+    const testOrderNum = `TEST-KM-${Math.floor(100000 + Math.random() * 900000)}`;
+    const now = new Date();
+    const orderDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const testPayload = {
+      order_id: testOrderNum,
+      order_date: orderDateStr,
+      pickup_location: pickupLocation,
+      channel_id: "",
+      comment: "Konichiwa Mart Zero-Cost Integration Test",
+      billing_customer_name: "Test Customer",
+      billing_last_name: "Verification",
+      billing_address: "Flat 402, Sakura Heights, Linking Road",
+      billing_address_2: "Bandra West",
+      billing_city: "Mumbai",
+      billing_pincode: "400050",
+      billing_state: "Maharashtra",
+      billing_country: "India",
+      billing_email: "test-shopper@konichiwamart.com",
+      billing_phone: "9876543210",
+      shipping_is_billing: true,
+      order_items: [
+        {
+          name: "Ishizawa-Lab Keana Rice Mask (Test Parcel)",
+          sku: "KM-TEST-RICE-MASK",
+          units: 1,
+          selling_price: 1050,
+          hsn: "3304"
+        }
+      ],
+      payment_method: "Prepaid",
+      shipping_charges: 0,
+      giftwrap_charges: 0,
+      transaction_charges: 0,
+      total_discount: 0,
+      sub_total: 1050,
+      length: 15,
+      breadth: 15,
+      height: 10,
+      weight: 0.35
+    };
+
+    const srRes = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(testPayload)
+    });
+
+    const data = await srRes.json();
+
+    if (!srRes.ok || data.status_code >= 400 || !data.order_id) {
+      return res.status(400).json({
+        success: false,
+        error: data.message || 'Shiprocket order creation failed. Verify pickup location address exists in Shiprocket.',
+        details: data
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Zero-cost test order created successfully in Shiprocket!`,
+      orderNumber: testOrderNum,
+      shiprocketOrderId: data.order_id,
+      shiprocketShipmentId: data.shipment_id,
+      dashboardUrl: `https://app.shiprocket.in/orders`,
+      cost: '₹0.00 (No wallet balance deducted)',
+      note: 'This test order is in "Processing / New" status. You can verify it in your Shiprocket dashboard and cancel or delete it anytime.'
+    });
+  } catch (err: any) {
+    console.error('[Test Shiprocket Order Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Server error' });
+  }
+});
+
+/**
+ * GET /api/shiprocket/serviceability
+ * Checks courier serviceability, fastest courier, rates, and delivery timeline estimation
+ * for any 6-digit Indian postal pincode.
+ */
+app.get('/api/shiprocket/serviceability', async (req: Request, res: Response) => {
+  try {
+    const pincode = String(req.query.pincode || req.query.pin || '').trim();
+    if (!pincode || !/^[1-9][0-9]{5}$/.test(pincode)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please provide a valid 6-digit Indian postal pincode.'
+      });
+    }
+
+    const weightKg = parseFloat(String(req.query.weight || '0.5')) || 0.5;
+    const isCod = req.query.cod !== 'false';
+    const pickupPin = String(req.query.pickup || process.env.STORE_PICKUP_PINCODE || '400050').trim();
+
+    const result = await checkShiprocketServiceability(pincode, weightKg, isCod, pickupPin);
+    return res.status(200).json({
+      success: true,
+      ...result
+    });
+  } catch (err: any) {
+    console.error('[Shiprocket Serviceability Endpoint Error]:', err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'Serviceability check failed.'
+    });
+  }
+});
+
+/**
+ * GET /api/shiprocket/track/:awb
+ * Queries live carrier scans and current status from Shiprocket API.
+ * Automatically updates order status in Supabase if an active order matches this AWB.
+ */
+app.get('/api/shiprocket/track/:awb', async (req: Request, res: Response) => {
+  try {
+    const awb = (req.params.awb || '').trim();
+    if (!awb) {
+      return res.status(400).json({ success: false, error: 'AWB tracking number is required.' });
+    }
+
+    const trackingResult = await trackShiprocketAwb(awb);
+
+    // If order exists in database, automatically sync the status and courier partner
+    const supabase = getSupabaseServerClient();
+    if (supabase && trackingResult.success && trackingResult.mappedStatus) {
+      try {
+        const patch: Record<string, any> = {
+          status: trackingResult.mappedStatus.toLowerCase()
+        };
+        if (trackingResult.courierPartner) patch.courier_partner = trackingResult.courierPartner;
+        if (trackingResult.estimatedDeliveryDate) patch.estimated_delivery_date = trackingResult.estimatedDeliveryDate;
+
+        await supabase
+          .from('orders')
+          .update(patch)
+          .eq('awb_number', awb);
+      } catch (dbErr) {
+        console.warn('[Shiprocket Tracking DB Sync Warning]:', dbErr);
+      }
+    }
+
+    return res.status(200).json(trackingResult);
+  } catch (err: any) {
+    console.error('[Shiprocket Track Endpoint Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/shiprocket/webhook and POST /api/webhooks/shiprocket
+ * Real-time event listener for Shiprocket automated tracking status updates.
+ * Triggered automatically by Shiprocket when:
+ * - AWB is assigned
+ * - Order is picked up / dispatched
+ * - Shipment arrives at intermediate transit hub
+ * - Out for delivery
+ * - Successfully delivered to customer
+ * - RTO / cancelled
+ */
+const handleShiprocketWebhook = async (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    console.log('[Shiprocket Webhook Received]:', JSON.stringify(payload).slice(0, 300));
+
+    const rawStatus = payload.current_status || payload.shipment_status || payload.current_status_id || payload.status;
+    const mappedStatus = normalizeShiprocketStatus(rawStatus);
+
+    const awb = String(payload.awb || payload.awb_code || '').trim();
+    const orderNumber = String(payload.order_id || payload.order_number || '').trim();
+    const srOrderId = payload.sr_order_id ? String(payload.sr_order_id) : undefined;
+    const courierName = payload.courier_name || payload.courier_partner;
+    const etd = payload.etd || payload.edd;
+
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(200).json({ success: true, message: 'Database client unavailable, event acknowledged.' });
+    }
+
+    // Find the matching order in database by order_number, awb_number, or shiprocket_order_id
+    let targetOrder: any = null;
+
+    if (orderNumber) {
+      const { data } = await supabase.from('orders').select('*').eq('order_number', orderNumber).maybeSingle();
+      if (data) targetOrder = data;
+    }
+    if (!targetOrder && awb) {
+      const { data } = await supabase.from('orders').select('*').eq('awb_number', awb).maybeSingle();
+      if (data) targetOrder = data;
+    }
+    if (!targetOrder && srOrderId) {
+      const { data } = await supabase.from('orders').select('*').eq('shiprocket_order_id', srOrderId).maybeSingle();
+      if (data) targetOrder = data;
+    }
+
+    if (targetOrder) {
+      const patch: Record<string, any> = {
+        status: mappedStatus.toLowerCase()
+      };
+      if (awb && !targetOrder.awb_number) patch.awb_number = awb;
+      if (courierName) patch.courier_partner = courierName;
+      if (etd) patch.estimated_delivery_date = etd;
+
+      const { error } = await supabase
+        .from('orders')
+        .update(patch)
+        .eq('id', targetOrder.id);
+
+      if (error) {
+        console.error('[Shiprocket Webhook Update Error]:', error.message);
+      } else {
+        console.log(`[Shiprocket Webhook SUCCESS] Order #${targetOrder.order_number} status automatically updated to ${mappedStatus} (AWB: ${awb || targetOrder.awb_number})`);
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `Order #${targetOrder.order_number} updated to ${mappedStatus}`,
+        orderNumber: targetOrder.order_number,
+        status: mappedStatus
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Shiprocket event acknowledged (no matching local order found)',
+      receivedAwb: awb,
+      receivedOrderId: orderNumber
+    });
+  } catch (err: any) {
+    console.error('[Shiprocket Webhook Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+app.post('/api/shiprocket/webhook', handleShiprocketWebhook);
+app.post('/api/webhooks/shiprocket', handleShiprocketWebhook);
+
+app.get('/api/shiprocket/webhook', (_req: Request, res: Response) => {
+  return res.status(200).json({
+    status: 'active',
+    endpoint: '/api/shiprocket/webhook',
+    message: 'Shiprocket tracking webhook listener is active and ready to receive real-time courier events.'
+  });
+});
+
+app.get('/api/webhooks/shiprocket', (_req: Request, res: Response) => {
+  return res.status(200).json({
+    status: 'active',
+    endpoint: '/api/webhooks/shiprocket',
+    message: 'Shiprocket tracking webhook listener is active and ready to receive real-time courier events.'
+  });
+});
+
+/**
+ * POST /api/admin/sync-shiprocket-tracking
+ * Batch queries Shiprocket tracking API for all active in-progress orders and syncs their status.
+ */
+app.post('/api/admin/sync-shiprocket-tracking', async (_req: Request, res: Response) => {
+  try {
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(500).json({ success: false, error: 'Database client not connected' });
+    }
+
+    // Fetch orders that are not yet marked as DELIVERED or CANCELLED and have an AWB
+    const { data: activeOrders, error } = await supabase
+      .from('orders')
+      .select('id, order_number, awb_number, status, courier_partner')
+      .not('awb_number', 'is', null)
+      .neq('status', 'delivered')
+      .neq('status', 'cancelled')
+      .limit(50);
+
+    if (error) {
+      return res.status(500).json({ success: false, error: error.message });
+    }
+
+    let updatedCount = 0;
+    const syncResults: any[] = [];
+
+    for (const ord of (activeOrders || [])) {
+      if (!ord.awb_number || ord.awb_number.startsWith('SR-EXP') || ord.awb_number === 'PENDING') {
+        continue;
+      }
+
+      try {
+        const trackRes = await trackShiprocketAwb(ord.awb_number);
+        if (trackRes.success && trackRes.mappedStatus) {
+          const newStatus = trackRes.mappedStatus.toLowerCase();
+          if (newStatus !== ord.status?.toLowerCase()) {
+            await supabase
+              .from('orders')
+              .update({
+                status: newStatus,
+                courier_partner: trackRes.courierPartner || ord.courier_partner
+              })
+              .eq('id', ord.id);
+            updatedCount++;
+            syncResults.push({
+              orderNumber: ord.order_number,
+              awb: ord.awb_number,
+              previousStatus: ord.status,
+              newStatus: trackRes.mappedStatus
+            });
+          }
+        }
+      } catch (ordErr) {
+        console.warn(`[Sync Error for ${ord.order_number}]:`, ordErr);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      totalChecked: (activeOrders || []).length,
+      updatedCount,
+      updates: syncResults
+    });
+  } catch (err: any) {
+    console.error('[Sync Shiprocket Tracking Exception]:', err);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -2915,6 +3279,51 @@ const DELETED_PRODUCTS_FILE = path.join(DATA_DIR, 'deleted_product_ids.json');
 const CUSTOM_PRODUCTS_FILE = path.join(DATA_DIR, 'custom_products.json');
 const CATEGORIES_FILE = path.join(DATA_DIR, 'categories.json');
 const REELS_FILE = path.join(DATA_DIR, 'reels.json');
+const REVIEWS_FILE = path.join(DATA_DIR, 'reviews.json');
+
+function getReviewsServer(): Review[] {
+  try {
+    if (fs.existsSync(REVIEWS_FILE)) {
+      const content = fs.readFileSync(REVIEWS_FILE, 'utf-8');
+      const parsed = JSON.parse(content);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn('[Server] Error reading reviews.json:', err);
+  }
+
+  // Initialize with INITIAL_REVIEWS
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(REVIEWS_FILE, JSON.stringify(INITIAL_REVIEWS, null, 2));
+  } catch {}
+  return [...INITIAL_REVIEWS];
+}
+
+async function saveReviewsServer(reviews: Review[]): Promise<void> {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(REVIEWS_FILE, JSON.stringify(reviews, null, 2));
+  } catch (err) {
+    console.warn('[Server] Error saving reviews.json:', err);
+  }
+
+  // Sync to Supabase categories table metadata (_app_reviews)
+  const supabase = getSupabaseServerClient();
+  if (supabase) {
+    try {
+      await supabase.from('categories').upsert({
+        slug: '_app_reviews',
+        name: 'Store Reviews Metadata',
+        description: JSON.stringify(reviews)
+      }, { onConflict: 'slug' });
+    } catch (e) {
+      console.warn('[Server] Supabase reviews sync warning:', e);
+    }
+  }
+}
 
 function getLocalCategories(): any[] {
   try {
@@ -2991,6 +3400,13 @@ function clearDeletedProductIds(): void {
       fs.writeFileSync(DELETED_PRODUCTS_FILE, JSON.stringify([], null, 2));
     }
   } catch {}
+}
+
+function isProductDeleted(p: { id: string; dbId?: string; slug?: string }, deletedIds: Set<string>): boolean {
+  if (deletedIds.has(p.id)) return true;
+  if (p.dbId && deletedIds.has(p.dbId)) return true;
+  if (p.slug && deletedIds.has(p.slug)) return true;
+  return false;
 }
 
 function getCustomProducts(): Product[] {
@@ -3245,12 +3661,12 @@ app.get('/api/products', async (_req: Request, res: Response) => {
         // Map with Supabase inventory and filter out any deleted IDs
         const products = prodRes.data
           .map(row => mapSupabaseRowToProduct(row, invMap))
-          .filter(p => !deletedIds.has(p.id));
+          .filter(p => !isProductDeleted(p, deletedIds));
 
         // Preserve any custom products stored on server disk not yet reflected in Supabase
         const custom = getCustomProducts();
         const pendingCustom = custom.filter(
-          cp => !deletedIds.has(cp.id) && !products.some(p => p.id === cp.id || (cp.dbId && p.dbId === cp.dbId))
+          cp => !isProductDeleted(cp, deletedIds) && !products.some(p => p.id === cp.id || (cp.dbId && p.dbId === cp.dbId))
         );
         const combined = [...pendingCustom, ...products];
 
@@ -3268,7 +3684,7 @@ app.get('/api/products', async (_req: Request, res: Response) => {
   const seen = new Set<string>();
   const activeCatalog: Product[] = [];
   for (const p of allProducts) {
-    if (!seen.has(p.id) && !deletedIds.has(p.id)) {
+    if (!seen.has(p.id) && !isProductDeleted(p, deletedIds)) {
       seen.add(p.id);
       activeCatalog.push(p);
     }
@@ -3356,38 +3772,84 @@ app.post('/api/products/sync-supabase', async (_req: Request, res: Response) => 
  */
 app.delete('/api/products/:id', async (req: Request, res: Response) => {
   const { id } = req.params;
+  const dbId = (req.query.dbId as string) || (req.body?.dbId as string) || '';
   if (!id) return res.status(400).json({ success: false, error: 'Product ID required' });
 
-  // 1. Permanently persist in deleted IDs file
-  saveDeletedProductId(id);
+  const targetIds = new Set<string>();
+  if (id) targetIds.add(id);
+  if (dbId) targetIds.add(dbId);
+
+  // Check custom products for matched item to get slug and dbId
+  const custom = getCustomProducts();
+  const matched = custom.find(p => p.id === id || p.dbId === id || (p.slug && p.slug === id) || (dbId && (p.id === dbId || p.dbId === dbId || p.slug === dbId)));
+  if (matched) {
+    if (matched.id) targetIds.add(matched.id);
+    if (matched.dbId) targetIds.add(matched.dbId);
+    if (matched.slug) targetIds.add(matched.slug);
+  }
+
+  // Also check default seed products
+  const defaultProd = PRODUCTS.find(p => p.id === id || (p.slug && p.slug === id) || (dbId && (p.id === dbId || p.slug === dbId)));
+  if (defaultProd) {
+    if (defaultProd.id) targetIds.add(defaultProd.id);
+    if (defaultProd.slug) targetIds.add(defaultProd.slug);
+  }
+
+  // 1. Permanently persist in deleted IDs file for all known identifiers
+  targetIds.forEach(tid => saveDeletedProductId(tid));
 
   // 2. Remove from custom products file
-  const custom = getCustomProducts().filter(p => p.id !== id);
-  saveCustomProducts(custom);
+  const updatedCustom = custom.filter(p => !targetIds.has(p.id) && (!p.dbId || !targetIds.has(p.dbId)) && (!p.slug || !targetIds.has(p.slug)));
+  saveCustomProducts(updatedCustom);
 
-  // 3. Delete from Supabase
+  // 3. Query Supabase for any other matching rows (by UUID or slug) to collect all aliases and deactivate/delete
   const supabase = getSupabaseServerClient();
   let deletedFromSupabase = false;
   if (supabase) {
     try {
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-      if (isUuid) {
-        await supabase.from('products').delete().eq('id', id);
-      } else {
-        await supabase.from('products').delete().eq('slug', id);
+      for (const tid of Array.from(targetIds)) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tid);
+        const query = isUuid 
+          ? supabase.from('products').select('id, slug').eq('id', tid)
+          : supabase.from('products').select('id, slug').eq('slug', tid);
+        const { data: matchedRows } = await query;
+        if (matchedRows && matchedRows.length > 0) {
+          for (const row of matchedRows) {
+            if (row.id) targetIds.add(row.id);
+            if (row.slug) targetIds.add(row.slug);
+          }
+        }
       }
-      // Also ensure deletion by matching both id and slug
-      await supabase.from('products').delete().or(`id.eq.${id},slug.eq.${id}`);
-      // Also update is_active to false as a safety net
-      await supabase.from('products').update({ is_active: false }).or(`id.eq.${id},slug.eq.${id}`);
+
+      // Re-save all newly discovered aliases so the client never displays them
+      targetIds.forEach(tid => saveDeletedProductId(tid));
+
+      for (const tid of targetIds) {
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tid);
+        if (isUuid) {
+          await supabase.from('products').update({ is_active: false }).eq('id', tid);
+          await supabase.from('products').delete().eq('id', tid);
+        } else {
+          await supabase.from('products').update({ is_active: false }).eq('slug', tid);
+          await supabase.from('products').delete().eq('slug', tid);
+        }
+      }
       deletedFromSupabase = true;
     } catch (err: any) {
       console.warn('[Server] Supabase delete warning:', err?.message || err);
     }
   }
 
-  console.log(`[Server] Product "${id}" permanently deleted from catalog (Supabase: ${deletedFromSupabase}).`);
-  return res.json({ success: true, deletedId: id, deletedFromSupabase });
+  console.log(`[Server] Product "${id}" (aliases: ${Array.from(targetIds).join(', ')}) permanently deleted from catalog.`);
+  return res.json({ success: true, deletedId: id, deletedAliases: Array.from(targetIds), deletedFromSupabase });
+});
+
+/**
+ * GET /api/products/deleted
+ * Returns all deleted product IDs for immediate client synchronization across Chrome, mobile & all browsers.
+ */
+app.get('/api/products/deleted', (_req: Request, res: Response) => {
+  return res.json({ success: true, deletedIds: getDeletedProductIds() });
 });
 
 /**
@@ -3552,6 +4014,178 @@ app.post('/api/products/reset', async (_req: Request, res: Response) => {
   }
 
   return res.json({ success: true, message: 'Catalog reset' });
+});
+
+/**
+ * GET /api/reviews
+ * Returns all verified customer reviews, sorted with newest first.
+ */
+app.get('/api/reviews', async (_req: Request, res: Response) => {
+  try {
+    const reviews = getReviewsServer();
+    // Sort newest first based on numeric timestamp or parsed createdAt
+    const sorted = [...reviews].sort((a, b) => {
+      const timeA = (typeof a.timestamp === 'number' && !isNaN(a.timestamp))
+        ? a.timestamp
+        : (a.createdAt ? Date.parse(a.createdAt) : 0);
+      const timeB = (typeof b.timestamp === 'number' && !isNaN(b.timestamp))
+        ? b.timestamp
+        : (b.createdAt ? Date.parse(b.createdAt) : 0);
+      return timeB - timeA;
+    });
+    return res.json({ success: true, count: sorted.length, reviews: sorted });
+  } catch (err: any) {
+    console.error('[Server] Get reviews error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch reviews' });
+  }
+});
+
+/**
+ * POST /api/reviews
+ * Creates a new customer review (from storefront or admin portal).
+ */
+app.post('/api/reviews', async (req: Request, res: Response) => {
+  try {
+    const {
+      author,
+      location,
+      rating,
+      verified,
+      productId,
+      productName,
+      skinType,
+      headline,
+      comment,
+      createdAt,
+      imageUrl
+    } = req.body;
+
+    if (!author?.trim() || !headline?.trim() || !comment?.trim()) {
+      return res.status(400).json({ success: false, error: 'Author, headline, and comment are required.' });
+    }
+
+    const current = getReviewsServer();
+    const nowIso = createdAt && !isNaN(Date.parse(createdAt))
+      ? new Date(createdAt).toISOString()
+      : new Date().toISOString();
+    const timestamp = Date.parse(nowIso);
+
+    const newReview: Review = {
+      id: `rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      author: author.trim(),
+      location: (location || 'Verified Buyer').trim(),
+      rating: Number(rating) >= 1 && Number(rating) <= 5 ? Number(rating) : 5,
+      date: 'Just now',
+      createdAt: nowIso,
+      timestamp,
+      verified: verified !== undefined ? Boolean(verified) : true,
+      productId: productId || 'general',
+      productName: productName || 'Japanese Skincare Essential',
+      skinType: skinType?.trim() || 'All Skin Types',
+      headline: headline.trim(),
+      comment: comment.trim(),
+      helpfulCount: 0,
+      imageUrl: imageUrl || undefined,
+      status: 'approved' as const
+    };
+
+    const updated = [newReview, ...current];
+    await saveReviewsServer(updated);
+
+    console.log(`[Server] New review saved: "${newReview.headline}" by ${newReview.author}`);
+    return res.status(201).json({ success: true, review: newReview });
+  } catch (err: any) {
+    console.error('[Server] Create review error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to submit review' });
+  }
+});
+
+/**
+ * POST /api/reviews/bulk
+ * Bulk uploads / imports multiple reviews at once.
+ */
+app.post('/api/reviews/bulk', async (req: Request, res: Response) => {
+  try {
+    const { reviews: newReviews } = req.body;
+    if (!Array.isArray(newReviews) || newReviews.length === 0) {
+      return res.status(400).json({ success: false, error: 'Valid reviews array is required.' });
+    }
+
+    const current = getReviewsServer();
+    const formatted: Review[] = newReviews.map((r: any, idx: number) => {
+      const createdAt = r.createdAt && !isNaN(Date.parse(r.createdAt))
+        ? new Date(r.createdAt).toISOString()
+        : new Date(Date.now() - idx * 86400000).toISOString();
+      return {
+        id: r.id || `bulk-rev-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        author: (r.author || 'Verified Customer').trim(),
+        location: (r.location || 'Verified Customer').trim(),
+        rating: Number(r.rating) >= 1 && Number(r.rating) <= 5 ? Number(r.rating) : 5,
+        date: r.date || 'Recently',
+        createdAt,
+        timestamp: Date.parse(createdAt),
+        verified: r.verified !== undefined ? Boolean(r.verified) : true,
+        productId: r.productId || 'general',
+        productName: r.productName || 'Authentic Japanese Skincare',
+        skinType: r.skinType || 'All Skin Types',
+        headline: (r.headline || 'Loved the results!').trim(),
+        comment: (r.comment || '').trim(),
+        helpfulCount: Number(r.helpfulCount) || 0,
+        imageUrl: r.imageUrl || undefined,
+        status: 'approved' as const
+      };
+    }).filter(r => r.comment.length > 0);
+
+    const merged = [...formatted, ...current];
+    await saveReviewsServer(merged);
+
+    console.log(`[Server] Bulk uploaded ${formatted.length} reviews.`);
+    return res.json({ success: true, count: formatted.length, total: merged.length });
+  } catch (err: any) {
+    console.error('[Server] Bulk reviews upload error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Bulk upload failed' });
+  }
+});
+
+/**
+ * DELETE /api/reviews/:id
+ * Removes a review by ID.
+ */
+app.delete('/api/reviews/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const current = getReviewsServer();
+    const filtered = current.filter(r => r.id !== id);
+    await saveReviewsServer(filtered);
+    console.log(`[Server] Deleted review id: ${id}`);
+    return res.json({ success: true, deletedId: id, remaining: filtered.length });
+  } catch (err: any) {
+    console.error('[Server] Delete review error:', err);
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to delete review' });
+  }
+});
+
+/**
+ * POST /api/reviews/:id/helpful
+ * Increments helpful count.
+ */
+app.post('/api/reviews/:id/helpful', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const current = getReviewsServer();
+    let updatedCount = 0;
+    const updated = current.map(r => {
+      if (r.id === id) {
+        updatedCount = (r.helpfulCount || 0) + 1;
+        return { ...r, helpfulCount: updatedCount };
+      }
+      return r;
+    });
+    await saveReviewsServer(updated);
+    return res.json({ success: true, helpfulCount: updatedCount });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err?.message || 'Failed to update helpful count' });
+  }
 });
 
 /**

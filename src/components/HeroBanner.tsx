@@ -44,31 +44,30 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
 
   // Stored or served banner image
   const [internalBannerUrl, setInternalBannerUrl] = useState<string>(() => {
-    return localStorage.getItem('km_hero_banner_data') || FALLBACK_BANNERS[0];
+    try {
+      const stored = localStorage.getItem('km_hero_banner_data');
+      if (stored && !stored.includes('mobile')) return stored;
+    } catch {}
+    return '/konichiwalaptopbackground.png';
   });
 
   const [internalMobileBannerUrl, setInternalMobileBannerUrl] = useState<string>(() => {
-    return localStorage.getItem('km_hero_mobile_banner_data') || FALLBACK_MOBILE_BANNERS[0];
+    try {
+      const stored = localStorage.getItem('km_hero_mobile_banner_data');
+      if (stored && !stored.includes('laptop')) return stored;
+    } catch {}
+    return '/konichiwamobilebg.png';
   });
 
-  const [isMobileScreen, setIsMobileScreen] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return window.innerWidth < 640;
-    }
-    return false;
-  });
+  // Strict separation: laptop banner never falls back to mobile image
+  const bannerUrl = (customBannerUrl && !customBannerUrl.includes('mobile'))
+    ? customBannerUrl
+    : ((internalBannerUrl && !internalBannerUrl.includes('mobile')) ? internalBannerUrl : '/konichiwalaptopbackground.png');
 
-  useEffect(() => {
-    const handleResize = () => {
-      setIsMobileScreen(window.innerWidth < 640);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  const mobileBannerUrl = (customMobileBannerUrl && !customMobileBannerUrl.includes('laptop'))
+    ? customMobileBannerUrl
+    : ((internalMobileBannerUrl && !internalMobileBannerUrl.includes('laptop')) ? internalMobileBannerUrl : '/konichiwamobilebg.png');
 
-  const [fallbackIndex, setFallbackIndex] = useState<number>(0);
-  const bannerUrl = customBannerUrl || internalBannerUrl;
-  const mobileBannerUrl = customMobileBannerUrl || internalMobileBannerUrl;
   const setBannerUrl = setInternalBannerUrl;
 
   const heroSectionRef = useRef<HTMLElement>(null);
@@ -180,26 +179,25 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
       <div className="relative w-full h-full flex-1 overflow-hidden m-0 p-0">
         
         {/* STATIC ART-DIRECTED AUTHENTIC IMAGE BANNER */}
-        <picture className="absolute inset-0 w-full h-full block">
-          {/* Desktop / Laptop Layout: show laptop background photo */}
-          <source media="(min-width: 640px)" srcSet={bannerUrl} />
-          {/* Mobile Layout: show mobile layout background */}
-          <source media="(max-width: 639px)" srcSet={mobileBannerUrl} />
-          <img
-            src={isMobileScreen ? mobileBannerUrl : bannerUrl}
-            alt="Konichiwa Mart - Japanese Beauty, Made for You"
-            loading="eager"
-            fetchPriority="high"
-            onError={() => {
-              if (fallbackIndex < FALLBACK_BANNERS.length - 1) {
-                const nextIdx = fallbackIndex + 1;
-                setFallbackIndex(nextIdx);
-                setBannerUrl(FALLBACK_BANNERS[nextIdx]);
-              }
-            }}
-            className="w-full h-full object-cover object-center block select-none brightness-[0.98] contrast-[1.01] dark:brightness-[0.78] dark:contrast-[1.05]"
-          />
-        </picture>
+        {/* Desktop / Laptop Layout: strictly displayed on desktop/laptop (>= 640px) */}
+        <img
+          src={bannerUrl}
+          alt="Konichiwa Mart - Japanese Beauty, Made for You"
+          loading="eager"
+          fetchPriority="high"
+          decoding="sync"
+          className="hidden sm:block absolute inset-0 w-full h-full object-cover object-center select-none brightness-[0.98] contrast-[1.01] dark:brightness-[0.78] dark:contrast-[1.05]"
+        />
+
+        {/* Mobile Layout: strictly displayed on mobile devices (< 640px) */}
+        <img
+          src={mobileBannerUrl}
+          alt="Konichiwa Mart - Japanese Beauty, Made for You"
+          loading="eager"
+          fetchPriority="high"
+          decoding="sync"
+          className="block sm:hidden absolute inset-0 w-full h-full object-cover object-center select-none brightness-[0.98] contrast-[1.01] dark:brightness-[0.78] dark:contrast-[1.05]"
+        />
 
         {/* Ambient Dimmer Scrim Layer for smoother lighting in both light & dark mode */}
         <div className="absolute inset-0 bg-slate-900/[0.08] dark:bg-black/35 pointer-events-none z-10" />
