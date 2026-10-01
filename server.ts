@@ -3709,7 +3709,7 @@ app.get('/api/products', async (_req: Request, res: Response) => {
  * GET /sitemap.xml
  * Production-ready dynamic XML sitemap with images, categories, brands, and guides
  */
-app.get('/sitemap.xml', async (_req: Request, res: Response) => {
+app.get(['/sitemap.xml', '/api/sitemap.xml'], async (_req: Request, res: Response) => {
   try {
     const products = await getActiveServerCatalog();
     const xml = buildSitemapXml(products);
@@ -3726,7 +3726,7 @@ app.get('/sitemap.xml', async (_req: Request, res: Response) => {
  * GET /robots.txt
  * Production robots.txt with clean directives
  */
-app.get('/robots.txt', (_req: Request, res: Response) => {
+app.get(['/robots.txt', '/api/robots.txt'], (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
   return res.send(`User-agent: *

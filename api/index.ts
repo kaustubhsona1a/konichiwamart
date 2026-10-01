@@ -67,6 +67,8 @@ export default async function handler(req: any, res: any) {
       clean.startsWith('brands/') ||
       clean.startsWith('guides/') ||
       clean === 'about' ||
+      clean === 'sitemap.xml' ||
+      clean === 'robots.txt' ||
       clean === '';
 
     if (isSeoRoute) {
@@ -85,7 +87,9 @@ export default async function handler(req: any, res: any) {
       cleanRaw.startsWith('collections/') ||
       cleanRaw.startsWith('brands/') ||
       cleanRaw.startsWith('guides/') ||
-      cleanRaw === 'about';
+      cleanRaw === 'about' ||
+      cleanRaw === 'sitemap.xml' ||
+      cleanRaw === 'robots.txt';
 
     if (isSeoRoute) {
       req.url = `/${cleanRaw}`;

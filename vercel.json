@@ -12,6 +12,14 @@
       "destination": "/api?path=$1"
     },
     {
+      "source": "/sitemap.xml",
+      "destination": "/api?path=sitemap.xml"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/api?path=robots.txt"
+    },
+    {
       "source": "/products/(.*)",
       "destination": "/api?path=products/$1"
     },
