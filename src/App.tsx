@@ -59,6 +59,27 @@ import { AboutUsModal } from './components/AboutUsModal';
 import { AboutUsPage } from './components/AboutUsPage';
 import { ContactUsModal } from './components/ContactUsModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
+import { CategorySeoBanner } from './components/CategorySeoBanner';
+import { BrandLandingPage } from './components/BrandLandingPage';
+import { GuideArticlePage } from './components/GuideArticlePage';
+import { 
+  SEO_CATEGORIES, 
+  SEO_BRANDS, 
+  SEO_GUIDES, 
+  CANONICAL_SITE_URL 
+} from './data/seoContent';
+import { 
+  getProductCanonicalSlug, 
+  getProductCanonicalUrl, 
+  getProductSeoTitle, 
+  getProductSeoDescription,
+  generateProductJsonLd,
+  generateOrganizationJsonLd,
+  generateWebSiteJsonLd,
+  generateBreadcrumbJsonLd,
+  inferBrandFromProduct,
+  updateClientSeoMetadata 
+} from './lib/seo';
 import { 
   saveOrderToSupabase, 
   getStoredOperatorSession, 
@@ -703,39 +724,311 @@ export default function App() {
   };
 
   const [currentPage, setCurrentPage] = useState<'store' | 'about'>('store');
+  const [activeBrandSlug, setActiveBrandSlug] = useState<string | null>(null);
+  const [activeGuideSlug, setActiveGuideSlug] = useState<string | null>(null);
+  const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Ensure the website always opens on the store/home view first
-    if (typeof window !== 'undefined' && window.location.hash === '#about') {
-      try {
-        history.replaceState(null, '', window.location.pathname);
-      } catch {
-        window.location.hash = '';
+  // Synchronize client-side routing, views & SEO metadata from URL path
+  const syncRouteFromUrl = (pathname: string, prods: Product[] = productsList) => {
+    if (typeof window === 'undefined') return;
+    const cleanPath = pathname.split('?')[0].replace(/\/+$/, '') || '/';
+
+    // 1. /products/:slug
+    if (cleanPath.startsWith('/products/')) {
+      const slug = cleanPath.replace('/products/', '').toLowerCase().trim();
+      const matched = prods.find(p => {
+        const pSlug = getProductCanonicalSlug(p).toLowerCase();
+        const rawSlug = (p.slug || '').toLowerCase();
+        const id = p.id.toLowerCase();
+        return pSlug === slug || rawSlug === slug || id === slug;
+      }) || PRODUCTS.find(p => {
+        const pSlug = getProductCanonicalSlug(p).toLowerCase();
+        return pSlug === slug || p.id.toLowerCase() === slug;
+      });
+
+      if (matched) {
+        setInspectProduct(matched);
+      }
+      return;
+    }
+
+    // 2. /collections/:slug
+    if (cleanPath.startsWith('/collections/')) {
+      const slug = cleanPath.replace('/collections/', '').toLowerCase().trim();
+      if (SEO_CATEGORIES[slug]) {
+        setActiveCategorySlug(slug);
+        setActiveBrandSlug(null);
+        setActiveGuideSlug(null);
+        setCurrentPage('store');
+        const catInfo = SEO_CATEGORIES[slug];
+        setSelectedCategory(catInfo.name as ProductCategory);
+        updateClientSeoMetadata({
+          title: catInfo.title,
+          description: catInfo.metaDescription,
+          canonicalUrl: `${CANONICAL_SITE_URL}/collections/${catInfo.slug}`,
+          ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+          ogType: 'website',
+          jsonLd: [
+            generateOrganizationJsonLd(),
+            generateWebSiteJsonLd(),
+            generateBreadcrumbJsonLd([
+              { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
+              { name: 'Collections', url: `${CANONICAL_SITE_URL}/#collection` },
+              { name: catInfo.name, url: `${CANONICAL_SITE_URL}/collections/${catInfo.slug}` }
+            ])
+          ]
+        });
+        return;
       }
     }
 
-    const handleHash = () => {
-      if (window.location.hash === '#about') {
-        setCurrentPage('about');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      } else if (window.location.hash === '#products' || window.location.hash === '#collection' || !window.location.hash) {
+    // 3. /brands/:slug
+    if (cleanPath.startsWith('/brands/')) {
+      const slug = cleanPath.replace('/brands/', '').toLowerCase().trim();
+      if (SEO_BRANDS[slug]) {
+        setActiveBrandSlug(slug);
+        setActiveCategorySlug(null);
+        setActiveGuideSlug(null);
         setCurrentPage('store');
+        const b = SEO_BRANDS[slug];
+        updateClientSeoMetadata({
+          title: b.title,
+          description: b.metaDescription,
+          canonicalUrl: `${CANONICAL_SITE_URL}/brands/${b.slug}`,
+          ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+          ogType: 'website',
+          jsonLd: [
+            generateOrganizationJsonLd(),
+            generateWebSiteJsonLd(),
+            generateBreadcrumbJsonLd([
+              { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
+              { name: 'Brands', url: `${CANONICAL_SITE_URL}/#collection` },
+              { name: b.name, url: `${CANONICAL_SITE_URL}/brands/${b.slug}` }
+            ])
+          ]
+        });
+        return;
       }
+    }
+
+    // 4. /guides/:slug
+    if (cleanPath.startsWith('/guides/')) {
+      const slug = cleanPath.replace('/guides/', '').toLowerCase().trim();
+      if (SEO_GUIDES[slug]) {
+        setActiveGuideSlug(slug);
+        setActiveBrandSlug(null);
+        setActiveCategorySlug(null);
+        setCurrentPage('store');
+        const g = SEO_GUIDES[slug];
+        updateClientSeoMetadata({
+          title: g.title,
+          description: g.metaDescription,
+          canonicalUrl: `${CANONICAL_SITE_URL}/guides/${g.slug}`,
+          ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+          ogType: 'article',
+          jsonLd: [
+            generateOrganizationJsonLd(),
+            generateWebSiteJsonLd(),
+            generateBreadcrumbJsonLd([
+              { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
+              { name: 'Skincare Guides', url: `${CANONICAL_SITE_URL}/#collection` },
+              { name: g.title, url: `${CANONICAL_SITE_URL}/guides/${g.slug}` }
+            ])
+          ]
+        });
+        return;
+      }
+    }
+
+    // 5. /about
+    if (cleanPath === '/about' || window.location.hash === '#about') {
+      setCurrentPage('about');
+      setActiveBrandSlug(null);
+      setActiveGuideSlug(null);
+      setActiveCategorySlug(null);
+      updateClientSeoMetadata({
+        title: 'About Konichiwa Mart | Authentic Japanese Skincare Dispensary India',
+        description: 'Learn about Konichiwa Mart: Direct Tokyo imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
+        canonicalUrl: `${CANONICAL_SITE_URL}/about`,
+        ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+        ogType: 'website',
+        jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
+      });
+      return;
+    }
+
+    // 6. Default Homepage / Storefront
+    setCurrentPage('store');
+    setActiveBrandSlug(null);
+    setActiveGuideSlug(null);
+    setActiveCategorySlug(null);
+    updateClientSeoMetadata({
+      title: 'Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India',
+      description: 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Tokyo imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.',
+      canonicalUrl: `${CANONICAL_SITE_URL}/`,
+      ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+      ogType: 'website',
+      jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
+    });
+  };
+
+  // Sync on initial mount & handle popstate for browser back/forward buttons
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    syncRouteFromUrl(window.location.pathname, productsList);
+
+    const handlePopState = () => {
+      if (!window.location.pathname.startsWith('/products/')) {
+        setInspectProduct(null);
+      }
+      syncRouteFromUrl(window.location.pathname, productsList);
     };
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // When productsList loads from Supabase, re-check if a product path was pending
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/products/') && !inspectProduct) {
+      syncRouteFromUrl(window.location.pathname, productsList);
+    }
+  }, [productsList]);
+
+  const handleSelectProduct = (product: Product) => {
+    setInspectProduct(product);
+    const slug = getProductCanonicalSlug(product);
+    try {
+      window.history.pushState({ modal: true, productId: product.id }, '', `/products/${slug}`);
+    } catch {}
+  };
+
+  const handleCloseProductModal = () => {
+    setInspectProduct(null);
+    let targetUrl = '/';
+    if (activeBrandSlug) {
+      targetUrl = `/brands/${activeBrandSlug}`;
+    } else if (activeCategorySlug) {
+      targetUrl = `/collections/${activeCategorySlug}`;
+    } else if (activeGuideSlug) {
+      targetUrl = `/guides/${activeGuideSlug}`;
+    } else if (currentPage === 'about') {
+      targetUrl = '/about';
+    }
+    try {
+      window.history.pushState(null, '', targetUrl);
+    } catch {}
+    syncRouteFromUrl(targetUrl, productsList);
+  };
+
+  const handleNavigateCategory = (slug: string) => {
+    setActiveBrandSlug(null);
+    setActiveGuideSlug(null);
+    setActiveCategorySlug(slug);
+    setCurrentPage('store');
+    const catInfo = SEO_CATEGORIES[slug];
+    if (catInfo) {
+      setSelectedCategory(catInfo.name as ProductCategory);
+      try {
+        window.history.pushState(null, '', `/collections/${slug}`);
+      } catch {}
+      updateClientSeoMetadata({
+        title: catInfo.title,
+        description: catInfo.metaDescription,
+        canonicalUrl: `${CANONICAL_SITE_URL}/collections/${catInfo.slug}`,
+        ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+        ogType: 'website',
+        jsonLd: [
+          generateOrganizationJsonLd(),
+          generateWebSiteJsonLd(),
+          generateBreadcrumbJsonLd([
+            { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
+            { name: 'Collections', url: `${CANONICAL_SITE_URL}/#collection` },
+            { name: catInfo.name, url: `${CANONICAL_SITE_URL}/collections/${catInfo.slug}` }
+          ])
+        ]
+      });
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigateBrand = (slug: string) => {
+    setActiveCategorySlug(null);
+    setActiveGuideSlug(null);
+    setActiveBrandSlug(slug);
+    setCurrentPage('store');
+    const b = SEO_BRANDS[slug];
+    if (b) {
+      try {
+        window.history.pushState(null, '', `/brands/${slug}`);
+      } catch {}
+      updateClientSeoMetadata({
+        title: b.title,
+        description: b.metaDescription,
+        canonicalUrl: `${CANONICAL_SITE_URL}/brands/${b.slug}`,
+        ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+        ogType: 'website',
+        jsonLd: [
+          generateOrganizationJsonLd(),
+          generateWebSiteJsonLd(),
+          generateBreadcrumbJsonLd([
+            { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
+            { name: 'Brands', url: `${CANONICAL_SITE_URL}/#collection` },
+            { name: b.name, url: `${CANONICAL_SITE_URL}/brands/${b.slug}` }
+          ])
+        ]
+      });
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleNavigateGuide = (slug: string) => {
+    setActiveCategorySlug(null);
+    setActiveBrandSlug(null);
+    setActiveGuideSlug(slug);
+    setCurrentPage('store');
+    const g = SEO_GUIDES[slug];
+    if (g) {
+      try {
+        window.history.pushState(null, '', `/guides/${slug}`);
+      } catch {}
+      updateClientSeoMetadata({
+        title: g.title,
+        description: g.metaDescription,
+        canonicalUrl: `${CANONICAL_SITE_URL}/guides/${g.slug}`,
+        ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+        ogType: 'article',
+        jsonLd: [
+          generateOrganizationJsonLd(),
+          generateWebSiteJsonLd(),
+          generateBreadcrumbJsonLd([
+            { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
+            { name: 'Skincare Guides', url: `${CANONICAL_SITE_URL}/#collection` },
+            { name: g.title, url: `${CANONICAL_SITE_URL}/guides/${g.slug}` }
+          ])
+        ]
+      });
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleNavigateToProducts = () => {
+    setActiveCategorySlug(null);
+    setActiveBrandSlug(null);
+    setActiveGuideSlug(null);
     setCurrentPage('store');
     setSelectedCategory('All');
-    if (window.location.hash === '#about') {
-      try {
-        history.replaceState(null, '', window.location.pathname);
-      } catch {
-        window.location.hash = '';
-      }
-    }
+    try {
+      window.history.pushState(null, '', '/');
+    } catch {}
+    updateClientSeoMetadata({
+      title: 'Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India',
+      description: 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Tokyo imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.',
+      canonicalUrl: `${CANONICAL_SITE_URL}/`,
+      ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+      ogType: 'website',
+      jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
+    });
     setTimeout(() => {
       const el = document.getElementById('collection');
       if (el) {
@@ -746,9 +1039,24 @@ export default function App() {
     }, 50);
   };
 
+  const handleNavigateHome = handleNavigateToProducts;
+
   const handleOpenAboutPage = () => {
+    setActiveCategorySlug(null);
+    setActiveBrandSlug(null);
+    setActiveGuideSlug(null);
     setCurrentPage('about');
-    window.location.hash = '#about';
+    try {
+      window.history.pushState(null, '', '/about');
+    } catch {}
+    updateClientSeoMetadata({
+      title: 'About Konichiwa Mart | Authentic Japanese Skincare Dispensary India',
+      description: 'Learn about Konichiwa Mart: Direct Tokyo imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
+      canonicalUrl: `${CANONICAL_SITE_URL}/about`,
+      ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+      ogType: 'website',
+      jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
+    });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -1761,7 +2069,7 @@ export default function App() {
         onOpenCustomerAuth={handleOpenCustomerAuth}
         onOpenAbout={handleOpenAboutPage}
         onOpenContact={() => setIsContactOpen(true)}
-        onNavigateToProducts={handleNavigateToProducts}
+        onNavigateToProducts={handleNavigateHome}
         onOpenAdmin={() => handleRequestAdminAccess('dashboard')}
         onOpenSecurityGuide={() => setIsSecurityGuideOpen(true)}
         selectedCategory={selectedCategory}
@@ -1769,6 +2077,15 @@ export default function App() {
           setSelectedCategory(cat);
           if (currentPage !== 'store') {
             setCurrentPage('store');
+          }
+          const norm = cat.toLowerCase().replace(/[^a-z0-9]/g, '-');
+          const matchedSlug = Object.keys(SEO_CATEGORIES).find(s => s === norm || s === cat.toLowerCase());
+          if (matchedSlug) {
+            handleNavigateCategory(matchedSlug);
+          } else {
+            setActiveCategorySlug(null);
+            setActiveBrandSlug(null);
+            setActiveGuideSlug(null);
           }
         }}
         searchQuery={searchQuery}
@@ -1790,30 +2107,65 @@ export default function App() {
         density={siteSettings.flowerDriftDensity}
       />
 
-      {/* CONTENT CONDITIONAL: DEDICATED ABOUT US PAGE OR STORE CATALOG */}
+      {/* CONTENT CONDITIONAL: DEDICATED ABOUT US PAGE, BRAND LANDING, SKINCARE GUIDE, OR STORE CATALOG */}
       {currentPage === 'about' ? (
         <AboutUsPage
-          onNavigateToProducts={handleNavigateToProducts}
+          onNavigateToProducts={handleNavigateHome}
           onOpenContact={() => setIsContactOpen(true)}
+        />
+      ) : activeBrandSlug && SEO_BRANDS[activeBrandSlug] ? (
+        <BrandLandingPage
+          brand={SEO_BRANDS[activeBrandSlug]}
+          products={productsList.filter(p => {
+            const b = inferBrandFromProduct(p);
+            return b.slug === activeBrandSlug || p.title.toLowerCase().includes(SEO_BRANDS[activeBrandSlug].name.toLowerCase());
+          })}
+          onSelectProduct={handleSelectProduct}
+          onAddToCart={handleAddToCart}
+          onToggleWishlist={handleToggleWishlist}
+          isWishlisted={isWishlisted}
+          onBackToStore={handleNavigateHome}
+        />
+      ) : activeGuideSlug && SEO_GUIDES[activeGuideSlug] ? (
+        <GuideArticlePage
+          guide={SEO_GUIDES[activeGuideSlug]}
+          allProducts={productsList}
+          onSelectProduct={handleSelectProduct}
+          onAddToCart={handleAddToCart}
+          onToggleWishlist={handleToggleWishlist}
+          isWishlisted={isWishlisted}
+          onBackToStore={handleNavigateHome}
         />
       ) : (
         <>
-          {/* 1. HERO SECTION: CINEMATIC PANORAMIC JAPANESE BEAUTY BANNER / VIDEO */}
-          <HeroBanner
-            onSelectProduct={setInspectProduct}
-            onAddToCart={handleAddToCart}
-            onToggleWishlist={handleToggleWishlist}
-            isWishlisted={isWishlisted}
-            onApplyCoupon={() => setIsCartOpen(true)}
-            customBannerUrl={siteSettings.heroBannerUrl}
-            customMobileBannerUrl={siteSettings.mobileHeroBannerUrl || '/konichiwamobilebg.png'}
-            customVideoUrl={siteSettings.heroVideoUrl}
-            customMobileVideoUrl={siteSettings.heroMobileVideoUrl}
-            heroMediaType={siteSettings.heroMediaType || 'image'}
-          />
+          {/* 1. HERO SECTION: CINEMATIC PANORAMIC JAPANESE BEAUTY BANNER / VIDEO (Hidden on focused collection filter) */}
+          {!activeCategorySlug && (
+            <HeroBanner
+              onSelectProduct={handleSelectProduct}
+              onAddToCart={handleAddToCart}
+              onToggleWishlist={handleToggleWishlist}
+              isWishlisted={isWishlisted}
+              onApplyCoupon={() => setIsCartOpen(true)}
+              customBannerUrl={siteSettings.heroBannerUrl}
+              customMobileBannerUrl={siteSettings.mobileHeroBannerUrl || '/konichiwamobilebg.png'}
+              customVideoUrl={siteSettings.heroVideoUrl}
+              customMobileVideoUrl={siteSettings.heroMobileVideoUrl}
+              heroMediaType={siteSettings.heroMediaType || 'image'}
+            />
+          )}
 
           {/* 2. MAIN PRODUCT CATALOG */}
           <main id="collection" className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 md:px-8 pt-8 sm:pt-12 md:pt-16 pb-12 sm:pb-20">
+            
+            {/* Category SEO Banner when viewing a specific collection (/collections/:slug) */}
+            {activeCategorySlug && SEO_CATEGORIES[activeCategorySlug] && (
+              <CategorySeoBanner
+                category={SEO_CATEGORIES[activeCategorySlug]}
+                productCount={filteredProducts.length}
+                onBackToAll={handleNavigateHome}
+                onNavigateHome={handleNavigateHome}
+              />
+            )}
             
             {/* Collection Section Header with Product Order / Sort Option */}
             <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
@@ -1913,7 +2265,7 @@ export default function App() {
                   <ProductCard
                     key={product.id}
                     product={product}
-                    onSelect={setInspectProduct}
+                    onSelect={handleSelectProduct}
                     onAddToCart={handleAddToCart}
                     onToggleWishlist={handleToggleWishlist}
                     isWishlisted={isWishlisted(product.id)}
@@ -1927,7 +2279,7 @@ export default function App() {
           {/* 3. CUSTOMER REVIEWS SECTION */}
           <div id="customer-reviews">
             <ReviewsSection
-              onSelectProduct={setInspectProduct}
+              onSelectProduct={handleSelectProduct}
               products={productsList}
               reviews={appReviews}
               onAddReview={(newRev) => setAppReviews(prev => [newRev, ...prev])}
@@ -1936,7 +2288,7 @@ export default function App() {
 
           {/* 4. INSTAGRAM REEL FEED SECTION: Video reviews & community as social proof */}
           <InstagramReelFeed
-            onSelectProduct={setInspectProduct}
+            onSelectProduct={handleSelectProduct}
             onAddToCart={handleAddToCart}
             products={productsList}
             reels={reels}
@@ -1945,13 +2297,16 @@ export default function App() {
         </>
       )}
 
-      {/* FOOTER */}
+      {/* FOOTER with Full SEO Internal Directory Navigation */}
       <Footer
         onOpenSecurityGuide={() => setIsSecurityGuideOpen(true)}
         onOpenAdmin={handleRequestAdminAccess}
         onOpenAbout={handleOpenAboutPage}
         onOpenContact={() => setIsContactOpen(true)}
-        onNavigateToProducts={handleNavigateToProducts}
+        onNavigateToProducts={handleNavigateHome}
+        onNavigateCategory={handleNavigateCategory}
+        onNavigateBrand={handleNavigateBrand}
+        onNavigateGuide={handleNavigateGuide}
         instagramUrl={KONICHIWA_INSTAGRAM_URL}
         instagramHandle={KONICHIWA_INSTAGRAM_HANDLE}
       />
@@ -1961,7 +2316,7 @@ export default function App() {
       {inspectProduct && (
         <ProductModal
           product={inspectProduct}
-          onClose={() => setInspectProduct(null)}
+          onClose={handleCloseProductModal}
           onAddToCart={handleAddToCart}
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted(inspectProduct.id)}

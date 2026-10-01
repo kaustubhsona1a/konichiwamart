@@ -3,6 +3,8 @@ import { Heart, ShoppingBag, Check, Sparkles } from 'lucide-react';
 import { Product, ProductShade } from '../types';
 import { formatINR } from '../data/pincodes';
 
+import { getProductCanonicalSlug } from '../lib/seo';
+
 interface ProductCardProps {
   product: Product;
   onSelect: (product: Product) => void;
@@ -23,14 +25,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   );
   const [addedAnimation, setAddedAnimation] = useState(false);
 
+  const productSlug = getProductCanonicalSlug(product);
+  const productHref = `/products/${productSlug}`;
+
   const isComingSoon = Boolean(
     product.isComingSoon ||
     (product.badges || []).some(b => b.toLowerCase().includes('coming soon'))
   );
   const isInStock = (product.stock ?? 0) > 0;
 
+  const handleCardClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Allow users to middle click or cmd+click to open new tab naturally
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) {
+      return;
+    }
+    e.preventDefault();
+    onSelect(product);
+  };
+
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     if (!isInStock || isComingSoon) return;
     onAddToCart(product, selectedShade);
     setAddedAnimation(true);
@@ -38,15 +53,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   };
 
   return (
-    <div
-      onClick={() => onSelect(product)}
-      className="group liquid-glass rounded-2xl p-2.5 sm:p-4 border border-white/90 dark:border-zinc-800/80 hover:border-pink-300 dark:hover:border-pink-500/50 shadow-xs hover:shadow-md dark:shadow-none flex flex-col justify-between cursor-pointer relative transition-all duration-300 text-left bg-white/80 dark:bg-zinc-900/80"
+    <a
+      href={productHref}
+      onClick={handleCardClick}
+      className="group liquid-glass rounded-2xl p-2.5 sm:p-4 border border-white/90 dark:border-zinc-800/80 hover:border-pink-300 dark:hover:border-pink-500/50 shadow-xs hover:shadow-md dark:shadow-none flex flex-col justify-between cursor-pointer relative transition-all duration-300 text-left bg-white/80 dark:bg-zinc-900/80 no-underline text-inherit"
     >
       {/* Product Image Container with floating Wishlist Button */}
       <div className="relative aspect-square w-full rounded-xl overflow-hidden mb-2 sm:mb-3 bg-white dark:bg-zinc-950 border border-slate-200/80 dark:border-zinc-800 flex items-center justify-center p-2.5 sm:p-4 group-hover:border-pink-200 dark:group-hover:border-pink-500/30 transition-colors shadow-2xs">
         <img
           src={product.image}
-          alt={product.title}
+          alt={`${product.title} - Authentic Japanese Skincare`}
           className="w-full h-full object-contain filter drop-shadow-[0_4px_12px_rgba(15,23,42,0.10)] transition-transform duration-300 group-hover:scale-105"
           referrerPolicy="no-referrer"
           loading="lazy"
@@ -151,6 +167,6 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           </button>
         )}
       </div>
-    </div>
+    </a>
   );
 };

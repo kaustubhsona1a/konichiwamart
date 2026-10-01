@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Disallow private server API endpoints & admin queries
+Disallow: /api/
+Disallow: /*?*admin=
+Disallow: /*?*token=
+Disallow: /*?*session=
+
+Sitemap: https://www.konichiwamart.com/sitemap.xml

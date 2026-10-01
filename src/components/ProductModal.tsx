@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Star, 
@@ -8,11 +8,23 @@ import {
   Sparkles, 
   CheckCircle2, 
   MapPin,
-  Check
+  Check,
+  ChevronRight,
+  Home
 } from 'lucide-react';
 import { Product, ProductShade, Review } from '../types';
 import { formatINR } from '../data/pincodes';
 import { formatReviewTime } from '../data/reviews';
+import { 
+  getProductSeoTitle, 
+  getProductSeoDescription, 
+  getProductCanonicalUrl, 
+  generateProductJsonLd, 
+  updateClientSeoMetadata,
+  slugify
+} from '../lib/seo';
+import { CANONICAL_SITE_URL } from '../data/seoContent';
+import { Breadcrumbs } from './Breadcrumbs';
 
 interface ProductModalProps {
   product: Product;
@@ -61,6 +73,18 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   React.useEffect(() => {
     setSelectedImageIndex(0);
   }, [product.id]);
+
+  // Dynamically update document title, canonical, OpenGraph, and Product JSON-LD Schema
+  React.useEffect(() => {
+    updateClientSeoMetadata({
+      title: getProductSeoTitle(product),
+      description: getProductSeoDescription(product),
+      canonicalUrl: getProductCanonicalUrl(product),
+      ogImage: product.image?.startsWith('http') ? product.image : `${CANONICAL_SITE_URL}${product.image}`,
+      ogType: 'product',
+      jsonLd: generateProductJsonLd(product, reviews)
+    });
+  }, [product, reviews]);
 
   // Lock background body scroll and listen for ESC key
   React.useEffect(() => {
@@ -120,7 +144,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               <div className="relative aspect-square max-h-[260px] sm:max-h-[360px] md:max-h-none w-full mx-auto rounded-2xl overflow-hidden bg-slate-50 dark:bg-zinc-950 p-4 sm:p-6 border border-slate-200 dark:border-zinc-800 flex items-center justify-center shadow-inner">
                 <img
                   src={galleryImages[selectedImageIndex] || product.image}
-                  alt={product.title}
+                  alt={`${product.title} - Authentic Japanese Skincare India`}
                   className="w-full h-full object-contain filter drop-shadow-[0_10px_20px_rgba(15,23,42,0.12)] transition-all duration-200"
                   referrerPolicy="no-referrer"
                 />
@@ -191,6 +215,16 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             {/* Right: Product Details */}
             <div className="md:col-span-7 space-y-3.5 sm:space-y-4">
               
+              {/* Product SEO Breadcrumbs */}
+              <div className="mb-1">
+                <Breadcrumbs
+                  items={[
+                    { label: product.category || 'Japanese Skincare', href: '/#collection', onClick: onClose },
+                    { label: product.title }
+                  ]}
+                />
+              </div>
+
               {/* Header info */}
               <div>
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -210,9 +244,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   </div>
                 </div>
 
-                <h2 className="text-xl sm:text-2xl md:text-3xl text-slate-900 dark:text-white font-bold leading-snug">
+                <h1 className="text-xl sm:text-2xl md:text-3xl text-slate-900 dark:text-white font-bold leading-snug">
                   {product.title}
-                </h2>
+                </h1>
                 <p className="text-xs sm:text-sm md:text-base text-pink-700 dark:text-pink-400 font-medium mt-0.5 sm:mt-1">
                   {product.subtitle}
                 </p>

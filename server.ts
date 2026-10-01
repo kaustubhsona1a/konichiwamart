@@ -22,6 +22,8 @@ import { InvoiceData } from './src/lib/invoice';
 import { PRODUCTS } from './src/data/products';
 import { Product, Review } from './src/types';
 import { INITIAL_REVIEWS } from './src/data/reviews';
+import { buildSitemapXml } from './src/lib/sitemapGenerator';
+import { injectSeoIntoHtml } from './src/lib/serverSeo';
 
 const app = express();
 const PORT = 3000;
@@ -3642,7 +3644,10 @@ async function ensureSupabaseProductsSeeded(supabase: any) {
  * GET /api/products
  * Fetches products synced from Supabase (or seeded defaults), with deleted products permanently filtered.
  */
-app.get('/api/products', async (_req: Request, res: Response) => {
+/**
+ * Helper to fetch live ordered catalog combining Supabase, local custom, and default products
+ */
+async function getActiveServerCatalog(): Promise<Product[]> {
   const deletedIds = new Set(getDeletedProductIds());
   const supabase = getSupabaseServerClient();
 
@@ -3669,9 +3674,7 @@ app.get('/api/products', async (_req: Request, res: Response) => {
           cp => !isProductDeleted(cp, deletedIds) && !products.some(p => p.id === cp.id || (cp.dbId && p.dbId === cp.dbId))
         );
         const combined = [...pendingCustom, ...products];
-
-        const ordered = sortProductsByServerOrder(combined);
-        return res.json({ success: true, source: 'supabase', products: ordered });
+        return sortProductsByServerOrder(combined);
       }
     } catch (e: any) {
       console.warn('[Server] Supabase product query warning:', e?.message || e);
@@ -3690,8 +3693,53 @@ app.get('/api/products', async (_req: Request, res: Response) => {
     }
   }
 
-  const orderedCatalog = sortProductsByServerOrder(activeCatalog);
-  return res.json({ success: true, source: 'persistent_store', products: orderedCatalog });
+  return sortProductsByServerOrder(activeCatalog);
+}
+
+/**
+ * GET /api/products
+ * Fetches products synced from Supabase (or seeded defaults), with deleted products permanently filtered.
+ */
+app.get('/api/products', async (_req: Request, res: Response) => {
+  const orderedCatalog = await getActiveServerCatalog();
+  return res.json({ success: true, products: orderedCatalog });
+});
+
+/**
+ * GET /sitemap.xml
+ * Production-ready dynamic XML sitemap with images, categories, brands, and guides
+ */
+app.get('/sitemap.xml', async (_req: Request, res: Response) => {
+  try {
+    const products = await getActiveServerCatalog();
+    const xml = buildSitemapXml(products);
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+    return res.send(xml);
+  } catch (err: any) {
+    console.error('[Server] Sitemap generation error:', err);
+    return res.status(500).send('Error generating sitemap');
+  }
+});
+
+/**
+ * GET /robots.txt
+ * Production robots.txt with clean directives
+ */
+app.get('/robots.txt', (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+  return res.send(`User-agent: *
+Allow: /
+
+# Disallow private server API endpoints & admin queries
+Disallow: /api/
+Disallow: /*?*admin=
+Disallow: /*?*token=
+Disallow: /*?*session=
+
+Sitemap: https://www.konichiwamart.com/sitemap.xml
+`);
 });
 
 /**
@@ -4343,14 +4391,44 @@ async function startServer() {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'spa',
+      appType: 'custom',
     });
     app.use(vite.middlewares);
+
+    // Dynamic SEO HTML Injection for development (for crawlers, social share cards, and users)
+    app.get('*', async (req: Request, res: Response, next) => {
+      const url = req.originalUrl;
+      if (url.includes('.') || url.startsWith('/@') || url.startsWith('/src/') || url.startsWith('/node_modules/')) {
+        return next();
+      }
+      try {
+        const templatePath = path.join(process.cwd(), 'index.html');
+        let template = fs.readFileSync(templatePath, 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        const liveCatalog = await getActiveServerCatalog();
+        const { html, status } = injectSeoIntoHtml(template, req.path, liveCatalog);
+        return res.status(status).set({ 'Content-Type': 'text/html' }).send(html);
+      } catch (e: any) {
+        vite.ssrFixStacktrace(e);
+        next(e);
+      }
+    });
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (_req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+    app.get('*', async (req: Request, res: Response) => {
+      try {
+        const indexPath = path.join(distPath, 'index.html');
+        if (fs.existsSync(indexPath)) {
+          const rawHtml = fs.readFileSync(indexPath, 'utf-8');
+          const liveCatalog = await getActiveServerCatalog();
+          const { html, status } = injectSeoIntoHtml(rawHtml, req.path, liveCatalog);
+          return res.status(status).set({ 'Content-Type': 'text/html' }).send(html);
+        }
+        return res.sendFile(indexPath);
+      } catch {
+        return res.sendFile(path.join(distPath, 'index.html'));
+      }
     });
   }
 
