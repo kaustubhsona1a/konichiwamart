@@ -26,37 +26,73 @@ async function getApp() {
 }
 
 export default async function handler(req: any, res: any) {
+  // Ensure process.env.VERCEL is set
+  process.env.VERCEL = '1';
+
   // 1. Resolve true request path from Vercel rewrite parameters or request url
   let targetPath = '';
   if (req.query?.path) {
     targetPath = Array.isArray(req.query.path) ? req.query.path.join('/') : req.query.path;
   } else if (req.query?.slug) {
     targetPath = Array.isArray(req.query.slug) ? req.query.slug.join('/') : req.query.slug;
+  } else if (req.query?.seo) {
+    targetPath = Array.isArray(req.query.seo) ? req.query.seo.join('/') : req.query.seo;
   }
 
   const rawUrl: string = req.url || '';
   const [basePath, search] = rawUrl.split('?');
 
-  if (targetPath) {
-    if (search) {
-      const params = new URLSearchParams(search);
-      params.delete('path');
-      params.delete('slug');
-      const cleanQuery = params.toString();
-      req.url = `/api/${targetPath.replace(/^\/+/, '')}${cleanQuery ? `?${cleanQuery}` : ''}`;
-    } else {
-      req.url = `/api/${targetPath.replace(/^\/+/, '')}`;
-    }
-  } else if (rawUrl.startsWith('/api/')) {
-    // Already has full API path (e.g. /api/customer/register, /api/admin/orders)
-    req.url = rawUrl;
-  } else if (rawUrl && rawUrl !== '/' && rawUrl !== '/api') {
-    // Relative path without /api prefix
-    req.url = `/api${rawUrl.startsWith('/') ? '' : '/'}${rawUrl}`;
+  let cleanQuery = '';
+  if (search) {
+    const params = new URLSearchParams(search);
+    params.delete('path');
+    params.delete('slug');
+    params.delete('seo');
+    const q = params.toString();
+    cleanQuery = q ? `?${q}` : '';
   }
 
-  // Ensure process.env.VERCEL is set
-  process.env.VERCEL = '1';
+  // Also clean up req.query so route handlers don't receive routing params
+  if (req.query) {
+    delete req.query.path;
+    delete req.query.slug;
+    delete req.query.seo;
+  }
+
+  if (targetPath) {
+    const clean = targetPath.replace(/^\/+/, '');
+    const isSeoRoute =
+      clean.startsWith('products/') ||
+      clean.startsWith('collections/') ||
+      clean.startsWith('brands/') ||
+      clean.startsWith('guides/') ||
+      clean === 'about' ||
+      clean === '';
+
+    if (isSeoRoute) {
+      req.url = `/${clean}${cleanQuery}`;
+    } else if (clean.startsWith('api/')) {
+      req.url = `/${clean}${cleanQuery}`;
+    } else {
+      req.url = `/api/${clean}${cleanQuery}`;
+    }
+  } else if (rawUrl.startsWith('/api/')) {
+    req.url = rawUrl;
+  } else if (rawUrl && rawUrl !== '/' && rawUrl !== '/api') {
+    const cleanRaw = rawUrl.replace(/^\/+/, '');
+    const isSeoRoute =
+      cleanRaw.startsWith('products/') ||
+      cleanRaw.startsWith('collections/') ||
+      cleanRaw.startsWith('brands/') ||
+      cleanRaw.startsWith('guides/') ||
+      cleanRaw === 'about';
+
+    if (isSeoRoute) {
+      req.url = `/${cleanRaw}`;
+    } else {
+      req.url = `/api/${cleanRaw}`;
+    }
+  }
 
   const app = await getApp();
   return app(req, res);

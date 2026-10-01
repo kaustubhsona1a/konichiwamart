@@ -1,10 +1,35 @@
 {
   "version": 2,
   "framework": "vite",
+  "functions": {
+    "api/index.ts": {
+      "includeFiles": "dist/**"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api?path=$1"
+    },
+    {
+      "source": "/products/(.*)",
+      "destination": "/api?path=products/$1"
+    },
+    {
+      "source": "/collections/(.*)",
+      "destination": "/api?path=collections/$1"
+    },
+    {
+      "source": "/brands/(.*)",
+      "destination": "/api?path=brands/$1"
+    },
+    {
+      "source": "/guides/(.*)",
+      "destination": "/api?path=guides/$1"
+    },
+    {
+      "source": "/about",
+      "destination": "/api?path=about"
     },
     {
       "source": "/((?!api/).*)",

@@ -26,7 +26,7 @@ import { buildSitemapXml } from './src/lib/sitemapGenerator';
 import { injectSeoIntoHtml } from './src/lib/serverSeo';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
@@ -4371,6 +4371,69 @@ app.post('/api/site-settings', async (req: Request, res: Response) => {
   }
 });
 
+let cachedHtmlTemplate = '';
+
+/**
+ * Core production SEO HTML renderer for both standalone server and Vercel serverless functions
+ */
+async function renderSeoHtml(req: Request, res: Response): Promise<void> {
+  try {
+    if (!cachedHtmlTemplate) {
+      const candidates = [
+        path.join(process.cwd(), 'dist', 'index.html'),
+        path.join(__dirname, 'index.html'),
+        path.join(__dirname, '..', 'dist', 'index.html'),
+        path.join(__dirname, 'dist', 'index.html'),
+        path.join(process.cwd(), 'index.html'),
+        path.join(__dirname, '..', 'index.html')
+      ];
+      for (const p of candidates) {
+        if (fs.existsSync(p)) {
+          cachedHtmlTemplate = fs.readFileSync(p, 'utf-8');
+          break;
+        }
+      }
+    }
+    const template = cachedHtmlTemplate;
+    if (!template) {
+      res.status(500).send('HTML template not found');
+      return;
+    }
+
+    const liveCatalog = await getActiveServerCatalog();
+    const { html, status } = injectSeoIntoHtml(template, req.path, liveCatalog);
+    res.status(status).set({ 'Content-Type': 'text/html; charset=utf-8' }).send(html);
+  } catch (err: any) {
+    console.error('[Server] SEO HTML rendering error:', err);
+    const fallbackPath = path.join(process.cwd(), 'dist', 'index.html');
+    if (fs.existsSync(fallbackPath)) {
+      res.sendFile(fallbackPath);
+      return;
+    }
+    res.sendFile(path.join(process.cwd(), 'index.html'));
+  }
+}
+
+// Register public SEO routes directly on app so they execute inside Vercel serverless functions
+app.get([
+  '/',
+  '/products/:slug',
+  '/products/:slug/*',
+  '/collections/:slug',
+  '/collections/:slug/*',
+  '/brands/:slug',
+  '/brands/:slug/*',
+  '/guides/:slug',
+  '/guides/:slug/*',
+  '/about'
+], async (req: Request, res: Response, next: any) => {
+  // In local development with Vite running, pass through so vite.transformIndexHtml can run
+  if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !process.env.NOW_REGION && !process.env.VERCEL_ENV) {
+    return next();
+  }
+  return renderSeoHtml(req, res);
+});
+
 /**
  * Vite integration & SPA server
  */
@@ -4378,8 +4441,7 @@ async function startServer() {
   // Ensure default operator credentials exist in Supabase Auth
   ensureOperatorUserProvisioned().catch(() => {});
 
-  // CRITICAL: Mount static assets from /public first so uploaded hero banners and images
-  // are served directly by Express with correct Content-Type (image/png)
+  // Mount static assets from /public
   const publicDir = path.join(process.cwd(), 'public');
   if (fs.existsSync(publicDir)) {
     app.use(express.static(publicDir, {
@@ -4417,18 +4479,7 @@ async function startServer() {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
     app.get('*', async (req: Request, res: Response) => {
-      try {
-        const indexPath = path.join(distPath, 'index.html');
-        if (fs.existsSync(indexPath)) {
-          const rawHtml = fs.readFileSync(indexPath, 'utf-8');
-          const liveCatalog = await getActiveServerCatalog();
-          const { html, status } = injectSeoIntoHtml(rawHtml, req.path, liveCatalog);
-          return res.status(status).set({ 'Content-Type': 'text/html' }).send(html);
-        }
-        return res.sendFile(indexPath);
-      } catch {
-        return res.sendFile(path.join(distPath, 'index.html'));
-      }
+      return renderSeoHtml(req, res);
     });
   }
 
