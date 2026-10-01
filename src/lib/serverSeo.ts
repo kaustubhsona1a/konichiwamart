@@ -36,6 +36,53 @@ export interface SeoMetadataPayload {
 }
 
 /**
+ * Generates an SEO 404 payload when a requested entity does not exist.
+ * Ensures:
+ * - Real HTTP 404 status
+ * - No canonical link to homepage or fake URL
+ * - No Product/Collection/Brand/Article structured data (empty jsonLd array)
+ * - Semantic crawler HTML with 404 heading and recovery links
+ */
+function build404Payload(urlPath: string, entityType: string, slug: string): SeoMetadataPayload {
+  const displaySlug = slug ? ` "${slug}"` : '';
+  const title = 'Page Not Found (404) | Konichiwa Mart';
+  const description = `The requested Japanese skincare ${entityType.toLowerCase()}${displaySlug} could not be found. Explore our authentic Tokyo-imported collections at Konichiwa Mart.`;
+  const h1 = '404 - Page Not Found';
+  const crawlerHtml = `
+    <main class="seo-crawler-page seo-404-page">
+      <nav aria-label="Breadcrumb">
+        <a href="/">Home</a> &gt; <span>404 Not Found</span>
+      </nav>
+      <h1>${h1}</h1>
+      <p>The requested ${escapeHtml(entityType.toLowerCase())}${escapeHtml(displaySlug)} does not exist or has been removed from our catalog.</p>
+      <div class="product-listing">
+        <h2>Explore Authentic Japanese Skincare Essentials</h2>
+        <ul>
+          <li><a href="/collections/sunscreen">Authentic Japanese Sunscreens (SPF50+ PA++++)</a></li>
+          <li><a href="/collections/face-wash">Japanese Cleansers & Face Washes</a></li>
+          <li><a href="/collections/toner">Hydrating Toners & Lotions</a></li>
+          <li><a href="/collections/serum">Japanese Serums & Vitamin C</a></li>
+          <li><a href="/collections/hair-care">Japanese Hair Care & Masks</a></li>
+        </ul>
+      </div>
+      <p><a href="/">Return to Konichiwa Mart Storefront</a></p>
+    </main>
+  `;
+
+  return {
+    title,
+    description,
+    canonicalUrl: '', // Explicitly empty: No homepage canonicalization for 404s
+    ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+    ogType: 'website',
+    jsonLd: [], // Explicitly empty: Do NOT generate Product/Collection/Brand/Article structured data for nonexistent entities
+    h1,
+    crawlerHtml,
+    status: 404
+  };
+}
+
+/**
  * Resolves SEO metadata payload for any given URL path
  */
 export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = []): SeoMetadataPayload {
@@ -56,12 +103,12 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
   // 1. PRODUCT DETAIL PAGE: /products/:slug
   if (path.startsWith('/products/')) {
     const slug = path.replace('/products/', '').toLowerCase().trim();
-    const product = allProducts.find(p => {
+    const product = slug ? allProducts.find(p => {
       const pSlug = getProductCanonicalSlug(p).toLowerCase();
       const rawSlug = (p.slug || '').toLowerCase();
       const id = p.id.toLowerCase();
       return pSlug === slug || rawSlug === slug || id === slug;
-    });
+    }) : undefined;
 
     if (product) {
       const title = getProductSeoTitle(product);
@@ -106,12 +153,15 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
         status: 200
       };
     }
+
+    // Invalid / Nonexistent product slug -> return genuine 404
+    return build404Payload(path, 'Product', slug);
   }
 
   // 2. CATEGORY / COLLECTION PAGE: /collections/:slug
   if (path.startsWith('/collections/')) {
     const slug = path.replace('/collections/', '').toLowerCase().trim();
-    const categoryInfo: SeoCategoryInfo | undefined = SEO_CATEGORIES[slug];
+    const categoryInfo: SeoCategoryInfo | undefined = slug ? SEO_CATEGORIES[slug] : undefined;
 
     if (categoryInfo) {
       const canonicalUrl = `${CANONICAL_SITE_URL}/collections/${categoryInfo.slug}`;
@@ -167,12 +217,15 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
         status: 200
       };
     }
+
+    // Invalid / Nonexistent collection slug -> return genuine 404
+    return build404Payload(path, 'Collection', slug);
   }
 
   // 3. BRAND LANDING PAGE: /brands/:slug
   if (path.startsWith('/brands/')) {
     const slug = path.replace('/brands/', '').toLowerCase().trim();
-    const brandInfo: SeoBrandInfo | undefined = SEO_BRANDS[slug];
+    const brandInfo: SeoBrandInfo | undefined = slug ? SEO_BRANDS[slug] : undefined;
 
     if (brandInfo) {
       const canonicalUrl = `${CANONICAL_SITE_URL}/brands/${brandInfo.slug}`;
@@ -222,12 +275,15 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
         status: 200
       };
     }
+
+    // Invalid / Nonexistent brand slug -> return genuine 404
+    return build404Payload(path, 'Brand', slug);
   }
 
   // 4. SKINCARE EDUCATIONAL GUIDES: /guides/:slug
   if (path.startsWith('/guides/')) {
     const slug = path.replace('/guides/', '').toLowerCase().trim();
-    const guideInfo: SeoGuideInfo | undefined = SEO_GUIDES[slug];
+    const guideInfo: SeoGuideInfo | undefined = slug ? SEO_GUIDES[slug] : undefined;
 
     if (guideInfo) {
       const canonicalUrl = `${CANONICAL_SITE_URL}/guides/${guideInfo.slug}`;
@@ -268,6 +324,9 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
         status: 200
       };
     }
+
+    // Invalid / Nonexistent guide slug -> return genuine 404
+    return build404Payload(path, 'Guide', slug);
   }
 
   // 5. ABOUT US PAGE: /about
@@ -342,11 +401,18 @@ export function injectSeoIntoHtml(html: string, urlPath: string, liveProducts: P
     `<meta name="description" content="${escapeAttr(seo.description)}" />`
   );
 
-  // 3. Replace canonical link
-  modified = modified.replace(
-    /<link\s+rel=["']canonical["']\s+href=["'].*?["']\s*\/?>/is,
-    `<link rel="canonical" href="${escapeAttr(seo.canonicalUrl)}" />`
-  );
+  // 3. Replace or remove canonical link (404s must NOT have canonical pointing to homepage)
+  if (seo.canonicalUrl) {
+    modified = modified.replace(
+      /<link\s+rel=["']canonical["']\s+href=["'].*?["']\s*\/?>/is,
+      `<link rel="canonical" href="${escapeAttr(seo.canonicalUrl)}" />`
+    );
+  } else {
+    modified = modified.replace(
+      /\s*<link\s+rel=["']canonical["']\s+href=["'].*?["']\s*\/?>/is,
+      ''
+    );
+  }
 
   // 4. Replace OpenGraph Tags
   modified = modified.replace(
@@ -357,10 +423,17 @@ export function injectSeoIntoHtml(html: string, urlPath: string, liveProducts: P
     /<meta\s+property=["']og:description["']\s+content=["'].*?["']\s*\/?>/is,
     `<meta property="og:description" content="${escapeAttr(seo.description)}" />`
   );
-  modified = modified.replace(
-    /<meta\s+property=["']og:url["']\s+content=["'].*?["']\s*\/?>/is,
-    `<meta property="og:url" content="${escapeAttr(seo.canonicalUrl)}" />`
-  );
+  if (seo.canonicalUrl) {
+    modified = modified.replace(
+      /<meta\s+property=["']og:url["']\s+content=["'].*?["']\s*\/?>/is,
+      `<meta property="og:url" content="${escapeAttr(seo.canonicalUrl)}" />`
+    );
+  } else {
+    modified = modified.replace(
+      /\s*<meta\s+property=["']og:url["']\s+content=["'].*?["']\s*\/?>/is,
+      ''
+    );
+  }
   modified = modified.replace(
     /<meta\s+property=["']og:image["']\s+content=["'].*?["']\s*\/?>/is,
     `<meta property="og:image" content="${escapeAttr(seo.ogImage)}" />`
@@ -384,23 +457,38 @@ export function injectSeoIntoHtml(html: string, urlPath: string, liveProducts: P
     `<meta name="twitter:image" content="${escapeAttr(seo.ogImage)}" />`
   );
 
-  // 6. Replace Schema.org JSON-LD in head
-  const jsonLdScript = `
-    <!-- Comprehensive Schema.org Structured Data (Organization, WebSite, Breadcrumbs & Product) -->
-    <script type="application/ld+json">
-    ${JSON.stringify({ '@context': 'https://schema.org', '@graph': seo.jsonLd }, null, 2)}
-    </script>
-  `;
-  modified = modified.replace(
-    /<script\s+type=["']application\/ld\+json["']>.*?<\/script>/is,
-    jsonLdScript.trim()
-  );
-
-  // 7. Inject crawler-accessible HTML inside <div id="root">
-  // React will immediately clear/hydrate this on client start, while search bots without JS will parse this markup!
-  if (seo.crawlerHtml && modified.includes('<div id="root"></div>')) {
+  // 6. Replace Schema.org JSON-LD in head (Omit completely on 404s)
+  if (seo.jsonLd && seo.jsonLd.length > 0) {
+    const jsonLdScript = `
+      <!-- Comprehensive Schema.org Structured Data (Organization, WebSite, Breadcrumbs & Product) -->
+      <script type="application/ld+json">
+      ${JSON.stringify({ '@context': 'https://schema.org', '@graph': seo.jsonLd }, null, 2)}
+      </script>
+    `;
     modified = modified.replace(
-      '<div id="root"></div>',
+      /<script\s+type=["']application\/ld\+json["']>.*?<\/script>/is,
+      jsonLdScript.trim()
+    );
+  } else {
+    modified = modified.replace(
+      /\s*<script\s+type=["']application\/ld\+json["']>.*?<\/script>/is,
+      ''
+    );
+  }
+
+  // 7. Inject robots noindex, follow on 404 pages
+  if (seo.status === 404) {
+    if (/<meta\s+name=["']robots["']/i.test(modified)) {
+      modified = modified.replace(/<meta\s+name=["']robots["'].*?\/?>/is, '<meta name="robots" content="noindex, follow" />');
+    } else {
+      modified = modified.replace('</head>', '    <meta name="robots" content="noindex, follow" />\n  </head>');
+    }
+  }
+
+  // 8. Inject crawler-accessible HTML inside <div id="root">
+  if (seo.crawlerHtml) {
+    modified = modified.replace(
+      /<div id=["']root["']>\s*<\/div>/is,
       `<div id="root">${seo.crawlerHtml}</div>`
     );
   }

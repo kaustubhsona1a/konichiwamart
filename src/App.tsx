@@ -748,6 +748,12 @@ export default function App() {
 
       if (matched) {
         setInspectProduct(matched);
+      } else {
+        updateClientSeoMetadata({
+          title: 'Page Not Found (404) | Konichiwa Mart',
+          description: 'The requested Japanese skincare product could not be found.',
+          canonicalUrl: ''
+        });
       }
       return;
     }
@@ -780,6 +786,12 @@ export default function App() {
         });
         return;
       }
+      updateClientSeoMetadata({
+        title: 'Page Not Found (404) | Konichiwa Mart',
+        description: 'The requested Japanese skincare collection could not be found.',
+        canonicalUrl: ''
+      });
+      return;
     }
 
     // 3. /brands/:slug
@@ -809,6 +821,12 @@ export default function App() {
         });
         return;
       }
+      updateClientSeoMetadata({
+        title: 'Page Not Found (404) | Konichiwa Mart',
+        description: 'The requested Japanese skincare brand could not be found.',
+        canonicalUrl: ''
+      });
+      return;
     }
 
     // 4. /guides/:slug
@@ -838,6 +856,12 @@ export default function App() {
         });
         return;
       }
+      updateClientSeoMetadata({
+        title: 'Page Not Found (404) | Konichiwa Mart',
+        description: 'The requested Japanese skincare guide could not be found.',
+        canonicalUrl: ''
+      });
+      return;
     }
 
     // 5. /about
