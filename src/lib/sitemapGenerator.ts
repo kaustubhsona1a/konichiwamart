@@ -74,6 +74,33 @@ export interface SitemapSummary {
 }
 
 /**
+ * Determines whether a product is valid, active, public, and indexable.
+ * - Included: Active public catalog items (including temporarily out-of-stock items with stock === 0).
+ * - Excluded: Deleted, inactive, draft, private, internal, or corrupt records.
+ */
+export function isProductIndexable(p: Product): boolean {
+  if (!p) return false;
+  if (!p.id || !p.title) return false;
+
+  const anyP = p as any;
+  // Exclude deleted products
+  if (anyP.isDeleted === true || anyP.deleted === true) return false;
+
+  // Exclude explicitly inactive products
+  if (anyP.isActive === false || anyP.is_active === false) return false;
+
+  // Exclude internal, draft, or private records
+  if (anyP.isInternal === true || anyP.is_internal === true) return false;
+  if (anyP.isDraft === true || anyP.is_draft === true) return false;
+  if (anyP.visibility === 'private' || anyP.visibility === 'hidden') return false;
+
+  // Exclude corrupt negative stock values
+  if (typeof p.stock === 'number' && p.stock < 0) return false;
+
+  return true;
+}
+
+/**
  * Generates SEO-hardened, dynamically populated XML sitemap string
  */
 export function buildSitemapXml(liveProducts: Product[] = []): string {
@@ -132,19 +159,7 @@ export function buildSitemapXml(liveProducts: Product[] = []): string {
     if (p.id) productMap.set(p.id, { ...productMap.get(p.id), ...p });
   });
 
-  const activeProducts = Array.from(productMap.values()).filter(p => {
-    // Exclude deleted products
-    if ((p as any).isDeleted || (p as any).deleted) return false;
-    // Exclude inactive products
-    if ((p as any).isActive === false || (p as any).is_active === false) return false;
-    // Exclude unavailable internal records
-    if ((p as any).isInternal || (p as any).is_internal) return false;
-    // Must have a valid identifier
-    if (!p.title && !p.id) return false;
-    // Must not have negative stock
-    if (typeof p.stock === 'number' && p.stock < 0) return false;
-    return true;
-  });
+  const activeProducts = Array.from(productMap.values()).filter(isProductIndexable);
 
   activeProducts.forEach(p => {
     const productUrl = getProductCanonicalUrl(p);
