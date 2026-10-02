@@ -10,7 +10,8 @@ import {
   MapPin,
   Check,
   ChevronRight,
-  Home
+  Home,
+  Edit3
 } from 'lucide-react';
 import { Product, ProductShade, Review } from '../types';
 import { formatINR } from '../data/pincodes';
@@ -34,6 +35,8 @@ interface ProductModalProps {
   isWishlisted: boolean;
   reviews?: Review[];
   onOpenWriteReview?: (productId: string) => void;
+  onEditProduct?: (product: Product) => void;
+  isOperator?: boolean;
 }
 
 export const ProductModal: React.FC<ProductModalProps> = ({
@@ -43,7 +46,9 @@ export const ProductModal: React.FC<ProductModalProps> = ({
   onToggleWishlist,
   isWishlisted,
   reviews,
-  onOpenWriteReview
+  onOpenWriteReview,
+  onEditProduct,
+  isOperator
 }) => {
   const [selectedShade, setSelectedShade] = useState<ProductShade | undefined>(
     product.shades && product.shades.length > 0 ? product.shades[0] : undefined
@@ -124,6 +129,22 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         <div className="sm:hidden pt-2.5 pb-1 flex justify-center flex-shrink-0 bg-white dark:bg-zinc-900 border-b border-slate-100 dark:border-zinc-800/50">
           <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-700" />
         </div>
+
+        {/* Admin Quick Edit Button */}
+        {onEditProduct && (
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onEditProduct(product);
+            }}
+            className="absolute top-3 right-14 sm:top-4 sm:right-16 h-9 sm:h-10 px-3 rounded-full bg-slate-900/90 hover:bg-pink-600 text-white flex items-center gap-1.5 transition-all cursor-pointer z-30 border border-slate-700 shadow-md text-xs font-bold active:scale-95"
+            title={`Edit all product info for "${product.title}"`}
+          >
+            <Edit3 className="w-3.5 h-3.5 text-pink-300" />
+            <span className="hidden sm:inline">Edit Product</span>
+          </button>
+        )}
 
         {/* Close Button - Sticky/Always visible at top-right */}
         <button

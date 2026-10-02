@@ -13,6 +13,8 @@ interface GuideArticlePageProps {
   onToggleWishlist: (productId: string) => void;
   isWishlisted: (productId: string) => boolean;
   onBackToStore: () => void;
+  onEdit?: (product: Product) => void;
+  isOperator?: boolean;
 }
 
 export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
@@ -22,7 +24,9 @@ export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
   onAddToCart,
   onToggleWishlist,
   isWishlisted,
-  onBackToStore
+  onBackToStore,
+  onEdit,
+  isOperator
 }) => {
   // Collect recommended products if defined in sections
   const recommendedSlugs = new Set<string>();
@@ -111,6 +115,8 @@ export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
                 onAddToCart={onAddToCart}
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={isWishlisted(p.id)}
+                onEdit={onEdit}
+                isOperator={isOperator}
               />
             ))}
           </div>

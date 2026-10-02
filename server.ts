@@ -3549,7 +3549,7 @@ function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>
     inventoryMap[row.id] !== undefined || 
     inventoryMap[productId] !== undefined
   ) ? (inventoryMap[row.slug] ?? inventoryMap[row.id] ?? inventoryMap[productId])
-    : 15;
+    : (row.stock_quantity !== undefined && row.stock_quantity !== null ? Number(row.stock_quantity) : 15);
 
   return {
     id: productId,
@@ -3567,10 +3567,17 @@ function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>
     skinConcerns: row.skin_concerns || [],
     routine: (row.routine as any) || 'AM/PM',
     volume: row.volume_or_weight || '100ml',
-    badges: [
-      row.is_bestseller ? 'Bestseller' : '',
-      row.is_new ? 'New Arrival' : ''
-    ].filter(Boolean),
+    badges: Array.isArray(row.badges) && row.badges.length > 0
+      ? row.badges
+      : [
+          Boolean(
+            row.is_coming_soon ||
+            (Array.isArray(row.benefits) && row.benefits.includes('__coming_soon__')) ||
+            (row.description && typeof row.description === 'string' && row.description.includes('__coming_soon__'))
+          ) ? 'Coming Soon' : '',
+          row.is_bestseller ? 'Bestseller' : '',
+          row.is_new ? 'New Arrival' : ''
+        ].filter(Boolean),
     image: row.primary_image_url,
     secondaryImage: row.secondary_image_url || undefined,
     images: row.images && row.images.length > 0 ? row.images : [row.primary_image_url],
@@ -3578,13 +3585,20 @@ function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>
     bgGradient: 'from-rose-50 to-pink-100',
     keyActives: Array.isArray(row.key_actives) ? row.key_actives : [],
     fullIngredients: row.full_ingredients || '',
-    description: row.description || '',
-    benefits: Array.isArray(row.benefits) ? row.benefits : [],
+    description: (row.description || '').replace('__coming_soon__', '').trim(),
+    benefits: Array.isArray(row.benefits) ? row.benefits.filter((b: string) => b !== '__coming_soon__') : [],
     usageHowTo: row.usage_how_to || '',
     stock: stockValue,
-    shades: PRODUCT_SHADES_MAP_SERVER[productId] || undefined,
+    shades: Array.isArray(row.shades) && row.shades.length > 0 ? row.shades : (PRODUCT_SHADES_MAP_SERVER[productId] || undefined),
     isBestSeller: Boolean(row.is_bestseller),
-    isNew: Boolean(row.is_new)
+    isNew: Boolean(row.is_new),
+    displayOrder: row.display_order !== undefined && row.display_order !== null ? Number(row.display_order) : undefined,
+    isComingSoon: Boolean(
+      row.is_coming_soon ||
+      (Array.isArray(row.badges) && row.badges.some((b: string) => typeof b === 'string' && b.toLowerCase().includes('coming soon'))) ||
+      (Array.isArray(row.benefits) && row.benefits.includes('__coming_soon__')) ||
+      (row.description && typeof row.description === 'string' && row.description.includes('__coming_soon__'))
+    )
   };
 }
 
@@ -3613,6 +3627,11 @@ function mapProductToSupabaseRow(p: Product): any {
     routine: p.routine || 'AM/PM',
     is_bestseller: Boolean(p.isBestSeller),
     is_new: Boolean(p.isNew),
+    is_coming_soon: Boolean(p.isComingSoon),
+    badges: Array.isArray(p.badges) ? p.badges : [],
+    display_order: p.displayOrder !== undefined ? Number(p.displayOrder) : 1,
+    stock_quantity: typeof p.stock === 'number' ? p.stock : 50,
+    shades: Array.isArray(p.shades) ? p.shades : [],
     is_active: true,
     rating: p.rating || 4.9,
     reviews_count: p.reviewsCount || 50
@@ -3945,16 +3964,48 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
       if (updates.secondaryImage !== undefined) patch.secondary_image_url = updates.secondaryImage;
       if (updates.images !== undefined) patch.images = updates.images;
       if (updates.volume !== undefined) patch.volume_or_weight = updates.volume;
+      if (updates.description !== undefined) patch.description = updates.description;
+      if (updates.benefits !== undefined) patch.benefits = updates.benefits;
+      if (updates.usageHowTo !== undefined) patch.usage_how_to = updates.usageHowTo;
+      if (updates.keyActives !== undefined) patch.key_actives = updates.keyActives;
+      if (updates.fullIngredients !== undefined) patch.full_ingredients = updates.fullIngredients;
+      if (updates.accentColor !== undefined) patch.accent_color = updates.accentColor;
+      if (updates.skinTypes !== undefined) patch.skin_types = updates.skinTypes;
+      if (updates.skinConcerns !== undefined) patch.skin_concerns = updates.skinConcerns;
+      if (updates.routine !== undefined) patch.routine = updates.routine;
+      if (updates.isBestSeller !== undefined) patch.is_bestseller = updates.isBestSeller;
+      if (updates.isNew !== undefined) patch.is_new = updates.isNew;
+      if (updates.isComingSoon !== undefined) patch.is_coming_soon = updates.isComingSoon;
+      if (updates.badges !== undefined) patch.badges = updates.badges;
+      if (updates.displayOrder !== undefined) patch.display_order = Number(updates.displayOrder);
+      if (updates.shades !== undefined) patch.shades = updates.shades;
+      if (updates.rating !== undefined) patch.rating = Number(updates.rating);
+      if (updates.reviewsCount !== undefined) patch.reviews_count = Number(updates.reviewsCount);
+      if (updates.stock !== undefined) patch.stock_quantity = Number(updates.stock);
       
       if (Object.keys(patch).length > 0) {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-        if (isUuid) {
-          await supabase.from('products').update(patch).eq('id', id);
-        } else {
-          const res = await supabase.from('products').update(patch).eq('slug', id);
-          if (res.error) {
-            await supabase.from('products').update(patch).eq('id', id);
+        const updateSupabase = async (pPayload: any) => {
+          if (isUuid) {
+            return await supabase.from('products').update(pPayload).eq('id', id);
+          } else {
+            const res = await supabase.from('products').update(pPayload).eq('slug', id);
+            if (res.error) {
+              return await supabase.from('products').update(pPayload).eq('id', id);
+            }
+            return res;
           }
+        };
+
+        const res = await updateSupabase(patch);
+        if (res.error && (res.error.message?.includes('is_coming_soon') || res.error.message?.includes('badges') || res.error.message?.includes('display_order') || res.error.message?.includes('shades') || res.error.code === '42703')) {
+          const safePatch = { ...patch };
+          delete safePatch.is_coming_soon;
+          delete safePatch.badges;
+          delete safePatch.display_order;
+          delete safePatch.shades;
+          delete safePatch.stock_quantity;
+          await updateSupabase(safePatch);
         }
       }
 

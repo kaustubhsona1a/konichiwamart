@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Heart, ShoppingBag, Check, Sparkles } from 'lucide-react';
+import { Heart, ShoppingBag, Check, Sparkles, Edit3 } from 'lucide-react';
 import { Product, ProductShade } from '../types';
 import { formatINR } from '../data/pincodes';
-
 import { getProductCanonicalSlug } from '../lib/seo';
 
 interface ProductCardProps {
@@ -11,6 +10,8 @@ interface ProductCardProps {
   onAddToCart: (product: Product, shade?: ProductShade) => void;
   onToggleWishlist: (productId: string) => void;
   isWishlisted: boolean;
+  onEdit?: (product: Product) => void;
+  isOperator?: boolean;
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({
@@ -18,7 +19,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onSelect,
   onAddToCart,
   onToggleWishlist,
-  isWishlisted
+  isWishlisted,
+  onEdit,
+  isOperator
 }) => {
   const [selectedShade] = useState<ProductShade | undefined>(
     product.shades ? product.shades[0] : undefined
@@ -30,9 +33,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
   const isComingSoon = Boolean(
     product.isComingSoon ||
-    (product.badges || []).some(b => b.toLowerCase().includes('coming soon'))
+    (product.badges || []).some(b => typeof b === 'string' && b.toLowerCase().includes('coming soon'))
   );
   const isInStock = (product.stock ?? 0) > 0;
+  const hasDiscount = product.originalPrice && product.originalPrice > product.price;
+  const discountPercent = hasDiscount
+    ? Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)
+    : 0;
+
+  // Prominent promotional badge (e.g. Bestseller, New Arrival, or custom)
+  const promoBadge = product.badges?.find(b => 
+    !b.toLowerCase().includes('coming soon') && 
+    !b.toLowerCase().includes('arrival')
+  ) || (product.isBestSeller ? 'Bestseller' : (product.isNew ? 'New Arrival' : null));
 
   const handleCardClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
     // Allow users to middle click or cmd+click to open new tab naturally
@@ -58,7 +71,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       onClick={handleCardClick}
       className="group liquid-glass rounded-2xl p-2.5 sm:p-4 border border-white/90 dark:border-zinc-800/80 hover:border-pink-300 dark:hover:border-pink-500/50 shadow-xs hover:shadow-md dark:shadow-none flex flex-col justify-between cursor-pointer relative transition-all duration-300 text-left bg-white/80 dark:bg-zinc-900/80 no-underline text-inherit"
     >
-      {/* Product Image Container with floating Wishlist Button */}
+      {/* Product Image Container with floating Wishlist & Admin Edit Button */}
       <div className="relative aspect-square w-full rounded-xl overflow-hidden mb-2 sm:mb-3 bg-white dark:bg-zinc-950 border border-slate-200/80 dark:border-zinc-800 flex items-center justify-center p-2.5 sm:p-4 group-hover:border-pink-200 dark:group-hover:border-pink-500/30 transition-colors shadow-2xs">
         <img
           src={product.image}
@@ -74,13 +87,39 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           }}
         />
 
-        {/* Coming Soon Tag Badge */}
-        {isComingSoon && (
-          <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shadow-sm z-10 flex items-center gap-1">
+        {/* Quick Edit Button on Card */}
+        {onEdit && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onEdit(product);
+            }}
+            className={`absolute top-1.5 left-1.5 sm:top-2 sm:left-2 z-20 px-2 py-1 rounded-lg ${
+              isOperator
+                ? 'bg-slate-900/90 hover:bg-pink-600 text-white shadow-md'
+                : 'bg-white/95 hover:bg-pink-600 hover:text-white text-slate-700 border border-slate-200/90 shadow-xs opacity-0 group-hover:opacity-100 sm:opacity-90'
+            } flex items-center gap-1 transition-all hover:scale-105 backdrop-blur-xs text-[10px] font-bold`}
+            title={`Edit all product info for "${product.title}"`}
+            aria-label={`Edit ${product.title}`}
+          >
+            <Edit3 className={`w-3 h-3 ${isOperator ? 'text-pink-300' : 'text-pink-600 group-hover:text-white'}`} />
+            <span className="hidden sm:inline">Edit</span>
+          </button>
+        )}
+
+        {/* Coming Soon or Promotional Tag Badge */}
+        {isComingSoon ? (
+          <span className={`absolute ${onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shadow-sm z-10 flex items-center gap-1`}>
             <Sparkles className="w-2.5 h-2.5" />
             <span>Coming Soon</span>
           </span>
-        )}
+        ) : promoBadge ? (
+          <span className={`absolute ${onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-pink-600 text-white text-[9px] sm:text-[10px] font-bold uppercase tracking-wider shadow-2xs z-10`}>
+            {promoBadge}
+          </span>
+        ) : null}
 
         {/* Wishlist Button - Touch optimized */}
         <button
@@ -103,19 +142,37 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         )}
       </div>
 
-      {/* Product Title */}
+      {/* Product Title & Subtitle */}
       <div className="flex-1 mb-2">
         <h3 className="font-bold text-[12.5px] sm:text-sm text-slate-900 dark:text-zinc-100 leading-snug group-hover:text-pink-700 dark:group-hover:text-pink-400 transition-colors line-clamp-2 min-h-[2.1rem] sm:min-h-[2.5rem]">
           {product.title}
         </h3>
+        {product.subtitle && (
+          <p className="text-[11px] text-slate-500 dark:text-zinc-400 line-clamp-1 mt-0.5">
+            {product.subtitle}
+          </p>
+        )}
       </div>
 
       {/* Price & Stock Status + Add to Cart Button */}
       <div className="pt-2 border-t border-slate-100 dark:border-zinc-800/80 space-y-2">
-        <div className="flex items-center justify-between gap-1">
-          <span className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-zinc-100 tracking-tight">
-            {formatINR(product.price)}
-          </span>
+        <div className="flex items-center justify-between gap-1 flex-wrap">
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-zinc-100 tracking-tight">
+              {formatINR(product.price)}
+            </span>
+            {hasDiscount && (
+              <>
+                <span className="text-[11px] sm:text-xs text-slate-400 dark:text-zinc-500 line-through">
+                  {formatINR(product.originalPrice)}
+                </span>
+                <span className="text-[9px] sm:text-[10px] font-extrabold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950/40 px-1 py-0.2 rounded">
+                  {discountPercent}% OFF
+                </span>
+              </>
+            )}
+          </div>
+
           {isComingSoon ? (
             <span className="text-[10px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60">
               Coming Soon
@@ -130,6 +187,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
         {/* Action Button - Minimum 40px touch height */}
         {isComingSoon ? (
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onSelect(product);
@@ -142,6 +200,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           </button>
         ) : (
           <button
+            type="button"
             onClick={handleQuickAdd}
             disabled={!isInStock}
             className={`w-full min-h-[38px] sm:min-h-[42px] py-2 sm:py-2.5 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95 ${

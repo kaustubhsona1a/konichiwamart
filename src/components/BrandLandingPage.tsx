@@ -13,6 +13,8 @@ interface BrandLandingPageProps {
   onToggleWishlist: (productId: string) => void;
   isWishlisted: (productId: string) => boolean;
   onBackToStore: () => void;
+  onEdit?: (product: Product) => void;
+  isOperator?: boolean;
 }
 
 export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
@@ -22,7 +24,9 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
   onAddToCart,
   onToggleWishlist,
   isWishlisted,
-  onBackToStore
+  onBackToStore,
+  onEdit,
+  isOperator
 }) => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left space-y-8 animate-in fade-in duration-300">
@@ -121,6 +125,8 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
                 onAddToCart={onAddToCart}
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={isWishlisted(product.id)}
+                onEdit={onEdit}
+                isOperator={isOperator}
               />
             ))}
           </div>

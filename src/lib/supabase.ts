@@ -1363,7 +1363,7 @@ function mapSupabaseRowToProductClient(
     inventoryMap[row.id] !== undefined ||
     inventoryMap[productId] !== undefined
   ) ? (inventoryMap[row.slug] ?? inventoryMap[row.id] ?? inventoryMap[productId])
-    : 15;
+    : (row.stock_quantity !== undefined && row.stock_quantity !== null ? Number(row.stock_quantity) : 15);
 
   const categoryName = row.category_name || row.category || (categoryMap && row.category_id && categoryMap[row.category_id]) || 'Skincare';
 
@@ -1383,16 +1383,17 @@ function mapSupabaseRowToProductClient(
     skinConcerns: row.skin_concerns || [],
     routine: (row.routine as any) || 'AM/PM',
     volume: row.volume_or_weight || '100ml',
-    badges: [
-      Boolean(
-        row.is_coming_soon ||
-        (Array.isArray(row.badges) && row.badges.some((b: string) => typeof b === 'string' && b.toLowerCase().includes('coming soon'))) ||
-        (Array.isArray(row.benefits) && row.benefits.includes('__coming_soon__')) ||
-        (row.description && typeof row.description === 'string' && row.description.includes('__coming_soon__'))
-      ) ? 'Coming Soon' : '',
-      row.is_bestseller ? 'Bestseller' : '',
-      row.is_new ? 'New Arrival' : ''
-    ].filter(Boolean),
+    badges: Array.isArray(row.badges) && row.badges.length > 0
+      ? row.badges
+      : [
+          Boolean(
+            row.is_coming_soon ||
+            (Array.isArray(row.benefits) && row.benefits.includes('__coming_soon__')) ||
+            (row.description && typeof row.description === 'string' && row.description.includes('__coming_soon__'))
+          ) ? 'Coming Soon' : '',
+          row.is_bestseller ? 'Bestseller' : '',
+          row.is_new ? 'New Arrival' : ''
+        ].filter(Boolean),
     image: row.primary_image_url,
     secondaryImage: row.secondary_image_url || undefined,
     images: row.images && row.images.length > 0 ? row.images : [row.primary_image_url],
@@ -1404,7 +1405,7 @@ function mapSupabaseRowToProductClient(
     benefits: Array.isArray(row.benefits) ? row.benefits.filter((b: string) => b !== '__coming_soon__') : [],
     usageHowTo: row.usage_how_to || '',
     stock: stockValue,
-    shades: PRODUCT_SHADES_MAP[productId] || undefined,
+    shades: Array.isArray(row.shades) && row.shades.length > 0 ? row.shades : (PRODUCT_SHADES_MAP[productId] || undefined),
     isBestSeller: Boolean(row.is_bestseller),
     isNew: Boolean(row.is_new),
     displayOrder: row.display_order !== undefined && row.display_order !== null ? Number(row.display_order) : undefined,
@@ -1449,6 +1450,11 @@ function mapProductToSupabaseRowClient(p: Product): any {
     routine: p.routine || 'AM/PM',
     is_bestseller: Boolean(p.isBestSeller),
     is_new: Boolean(p.isNew),
+    is_coming_soon: Boolean(p.isComingSoon),
+    badges: Array.isArray(p.badges) ? p.badges : [],
+    display_order: p.displayOrder !== undefined && p.displayOrder !== null ? Number(p.displayOrder) : 1,
+    stock_quantity: typeof p.stock === 'number' ? p.stock : 50,
+    shades: Array.isArray(p.shades) ? p.shades : [],
     is_active: true,
     rating: Number(p.rating) || 4.9,
     reviews_count: Number(p.reviewsCount) || 10,
@@ -2030,11 +2036,18 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
       if (updates.isBestSeller !== undefined) patch.is_bestseller = updates.isBestSeller;
       if (updates.isNew !== undefined) patch.is_new = updates.isNew;
       if (updates.isComingSoon !== undefined) {
+        patch.is_coming_soon = Boolean(updates.isComingSoon);
         const currBenefits = Array.isArray(updates.benefits) ? [...updates.benefits] : [];
         patch.benefits = updates.isComingSoon
           ? Array.from(new Set([...currBenefits, '__coming_soon__']))
           : currBenefits.filter(b => b !== '__coming_soon__');
       }
+      if (updates.badges !== undefined) patch.badges = Array.isArray(updates.badges) ? updates.badges : [];
+      if (updates.displayOrder !== undefined) patch.display_order = Number(updates.displayOrder);
+      if (updates.shades !== undefined) patch.shades = Array.isArray(updates.shades) ? updates.shades : [];
+      if (updates.rating !== undefined) patch.rating = Number(updates.rating);
+      if (updates.reviewsCount !== undefined) patch.reviews_count = Number(updates.reviewsCount);
+      if (updates.stock !== undefined) patch.stock_quantity = Number(updates.stock);
 
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(productId);
       const targetUuid = updates.dbId || (isUuid ? productId : null);
@@ -2061,10 +2074,13 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
       };
 
       let { count: updatedCount, error: updateErr } = await executeProductUpdate(patch);
-      if (updatedCount === 0 && updateErr && (updateErr.message?.includes('is_coming_soon') || updateErr.code === '42703' || updateErr.code === 'PGRST204')) {
+      if (updatedCount === 0 && updateErr && (updateErr.message?.includes('is_coming_soon') || updateErr.message?.includes('badges') || updateErr.message?.includes('display_order') || updateErr.message?.includes('shades') || updateErr.code === '42703' || updateErr.code === 'PGRST204')) {
         const fallbackPatch = { ...patch };
         delete fallbackPatch.is_coming_soon;
+        delete fallbackPatch.badges;
         delete fallbackPatch.display_order;
+        delete fallbackPatch.shades;
+        delete fallbackPatch.stock_quantity;
         const retryResult = await executeProductUpdate(fallbackPatch);
         updatedCount = retryResult.count;
       }

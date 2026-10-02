@@ -92,6 +92,11 @@ CREATE TABLE IF NOT EXISTS public.products (
   routine VARCHAR(20) DEFAULT 'AM/PM',
   is_bestseller BOOLEAN DEFAULT false,
   is_new BOOLEAN DEFAULT false,
+  is_coming_soon BOOLEAN DEFAULT false,
+  badges TEXT[] DEFAULT '{}',
+  display_order INT DEFAULT 0,
+  stock_quantity INT DEFAULT 50,
+  shades JSONB DEFAULT '[]'::jsonb,
   is_active BOOLEAN DEFAULT true,
   rating NUMERIC(3, 2) DEFAULT 4.90,
   reviews_count INT DEFAULT 0,
@@ -408,4 +413,19 @@ VALUES
   ('Moisturizer', 'moisturizer', 'Barrier creams and nourishing emulsions', 8),
   ('Skincare', 'skincare', 'All-around Japanese beauty and skincare', 9)
 ON CONFLICT (slug) DO NOTHING;
+
+-- ==============================================================================
+-- 13. IDEMPOTENT MIGRATION: CARD & FULL PRODUCT INFO COLUMNS
+-- ==============================================================================
+-- Run this block in your Supabase SQL Editor if your products table was previously created:
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_coming_soon BOOLEAN DEFAULT false;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS badges TEXT[] DEFAULT '{}';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS display_order INT DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS stock_quantity INT DEFAULT 50;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS shades JSONB DEFAULT '[]'::jsonb;
+
+CREATE INDEX IF NOT EXISTS idx_products_display_order ON public.products(display_order);
+CREATE INDEX IF NOT EXISTS idx_products_is_coming_soon ON public.products(is_coming_soon);
+CREATE INDEX IF NOT EXISTS idx_products_is_bestseller ON public.products(is_bestseller);
+
 

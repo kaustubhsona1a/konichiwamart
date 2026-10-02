@@ -362,6 +362,16 @@ export default function App() {
   }, [isAdminOpen]);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [operatorSession, setOperatorSession] = useState<OperatorSession | null>(() => getStoredOperatorSession());
+  const [adminEditingProduct, setAdminEditingProduct] = useState<Product | null>(null);
+
+  const handleStartEditProduct = (product: Product) => {
+    setAdminEditingProduct(product);
+    if (operatorSession) {
+      setIsAdminOpen(true);
+    } else {
+      setIsAdminLoginOpen(true);
+    }
+  };
   const [customerSession, setCustomerSession] = useState<{ id: string; email: string; name: string; phone?: string } | null>(() => getActiveCustomerSession());
   const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState(false);
   const [customerAuthTab, setCustomerAuthTab] = useState<'signin' | 'register'>('signin');
@@ -1397,6 +1407,8 @@ export default function App() {
       return updated;
     });
 
+    setInspectProduct(prev => prev && prev.id === updatedProduct.id ? updatedProduct : prev);
+
     const ok = await updateProductInStore(updatedProduct.id, updatedProduct);
     const fresh = await fetchProductsFromStore();
     if (fresh && fresh.length > 0) {
@@ -2149,6 +2161,8 @@ export default function App() {
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted}
           onBackToStore={handleNavigateHome}
+          onEdit={handleStartEditProduct}
+          isOperator={Boolean(operatorSession)}
         />
       ) : activeGuideSlug && SEO_GUIDES[activeGuideSlug] ? (
         <GuideArticlePage
@@ -2159,6 +2173,8 @@ export default function App() {
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted}
           onBackToStore={handleNavigateHome}
+          onEdit={handleStartEditProduct}
+          isOperator={Boolean(operatorSession)}
         />
       ) : (
         <>
@@ -2293,6 +2309,8 @@ export default function App() {
                     onAddToCart={handleAddToCart}
                     onToggleWishlist={handleToggleWishlist}
                     isWishlisted={isWishlisted(product.id)}
+                    onEdit={handleStartEditProduct}
+                    isOperator={Boolean(operatorSession)}
                   />
                 ))}
               </div>
@@ -2345,6 +2363,8 @@ export default function App() {
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted(inspectProduct.id)}
           reviews={appReviews}
+          onEditProduct={handleStartEditProduct}
+          isOperator={Boolean(operatorSession)}
           onOpenWriteReview={(prodId) => {
             setInspectProduct(null);
             const el = document.getElementById('customer-reviews');
@@ -2422,7 +2442,10 @@ export default function App() {
       {/* 8. Store Owner Operations & Admin Portal */}
       <AdminPortal
         isOpen={isAdminOpen}
-        onClose={() => setIsAdminOpen(false)}
+        onClose={() => {
+          setIsAdminOpen(false);
+          setAdminEditingProduct(null);
+        }}
         orders={storeOrders}
         onRefreshOrders={handleRefreshOrders}
         onUpdateOrderStatus={handleUpdateOrderStatus}
@@ -2441,6 +2464,7 @@ export default function App() {
           operatorLogout();
           setOperatorSession(null);
           setIsAdminOpen(false);
+          setAdminEditingProduct(null);
         }}
         operatorEmail={operatorSession?.email}
         siteSettings={siteSettings}
@@ -2450,6 +2474,7 @@ export default function App() {
         reviews={appReviews}
         onUpdateReviews={(revs) => setAppReviews(revs)}
         initialTab={adminInitialTab}
+        initialEditingProduct={adminEditingProduct}
       />
 
       {/* 9. Architecture & Security Blueprint Modal */}

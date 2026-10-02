@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, 
   Package, 
   Truck, 
@@ -37,8 +37,16 @@ import { X,
   ListOrdered,
   Copy,
   Bell,
-  MessageSquare } from 'lucide-react';
-import { Order, Product, ProductCategory, SiteSettings, ReelItem, Review } from '../types';
+  MessageSquare,
+  Eye,
+  Palette,
+  Layers,
+  Tag,
+  FlaskConical,
+  Star,
+  Heart,
+  ShoppingBag } from 'lucide-react';
+import { Order, Product, ProductCategory, ProductShade, SiteSettings, ReelItem, Review } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
 import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore, normalizeOrderItem } from '../lib/supabase';
@@ -116,6 +124,7 @@ interface AdminPortalProps {
   onUpdateReviews?: (reviews: Review[]) => void;
   initialTab?: 'dashboard' | 'inventory' | 'orders' | 'settings' | 'reels' | 'reviews';
   onRefreshOrders?: () => Promise<any> | any;
+  initialEditingProduct?: Product | null;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -143,7 +152,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onUpdateReels,
   reviews = [],
   onUpdateReviews,
-  initialTab
+  initialTab,
+  initialEditingProduct
 }) => {
   const validInitialTab = (typeof initialTab === 'string' && ['dashboard', 'inventory', 'orders', 'settings', 'reels', 'reviews'].includes(initialTab))
     ? initialTab
@@ -376,6 +386,39 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [newCategory, setNewCategory] = useState<ProductCategory>('Face Mask');
   const [newIsComingSoon, setNewIsComingSoon] = useState(false);
   const [newDisplayOrder, setNewDisplayOrder] = useState<string>('1');
+
+  // Comprehensive Product Info States (Card & Deep Catalog Data)
+  const [activeProductEditTab, setActiveProductEditTab] = useState<'card' | 'details' | 'actives' | 'variants'>('card');
+  const [newDescription, setNewDescription] = useState('');
+  const [newBenefits, setNewBenefits] = useState<string[]>([]);
+  const [newBenefitInput, setNewBenefitInput] = useState('');
+  const [newKeyActives, setNewKeyActives] = useState<{ name: string; percentage?: string; purpose: string }[]>([]);
+  const [newActiveName, setNewActiveName] = useState('');
+  const [newActivePercentage, setNewActivePercentage] = useState('');
+  const [newActivePurpose, setNewActivePurpose] = useState('');
+  const [newFullIngredients, setNewFullIngredients] = useState('');
+  const [newUsageHowTo, setNewUsageHowTo] = useState('');
+  const [newRoutine, setNewRoutine] = useState<'AM' | 'PM' | 'AM/PM'>('AM/PM');
+  const [newSkinTypes, setNewSkinTypes] = useState<string[]>(['All']);
+  const [newSkinConcerns, setNewSkinConcerns] = useState<string[]>(['Hydration']);
+  const [newBadges, setNewBadges] = useState<string[]>([]);
+  const [newBadgeInput, setNewBadgeInput] = useState('');
+  const [newIsBestSeller, setNewIsBestSeller] = useState(false);
+  const [newIsNew, setNewIsNew] = useState(false);
+  const [newRating, setNewRating] = useState('4.9');
+  const [newReviewsCount, setNewReviewsCount] = useState('120');
+  const [newAccentColor, setNewAccentColor] = useState('#E11D48');
+  const [newShades, setNewShades] = useState<ProductShade[]>([]);
+  const [newShadeName, setNewShadeName] = useState('');
+  const [newShadeHex, setNewShadeHex] = useState('#F43F5E');
+  const [showLiveCardPreview, setShowLiveCardPreview] = useState(true);
+
+  // Auto-open product editor if initialEditingProduct is provided
+  useEffect(() => {
+    if (initialEditingProduct && isOpen) {
+      handleOpenEditProduct(initialEditingProduct);
+    }
+  }, [initialEditingProduct, isOpen]);
   
   const resetProductForm = () => {
     setEditingProduct(null);
@@ -389,6 +432,29 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setNewVolume('150ml');
     setNewPhotos([]);
     setNewDisplayOrder('1');
+    setNewDescription('');
+    setNewBenefits([]);
+    setNewBenefitInput('');
+    setNewKeyActives([]);
+    setNewActiveName('');
+    setNewActivePercentage('');
+    setNewActivePurpose('');
+    setNewFullIngredients('');
+    setNewUsageHowTo('');
+    setNewRoutine('AM/PM');
+    setNewSkinTypes(['All']);
+    setNewSkinConcerns(['Hydration']);
+    setNewBadges([]);
+    setNewBadgeInput('');
+    setNewIsBestSeller(false);
+    setNewIsNew(false);
+    setNewRating('4.9');
+    setNewReviewsCount('120');
+    setNewAccentColor('#E11D48');
+    setNewShades([]);
+    setNewShadeName('');
+    setNewShadeHex('#F43F5E');
+    setActiveProductEditTab('card');
     setPhotoUploadError(null);
     setProductFormMsg(null);
   };
@@ -931,6 +997,64 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     });
   };
 
+  const handleToggleSkinType = (type: string) => {
+    setNewSkinTypes(prev => prev.includes(type) ? prev.filter(t => t !== type) : [...prev, type]);
+  };
+
+  const handleToggleSkinConcern = (concern: string) => {
+    setNewSkinConcerns(prev => prev.includes(concern) ? prev.filter(c => c !== concern) : [...prev, concern]);
+  };
+
+  const handleAddBenefit = () => {
+    if (!newBenefitInput.trim()) return;
+    setNewBenefits(prev => [...prev, newBenefitInput.trim()]);
+    setNewBenefitInput('');
+  };
+
+  const handleRemoveBenefit = (index: number) => {
+    setNewBenefits(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddBadge = () => {
+    if (!newBadgeInput.trim()) return;
+    setNewBadges(prev => Array.from(new Set([...prev, newBadgeInput.trim()])));
+    setNewBadgeInput('');
+  };
+
+  const handleRemoveBadge = (badge: string) => {
+    setNewBadges(prev => prev.filter(b => b !== badge));
+  };
+
+  const handleAddActive = () => {
+    if (!newActiveName.trim()) return;
+    setNewKeyActives(prev => [...prev, {
+      name: newActiveName.trim(),
+      percentage: newActivePercentage.trim() || undefined,
+      purpose: newActivePurpose.trim() || 'Restores skin barrier & luminosity'
+    }]);
+    setNewActiveName('');
+    setNewActivePercentage('');
+    setNewActivePurpose('');
+  };
+
+  const handleRemoveActive = (index: number) => {
+    setNewKeyActives(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddShade = () => {
+    if (!newShadeName.trim()) return;
+    setNewShades(prev => [...prev, {
+      id: `shade-${Date.now()}`,
+      name: newShadeName.trim(),
+      hex: newShadeHex
+    }]);
+    setNewShadeName('');
+  };
+
+  const handleRemoveShade = (id: string) => {
+    setNewShades(prev => prev.filter(s => s.id !== id));
+  };
+
   // Handle Add / Edit Product submit
   const handleCreateProduct = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -956,12 +1080,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setProductFormMsg(null);
 
     try {
-      if (editingProduct) {
-        const currentBadges = (editingProduct.badges || []).filter(b => b !== 'Coming Soon');
-        if (newIsComingSoon) {
-          currentBadges.unshift('Coming Soon');
-        }
+      const badgesList = [...newBadges];
+      if (newIsComingSoon && !badgesList.some(b => b.toLowerCase().includes('coming soon'))) {
+        badgesList.unshift('Coming Soon');
+      }
+      if (newIsBestSeller && !badgesList.some(b => b.toLowerCase() === 'bestseller')) {
+        badgesList.push('Bestseller');
+      }
+      if (newIsNew && !badgesList.some(b => b.toLowerCase().includes('arrival') || b.toLowerCase() === 'new')) {
+        badgesList.push('New Arrival');
+      }
 
+      if (editingProduct) {
         const updatedProduct: Product = {
           ...editingProduct,
           title: newTitle.trim(),
@@ -974,9 +1104,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           secondaryImage: secondary,
           images: photosToUse,
           stock: parsedStock,
-          badges: currentBadges,
+          badges: badgesList,
           isComingSoon: newIsComingSoon,
-          displayOrder: parseInt(newDisplayOrder, 10) || editingProduct.displayOrder || products.length + 1
+          isBestSeller: newIsBestSeller,
+          isNew: newIsNew,
+          displayOrder: parseInt(newDisplayOrder, 10) || editingProduct.displayOrder || products.length + 1,
+          description: newDescription.trim() || editingProduct.description || 'Official direct imported Japanese skincare formulation.',
+          benefits: newBenefits.length > 0 ? newBenefits : (editingProduct.benefits || ['Direct Japan import', 'Authentic quality']),
+          keyActives: newKeyActives,
+          fullIngredients: newFullIngredients.trim() || editingProduct.fullIngredients || 'Water, Glycerin, Butylene Glycol, Sodium Hyaluronate.',
+          usageHowTo: newUsageHowTo.trim() || editingProduct.usageHowTo || 'Apply onto cleansed skin. Gently pat with palms until absorbed.',
+          routine: newRoutine,
+          skinTypes: (newSkinTypes.length > 0 ? newSkinTypes : ['All']) as any,
+          skinConcerns: (newSkinConcerns.length > 0 ? newSkinConcerns : ['Hydration']) as any,
+          accentColor: newAccentColor || editingProduct.accentColor || '#E11D48',
+          shades: newShades.length > 0 ? newShades : undefined,
+          rating: parseFloat(newRating) || editingProduct.rating || 4.9,
+          reviewsCount: parseInt(newReviewsCount, 10) || editingProduct.reviewsCount || 10
         };
 
         if (onEditProduct) {
@@ -984,39 +1128,38 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         }
         setProductFormMsg(`Product "${newTitle}" updated & synced to Supabase database!`);
       } else {
-        const initialBadges = newIsComingSoon
-          ? ['Coming Soon', 'Japan Arrival', 'Authentic Import']
-          : ['Japan Arrival', 'Authentic Import'];
-
         const newProduct: Product = {
           id: `km-${Date.now()}`,
           title: newTitle.trim(),
           subtitle: newSubtitle.trim() || `${newCategory} • Authentic Japan Skincare`,
           price: parsedPrice,
           originalPrice: parsedOriginal,
-          rating: 4.9,
-          reviewsCount: 1,
+          rating: parseFloat(newRating) || 4.9,
+          reviewsCount: parseInt(newReviewsCount, 10) || 10,
           category: newCategory,
-          skinTypes: ['All'],
-          skinConcerns: ['Hydration', 'Glow & Dullness'],
-          routine: 'AM/PM',
+          skinTypes: (newSkinTypes.length > 0 ? newSkinTypes : ['All']) as any,
+          skinConcerns: (newSkinConcerns.length > 0 ? newSkinConcerns : ['Hydration']) as any,
+          routine: newRoutine,
           volume: newVolume || '100ml',
-          badges: initialBadges,
+          badges: badgesList.length > 0 ? badgesList : ['Japan Arrival', 'Authentic Import'],
           isComingSoon: newIsComingSoon,
+          isBestSeller: newIsBestSeller,
+          isNew: newIsNew,
           image: mainCover,
           secondaryImage: secondary,
           images: photosToUse,
-          accentColor: '#C52857',
+          accentColor: newAccentColor || '#C52857',
           bgGradient: 'from-pink-50 to-rose-100',
           stock: parsedStock,
           displayOrder: parseInt(newDisplayOrder, 10) || products.length + 1,
-          keyActives: [
+          keyActives: newKeyActives.length > 0 ? newKeyActives : [
             { name: 'Japanese Botanical Extract', purpose: 'Restores skin barrier & luminosity' }
           ],
-          fullIngredients: 'Water, Glycerin, Butylene Glycol, Sodium Hyaluronate.',
-          description: 'Official direct imported Japanese skincare formulation.',
-          benefits: ['Deep hydration', 'Authentic import', 'Skin gentle'],
-          usageHowTo: 'Apply onto cleansed skin. Gently pat with palms until absorbed.'
+          fullIngredients: newFullIngredients.trim() || 'Water, Glycerin, Butylene Glycol, Sodium Hyaluronate.',
+          description: newDescription.trim() || 'Official direct imported Japanese skincare formulation.',
+          benefits: newBenefits.length > 0 ? newBenefits : ['Deep hydration', 'Authentic import', 'Skin gentle'],
+          usageHowTo: newUsageHowTo.trim() || 'Apply onto cleansed skin. Gently pat with palms until absorbed.',
+          shades: newShades.length > 0 ? newShades : undefined
         };
 
         await onAddProduct(newProduct);
@@ -1037,20 +1180,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleOpenEditProduct = (product: Product) => {
     setEditingProduct(product);
-    setNewTitle(product.title);
+    setNewTitle(product.title || '');
     setNewSubtitle(product.subtitle || '');
-    setNewCategory(product.category);
-    setNewPrice(product.price.toString());
-    setNewOriginalPrice(product.originalPrice?.toString() || product.price.toString());
-    setNewStock(product.stock.toString());
+    setNewCategory(product.category || 'Face Mask');
+    setNewPrice(product.price !== undefined ? product.price.toString() : '0');
+    setNewOriginalPrice(product.originalPrice !== undefined ? product.originalPrice.toString() : (product.price || 0).toString());
+    setNewStock(product.stock !== undefined ? product.stock.toString() : '50');
     setNewVolume(product.volume || '150ml');
-    setNewPhotos(product.images || (product.image ? [product.image] : []));
-    setNewIsComingSoon(Boolean(product.isComingSoon || (product.badges && product.badges.includes('Coming Soon'))));
+    setNewPhotos(product.images && product.images.length > 0 ? product.images : (product.image ? [product.image] : []));
+    setNewIsComingSoon(Boolean(product.isComingSoon || (product.badges && product.badges.some(b => typeof b === 'string' && b.toLowerCase().includes('coming soon')))));
     setNewDisplayOrder(
       product.displayOrder !== undefined
         ? String(product.displayOrder)
         : String(products.findIndex((p) => p.id === product.id) + 1)
     );
+    setNewDescription(product.description || '');
+    setNewBenefits(Array.isArray(product.benefits) ? product.benefits.filter(b => b !== '__coming_soon__') : []);
+    setNewKeyActives(Array.isArray(product.keyActives) ? product.keyActives : []);
+    setNewFullIngredients(product.fullIngredients || '');
+    setNewUsageHowTo(product.usageHowTo || '');
+    setNewRoutine(product.routine || 'AM/PM');
+    setNewSkinTypes(Array.isArray(product.skinTypes) && product.skinTypes.length > 0 ? (product.skinTypes as any) : ['All']);
+    setNewSkinConcerns(Array.isArray(product.skinConcerns) && product.skinConcerns.length > 0 ? (product.skinConcerns as any) : ['Hydration']);
+    setNewBadges(Array.isArray(product.badges) ? product.badges.filter(b => !b.toLowerCase().includes('coming soon')) : []);
+    setNewIsBestSeller(Boolean(product.isBestSeller || (product.badges && product.badges.includes('Bestseller'))));
+    setNewIsNew(Boolean(product.isNew || (product.badges && product.badges.includes('New Arrival'))));
+    setNewRating(product.rating ? String(product.rating) : '4.9');
+    setNewReviewsCount(product.reviewsCount !== undefined ? String(product.reviewsCount) : '120');
+    setNewAccentColor(product.accentColor || '#E11D48');
+    setNewShades(Array.isArray(product.shades) ? product.shades : []);
+    setActiveProductEditTab('card');
     setShowAddProductModal(true);
   };
 
@@ -4029,483 +4188,1111 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* ADD PRODUCT MODAL */}
-      {/* ========================================================================= */}
       {showAddProductModal && (
-        <div className="fixed inset-0 z-60 bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150">
-          <div className="bg-white border border-pink-100 rounded-2xl sm:rounded-3xl w-full max-w-xl p-4 sm:p-7 shadow-2xl text-left space-y-4 sm:space-y-5 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-stone-100 pb-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 uppercase tracking-wider">
-                  {editingProduct ? 'Edit Product' : 'Add New Product to Store'}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {editingProduct ? 'Update product details and photos.' : 'Listing will appear instantly in the customer storefront.'}
-                </p>
+        <div className="fixed inset-0 z-60 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
+          <div className="bg-white border border-pink-100 rounded-2xl sm:rounded-3xl w-full max-w-5xl p-4 sm:p-6 shadow-2xl text-left space-y-4 max-h-[92vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-pink-100 text-pink-600 flex items-center justify-center font-bold text-sm shadow-xs">
+                  {editingProduct ? <Edit3 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+                    <span>{editingProduct ? 'Edit Product Info' : 'Add New Product to Store'}</span>
+                    {editingProduct && (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-pink-50 text-pink-700 border border-pink-200">
+                        {editingProduct.id}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {editingProduct ? 'Edit all product card info, pricing, media, ingredients, and inventory attributes.' : 'Listing will appear instantly in the customer storefront.'}
+                  </p>
+                </div>
               </div>
-              <button
-                onClick={() => {
-                  resetProductForm();
-                  setShowAddProductModal(false);
-                }}
-                className="w-8 h-8 rounded-full bg-stone-100 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLiveCardPreview(!showLiveCardPreview)}
+                  className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
+                    showLiveCardPreview
+                      ? 'bg-pink-50 text-pink-700 border-pink-200'
+                      : 'bg-white text-slate-600 border-stone-200 hover:bg-stone-50'
+                  }`}
+                  title="Toggle Live Product Card Preview"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>{showLiveCardPreview ? 'Hide Preview' : 'Show Preview'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    resetProductForm();
+                    setShowAddProductModal(false);
+                  }}
+                  className="w-8 h-8 rounded-full bg-stone-100 text-slate-500 hover:text-slate-800 flex items-center justify-center cursor-pointer transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
+            {/* Notification messages */}
             {productFormMsg && (
-              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in">
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2 animate-in fade-in flex-shrink-0">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
                 <span>{productFormMsg}</span>
               </div>
             )}
 
             {photoUploadError && (
-              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 animate-in fade-in">
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2 animate-in fade-in flex-shrink-0">
                 <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
                 <span>{photoUploadError}</span>
               </div>
             )}
 
-            <form onSubmit={handleCreateProduct} className="space-y-4 text-xs">
-              <div>
-                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  Product Title
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="e.g. Hada Labo Gokujyun Premium Hyaluronic Lotion"
-                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
-                />
-              </div>
+            {/* Navigation Tabs */}
+            <div className="flex items-center gap-1 border-b border-stone-100 pb-2 overflow-x-auto flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveProductEditTab('card')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+                  activeProductEditTab === 'card'
+                    ? 'bg-pink-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-stone-100'
+                }`}
+              >
+                <Tag className="w-3.5 h-3.5" />
+                <span>Card & Pricing</span>
+              </button>
 
-              <div>
-                <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                  Subtitle / Formulation Highlight
-                </label>
-                <input
-                  type="text"
-                  value={newSubtitle}
-                  onChange={(e) => setNewSubtitle(e.target.value)}
-                  placeholder="e.g. 7 Types of Hyaluronic Acid • Deep Moisture Barrier"
-                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
-                />
-              </div>
+              <button
+                type="button"
+                onClick={() => setActiveProductEditTab('details')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+                  activeProductEditTab === 'details'
+                    ? 'bg-pink-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-stone-100'
+                }`}
+              >
+                <Package className="w-3.5 h-3.5" />
+                <span>Description & How To</span>
+              </button>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block font-semibold text-slate-700 uppercase tracking-wider text-[11px]">
-                      Category
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsCreatingCategory(!isCreatingCategory);
-                        setCategorySaveMsg(null);
-                      }}
-                      className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 flex items-center gap-1 cursor-pointer"
-                    >
-                      <FolderPlus className="w-3 h-3" />
-                      <span>{isCreatingCategory ? 'Cancel' : '+ New Category'}</span>
-                    </button>
-                  </div>
+              <button
+                type="button"
+                onClick={() => setActiveProductEditTab('actives')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+                  activeProductEditTab === 'actives'
+                    ? 'bg-pink-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-stone-100'
+                }`}
+              >
+                <FlaskConical className="w-3.5 h-3.5" />
+                <span>Actives & Skin Match</span>
+              </button>
 
-                  {isCreatingCategory ? (
-                    <div className="p-3 rounded-xl bg-pink-50/70 border border-pink-200 space-y-2 animate-in fade-in">
-                      <div className="text-[11px] font-bold text-pink-900">Add New Category to Supabase</div>
-                      <input
-                        type="text"
-                        value={newCustomCategoryName}
-                        onChange={(e) => setNewCustomCategoryName(e.target.value)}
-                        placeholder="e.g. Cleansing Balm"
-                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-pink-300 text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-pink-500"
-                        autoFocus
-                      />
-                      {categorySaveMsg && (
-                        <div className={`text-[11px] font-medium ${categorySaveMsg.type === 'success' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                          {categorySaveMsg.text}
-                        </div>
-                      )}
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={handleSaveNewCategory}
-                          disabled={isSavingCategory || !newCustomCategoryName.trim()}
-                          className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
-                        >
-                          {isSavingCategory ? (
-                            <>
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                              <span>Saving to Supabase...</span>
-                            </>
+              <button
+                type="button"
+                onClick={() => setActiveProductEditTab('variants')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 whitespace-nowrap transition-all cursor-pointer ${
+                  activeProductEditTab === 'variants'
+                    ? 'bg-pink-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-stone-100'
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span>Shades & Reviews ({newShades.length})</span>
+              </button>
+            </div>
+
+            {/* Main Form Body with optional Live Preview Column */}
+            <form onSubmit={handleCreateProduct} className="flex-1 overflow-y-auto space-y-4 pr-1 text-xs">
+              <div className={`grid grid-cols-1 ${showLiveCardPreview ? 'md:grid-cols-12 gap-6' : 'gap-4'} items-start`}>
+                
+                {/* Left: Active Tab Form Fields */}
+                <div className={`${showLiveCardPreview ? 'md:col-span-7 lg:col-span-8' : 'w-full'} space-y-4`}>
+                  
+                  {/* TAB 1: CARD & PRICING */}
+                  {activeProductEditTab === 'card' && (
+                    <div className="space-y-4">
+                      {/* Product Title */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                          Product Title (Visible on Card)
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={newTitle}
+                          onChange={(e) => setNewTitle(e.target.value)}
+                          placeholder="e.g. Hada Labo Gokujyun Premium Hyaluronic Lotion"
+                          className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 font-bold focus:bg-white focus:border-pink-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Subtitle / Highlight */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                          Subtitle / Card Highlight Tagline
+                        </label>
+                        <input
+                          type="text"
+                          value={newSubtitle}
+                          onChange={(e) => setNewSubtitle(e.target.value)}
+                          placeholder="e.g. 7 Types of Hyaluronic Acid • Deep Moisture Barrier"
+                          className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Category & Volume */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block font-semibold text-slate-700 uppercase tracking-wider text-[11px]">
+                              Category
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIsCreatingCategory(!isCreatingCategory);
+                                setCategorySaveMsg(null);
+                              }}
+                              className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 flex items-center gap-1 cursor-pointer"
+                            >
+                              <FolderPlus className="w-3 h-3" />
+                              <span>{isCreatingCategory ? 'Cancel' : '+ New Category'}</span>
+                            </button>
+                          </div>
+
+                          {isCreatingCategory ? (
+                            <div className="p-3 rounded-xl bg-pink-50/70 border border-pink-200 space-y-2 animate-in fade-in">
+                              <div className="text-[11px] font-bold text-pink-900">Add New Category to Supabase</div>
+                              <input
+                                type="text"
+                                value={newCustomCategoryName}
+                                onChange={(e) => setNewCustomCategoryName(e.target.value)}
+                                placeholder="e.g. Cleansing Balm"
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-pink-300 text-slate-900 text-xs focus:outline-none focus:ring-1 focus:ring-pink-500"
+                                autoFocus
+                              />
+                              {categorySaveMsg && (
+                                <div className={`text-[11px] font-medium ${categorySaveMsg.type === 'success' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                  {categorySaveMsg.text}
+                                </div>
+                              )}
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={handleSaveNewCategory}
+                                  disabled={isSavingCategory || !newCustomCategoryName.trim()}
+                                  className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white font-semibold text-xs flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-xs"
+                                >
+                                  {isSavingCategory ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" />
+                                      <span>Saving...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Check className="w-3 h-3" />
+                                      <span>Save Category</span>
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setIsCreatingCategory(false);
+                                    setCategorySaveMsg(null);
+                                  }}
+                                  className="px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-600 hover:bg-stone-100 text-xs font-medium cursor-pointer"
+                                >
+                                  Close
+                                </button>
+                              </div>
+                            </div>
                           ) : (
-                            <>
-                              <Check className="w-3 h-3" />
-                              <span>Save to Supabase</span>
-                            </>
+                            <select
+                              value={newCategory}
+                              onChange={(e) => {
+                                if (e.target.value === '__ADD_NEW__') {
+                                  setIsCreatingCategory(true);
+                                } else {
+                                  setNewCategory(e.target.value as ProductCategory);
+                                }
+                              }}
+                              className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
+                            >
+                              {categoriesList.map((cat) => (
+                                <option key={cat} value={cat}>
+                                  {cat}
+                                </option>
+                              ))}
+                              <option value="__ADD_NEW__" className="text-pink-600 font-bold">
+                                + Create & Save New Category...
+                              </option>
+                            </select>
                           )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setIsCreatingCategory(false);
-                            setCategorySaveMsg(null);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-600 hover:bg-stone-100 text-xs font-medium cursor-pointer"
-                        >
-                          Close
-                        </button>
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 text-[11px]">
+                            Volume / Size (Badge on Card Image)
+                          </label>
+                          <input
+                            type="text"
+                            value={newVolume}
+                            onChange={(e) => setNewVolume(e.target.value)}
+                            placeholder="e.g. 170ml / 50g / 30 Sheets"
+                            className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Pricing & Stock Row */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-stone-50 rounded-2xl border border-stone-200">
+                        <div>
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                            Selling Price (₹)
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            required
+                            value={newPrice}
+                            onChange={(e) => setNewPrice(e.target.value)}
+                            placeholder="0"
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-slate-900 focus:border-pink-500 focus:outline-none font-bold text-sm"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block font-semibold text-slate-700 uppercase tracking-wider">
+                              MRP / Original (₹)
+                            </label>
+                            {parseInt(newOriginalPrice, 10) > parseInt(newPrice, 10) && (
+                              <span className="text-[10px] font-extrabold text-pink-600 bg-pink-100 px-1.5 py-0.2 rounded">
+                                {Math.round(((parseInt(newOriginalPrice, 10) - parseInt(newPrice, 10)) / parseInt(newOriginalPrice, 10)) * 100)}% OFF
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            value={newOriginalPrice}
+                            onChange={(e) => setNewOriginalPrice(e.target.value)}
+                            placeholder="0"
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-slate-900 focus:border-pink-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                            Stock Units
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            required
+                            value={newStock}
+                            onChange={(e) => setNewStock(e.target.value)}
+                            placeholder="0"
+                            className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-slate-900 focus:border-pink-500 focus:outline-none font-bold"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Card Badges & Promotion Toggles */}
+                      <div className="p-3.5 bg-rose-50/40 rounded-2xl border border-pink-200/80 space-y-3">
+                        <label className="block font-bold text-slate-900 uppercase tracking-wider text-xs">
+                          Card Badges & Storefront Tags
+                        </label>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          {/* Coming Soon Toggle */}
+                          <label className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                            newIsComingSoon ? 'bg-amber-100/80 border-amber-300 text-amber-900' : 'bg-white border-stone-200 text-slate-700'
+                          }`}>
+                            <div className="flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                              <span className="font-bold text-xs">Coming Soon</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={newIsComingSoon}
+                              onChange={(e) => setNewIsComingSoon(e.target.checked)}
+                              className="rounded text-amber-600 focus:ring-amber-500"
+                            />
+                          </label>
+
+                          {/* Bestseller Toggle */}
+                          <label className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                            newIsBestSeller ? 'bg-pink-100/80 border-pink-300 text-pink-900' : 'bg-white border-stone-200 text-slate-700'
+                          }`}>
+                            <div className="flex items-center gap-1.5">
+                              <Star className="w-3.5 h-3.5 text-pink-600" />
+                              <span className="font-bold text-xs">Bestseller</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={newIsBestSeller}
+                              onChange={(e) => setNewIsBestSeller(e.target.checked)}
+                              className="rounded text-pink-600 focus:ring-pink-500"
+                            />
+                          </label>
+
+                          {/* New Arrival Toggle */}
+                          <label className={`p-2.5 rounded-xl border flex items-center justify-between cursor-pointer transition-colors ${
+                            newIsNew ? 'bg-rose-100/80 border-rose-300 text-rose-900' : 'bg-white border-stone-200 text-slate-700'
+                          }`}>
+                            <div className="flex items-center gap-1.5">
+                              <Sparkles className="w-3.5 h-3.5 text-rose-600" />
+                              <span className="font-bold text-xs">New Arrival</span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={newIsNew}
+                              onChange={(e) => setNewIsNew(e.target.checked)}
+                              className="rounded text-rose-600 focus:ring-rose-500"
+                            />
+                          </label>
+                        </div>
+
+                        {/* Custom Card Badges */}
+                        <div>
+                          <div className="text-[11px] font-semibold text-slate-600 mb-1.5">Custom Card Badges (e.g. "Viral Hit", "Direct Tokyo Import", "Trending Tokyo")</div>
+                          <div className="flex items-center gap-2 mb-2">
+                            <input
+                              type="text"
+                              value={newBadgeInput}
+                              onChange={(e) => setNewBadgeInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleAddBadge();
+                                }
+                              }}
+                              placeholder="Type custom badge & press Add..."
+                              className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-pink-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleAddBadge}
+                              className="px-3 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs cursor-pointer shadow-xs"
+                            >
+                              Add Badge
+                            </button>
+                          </div>
+
+                          {newBadges.length > 0 && (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {newBadges.map((badge, idx) => (
+                                <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-pink-200 text-pink-700 text-xs font-semibold shadow-2xs">
+                                  <span>{badge}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveBadge(badge)}
+                                    className="text-stone-400 hover:text-rose-600 ml-1 cursor-pointer"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Storefront Catalog Position */}
+                      <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                            <ArrowUpDown className="w-3.5 h-3.5 text-pink-600" />
+                            <span>Catalog Display Position</span>
+                          </label>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-800">
+                            {newDisplayOrder === '1' ? 'Position #1 (Top of Storefront)' : `Position #${newDisplayOrder}`}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setNewDisplayOrder('1')}
+                            className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                              newDisplayOrder === '1'
+                                ? 'bg-pink-600 text-white border-pink-600 font-bold'
+                                : 'bg-white text-slate-700 border-stone-200 hover:border-pink-300'
+                            }`}
+                          >
+                            ⭐ Top of Storefront (#1)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setNewDisplayOrder(String(products.length + 1))}
+                            className={`p-2 rounded-xl border text-left cursor-pointer transition-all ${
+                              newDisplayOrder === String(products.length + 1)
+                                ? 'bg-pink-600 text-white border-pink-600 font-bold'
+                                : 'bg-white text-slate-700 border-stone-200 hover:border-pink-300'
+                            }`}
+                          >
+                            📍 End of Catalog (#{products.length + 1})
+                          </button>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="1"
+                              value={newDisplayOrder}
+                              onChange={(e) => setNewDisplayOrder(e.target.value)}
+                              className="w-full px-2 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs font-bold text-center"
+                              placeholder="Rank #"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Product Photos Upload Area */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block font-semibold text-slate-700 uppercase tracking-wider text-xs">
+                            Product Photos (Visible on Card & Gallery)
+                          </label>
+                          <div className="flex items-center gap-2">
+                            {newPhotos.length === 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setNewPhotos(['/products/keana-rice-mask.png'])}
+                                className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 cursor-pointer underline"
+                              >
+                                Use Sample Photo
+                              </button>
+                            )}
+                            <span className={`text-[11px] font-semibold ${newPhotos.length >= 4 ? 'text-emerald-600 font-bold' : newPhotos.length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
+                              {newPhotos.length} / 5 photos {newPhotos.length >= 4 ? '✓ Ready' : '(Min 1, Recommended 4–5)'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Hidden File Input */}
+                        <input
+                          ref={photoInputRef}
+                          type="file"
+                          accept="image/png, image/jpeg, image/webp, image/jpg"
+                          multiple
+                          onChange={handleProductPhotosChange}
+                          className="hidden"
+                        />
+
+                        {/* Upload Drop/Click Area */}
+                        {newPhotos.length < 5 && (
+                          <div
+                            onClick={() => photoInputRef.current?.click()}
+                            className="border-2 border-dashed border-pink-200 hover:border-pink-400 bg-pink-50/40 hover:bg-pink-50/80 rounded-2xl p-4 text-center cursor-pointer transition-all mb-3 group"
+                          >
+                            <div className="flex flex-col items-center justify-center gap-1.5">
+                              <div className="w-9 h-9 rounded-xl bg-pink-100 text-pink-600 flex items-center justify-center group-hover:scale-105 transition-transform">
+                                {isProcessingPhotos ? (
+                                  <div className="w-4 h-4 border-2 border-pink-600 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                  <Upload className="w-4 h-4" />
+                                )}
+                              </div>
+                              <div>
+                                <span className="text-xs font-bold text-pink-700">
+                                  {isProcessingPhotos ? 'Optimizing & uploading photos...' : 'Click to select product photos'}
+                                </span>
+                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                  First photo is the Cover Image displayed on the storefront Product Card.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Uploaded Photos Grid */}
+                        {newPhotos.length > 0 && (
+                          <div className="grid grid-cols-5 gap-2">
+                            {newPhotos.map((photo, idx) => (
+                              <div
+                                key={idx}
+                                className={`relative aspect-square rounded-xl overflow-hidden border-2 bg-stone-50 p-1 group transition-all ${
+                                  idx === 0 ? 'border-pink-500 ring-2 ring-pink-100' : 'border-stone-200 hover:border-stone-300'
+                                }`}
+                              >
+                                <img
+                                  src={photo}
+                                  alt={`Product photo ${idx + 1}`}
+                                  className="w-full h-full object-contain"
+                                />
+                                
+                                <span className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold ${
+                                  idx === 0 ? 'bg-pink-600 text-white' : 'bg-slate-900/70 text-white'
+                                }`}>
+                                  {idx === 0 ? '★ Card Cover' : `#${idx + 1}`}
+                                </span>
+
+                                <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-1">
+                                  {idx !== 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetCoverPhoto(idx)}
+                                      className="px-1 py-0.5 rounded bg-white text-slate-900 text-[8px] font-bold hover:bg-pink-50 hover:text-pink-600 transition-colors cursor-pointer w-full text-center"
+                                      title="Set as Main Cover Photo"
+                                    >
+                                      Make Cover
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemovePhoto(idx)}
+                                    className="p-1 rounded bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer"
+                                    title="Remove photo"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+
+                            {newPhotos.length < 5 && (
+                              <button
+                                type="button"
+                                onClick={() => photoInputRef.current?.click()}
+                                className="aspect-square rounded-xl border-2 border-dashed border-stone-200 hover:border-pink-400 bg-stone-50/50 hover:bg-pink-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-pink-600 transition-all cursor-pointer"
+                              >
+                                <Plus className="w-4 h-4" />
+                                <span className="text-[9px] font-semibold">Add Photo</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  ) : (
-                    <select
-                      value={newCategory}
-                      onChange={(e) => {
-                        if (e.target.value === '__ADD_NEW__') {
-                          setIsCreatingCategory(true);
-                        } else {
-                          setNewCategory(e.target.value as ProductCategory);
-                        }
-                      }}
-                      className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
-                    >
-                      {categoriesList.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
-                      <option value="__ADD_NEW__" className="text-pink-600 font-bold">
-                        + Create & Save New Category...
-                      </option>
-                    </select>
+                  )}
+
+                  {/* TAB 2: DESCRIPTION & HOW TO */}
+                  {activeProductEditTab === 'details' && (
+                    <div className="space-y-4">
+                      {/* Full Product Description */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                          Full Product Description
+                        </label>
+                        <textarea
+                          rows={4}
+                          value={newDescription}
+                          onChange={(e) => setNewDescription(e.target.value)}
+                          placeholder="Detailed formulation copy, heritage of the Japanese brand, sensory feel, and finish..."
+                          className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Key Benefits List Builder */}
+                      <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="font-bold text-slate-900 uppercase tracking-wider text-xs">
+                            Key Benefits (Bullet Points in Product Modal)
+                          </label>
+                          <span className="text-[10px] font-bold text-slate-500">
+                            {newBenefits.length} Benefits added
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={newBenefitInput}
+                            onChange={(e) => setNewBenefitInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleAddBenefit();
+                              }
+                            }}
+                            placeholder="e.g. 7 multi-weight hyaluronic acids hydrate from surface to deep dermis"
+                            className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-pink-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddBenefit}
+                            className="px-3 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs cursor-pointer shadow-xs"
+                          >
+                            Add Benefit
+                          </button>
+                        </div>
+
+                        {newBenefits.length > 0 && (
+                          <div className="space-y-1.5 pt-1">
+                            {newBenefits.map((benefit, idx) => (
+                              <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-white border border-stone-200 text-slate-800 text-xs">
+                                <div className="flex items-center gap-2 flex-1 pr-2">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                                  <span>{benefit}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveBenefit(idx)}
+                                  className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                  title="Delete benefit"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Usage / How To Apply */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                          How to Use / Application Instructions
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={newUsageHowTo}
+                          onChange={(e) => setNewUsageHowTo(e.target.value)}
+                          placeholder="Apply 2-3 drops onto cleansed face. Gently pat with warmed palms until fully absorbed..."
+                          className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
+                        />
+                      </div>
+
+                      {/* Routine Timing */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                          Recommended Routine Timing
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(['AM', 'PM', 'AM/PM'] as const).map((r) => (
+                            <button
+                              key={r}
+                              type="button"
+                              onClick={() => setNewRoutine(r)}
+                              className={`py-2 px-3 rounded-xl border font-bold text-xs cursor-pointer transition-colors ${
+                                newRoutine === r
+                                  ? 'bg-pink-600 text-white border-pink-600 shadow-xs'
+                                  : 'bg-stone-50 text-slate-700 border-stone-200 hover:border-pink-300'
+                              }`}
+                            >
+                              {r === 'AM' ? '☀️ Morning (AM)' : r === 'PM' ? '🌙 Night (PM)' : '☀️/🌙 Morning & Night (AM/PM)'}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Full Ingredients List */}
+                      <div>
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
+                          Full INCI Ingredients Formulation
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={newFullIngredients}
+                          onChange={(e) => setNewFullIngredients(e.target.value)}
+                          placeholder="Water, Glycerin, Dipropylene Glycol, Sodium Hyaluronate, Hydrolyzed Hyaluronic Acid..."
+                          className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 font-mono text-[11px] focus:bg-white focus:border-pink-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: ACTIVES & SKIN MATCH */}
+                  {activeProductEditTab === 'actives' && (
+                    <div className="space-y-4">
+                      {/* Key Actives Builder */}
+                      <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="font-bold text-slate-900 uppercase tracking-wider text-xs">
+                            Key Actives & Botanical Extracts
+                          </label>
+                          <span className="text-[10px] font-bold text-slate-500">
+                            {newKeyActives.length} Actives listed
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            value={newActiveName}
+                            onChange={(e) => setNewActiveName(e.target.value)}
+                            placeholder="Ingredient Name (e.g. Centella)"
+                            className="px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-pink-500"
+                          />
+                          <input
+                            type="text"
+                            value={newActivePercentage}
+                            onChange={(e) => setNewActivePercentage(e.target.value)}
+                            placeholder="Concentration (e.g. 10%)"
+                            className="px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-pink-500"
+                          />
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={newActivePurpose}
+                              onChange={(e) => setNewActivePurpose(e.target.value)}
+                              placeholder="Purpose (e.g. Soothes redness)"
+                              className="flex-1 px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-pink-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleAddActive}
+                              className="px-3 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs cursor-pointer shadow-xs whitespace-nowrap"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+
+                        {newKeyActives.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            {newKeyActives.map((active, idx) => (
+                              <div key={idx} className="p-2.5 rounded-xl bg-white border border-stone-200 flex items-center justify-between gap-2 shadow-2xs">
+                                <div>
+                                  <div className="font-bold text-slate-900 flex items-center gap-1">
+                                    <span>{active.name}</span>
+                                    {active.percentage && (
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-pink-50 text-pink-700 font-extrabold">
+                                        {active.percentage}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] text-slate-500">{active.purpose}</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveActive(idx)}
+                                  className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                  title="Remove active"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Suitable Skin Types */}
+                      <div className="space-y-1.5">
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider text-xs">
+                          Suitable Skin Types (Select all that apply)
+                        </label>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {['All', 'Dry', 'Oily', 'Sensitive', 'Combination', 'Mature', 'Normal'].map((type) => (
+                            <button
+                              key={type}
+                              type="button"
+                              onClick={() => handleToggleSkinType(type)}
+                              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
+                                newSkinTypes.includes(type)
+                                  ? 'bg-pink-600 text-white border-pink-600 shadow-2xs'
+                                  : 'bg-stone-50 text-slate-700 border-stone-200 hover:border-pink-300'
+                              }`}
+                            >
+                              {newSkinTypes.includes(type) ? `✓ ${type}` : type}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Targeted Skin Concerns */}
+                      <div className="space-y-1.5">
+                        <label className="block font-semibold text-slate-700 uppercase tracking-wider text-xs">
+                          Target Skin Concerns
+                        </label>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {['Hydration', 'Glow & Dullness', 'Barrier Repair', 'Anti-Aging', 'Blemishes & Texture', 'Redness Relief'].map((concern) => (
+                            <button
+                              key={concern}
+                              type="button"
+                              onClick={() => handleToggleSkinConcern(concern)}
+                              className={`px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors ${
+                                newSkinConcerns.includes(concern)
+                                  ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                                  : 'bg-stone-50 text-slate-700 border-stone-200 hover:border-rose-300'
+                              }`}
+                            >
+                              {newSkinConcerns.includes(concern) ? `✓ ${concern}` : concern}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Accent / Theme Color */}
+                      <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 space-y-2">
+                        <label className="block font-bold text-slate-900 uppercase tracking-wider text-xs">
+                          Product Accent Theme Color
+                        </label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="color"
+                            value={newAccentColor}
+                            onChange={(e) => setNewAccentColor(e.target.value)}
+                            className="w-10 h-10 rounded-xl border border-stone-300 cursor-pointer p-0.5"
+                          />
+                          <input
+                            type="text"
+                            value={newAccentColor}
+                            onChange={(e) => setNewAccentColor(e.target.value)}
+                            className="w-28 px-2.5 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs font-mono font-bold"
+                          />
+                          {/* Color presets */}
+                          <div className="flex items-center gap-1.5">
+                            {['#E11D48', '#C52857', '#F43F5E', '#10B981', '#3B82F6', '#8B5CF6', '#F59E0B'].map((preset) => (
+                              <button
+                                key={preset}
+                                type="button"
+                                onClick={() => setNewAccentColor(preset)}
+                                style={{ backgroundColor: preset }}
+                                className={`w-6 h-6 rounded-full border-2 transition-transform hover:scale-110 cursor-pointer ${
+                                  newAccentColor.toLowerCase() === preset.toLowerCase() ? 'border-slate-900 scale-110' : 'border-white'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 4: SHADES & REVIEWS */}
+                  {activeProductEditTab === 'variants' && (
+                    <div className="space-y-4">
+                      {/* Product Shades Builder */}
+                      <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="font-bold text-slate-900 uppercase tracking-wider text-xs">
+                            Product Shades & Color Variants (Lip Tints, BB Creams, Tinted Sunscreens)
+                          </label>
+                          <span className="text-[10px] font-bold text-slate-500">
+                            {newShades.length} Shades configured
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="color"
+                            value={newShadeHex}
+                            onChange={(e) => setNewShadeHex(e.target.value)}
+                            className="w-9 h-9 rounded-xl border border-stone-300 cursor-pointer p-0.5 flex-shrink-0"
+                            title="Pick shade color"
+                          />
+                          <input
+                            type="text"
+                            value={newShadeName}
+                            onChange={(e) => setNewShadeName(e.target.value)}
+                            placeholder="Shade Name (e.g. 01 Sakura Velvet)"
+                            className="flex-1 px-3 py-1.5 rounded-xl bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-pink-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleAddShade}
+                            className="px-3 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs cursor-pointer shadow-xs"
+                          >
+                            + Add Shade
+                          </button>
+                        </div>
+
+                        {newShades.length > 0 && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                            {newShades.map((shade) => (
+                              <div key={shade.id} className="p-2 rounded-xl bg-white border border-stone-200 flex items-center justify-between gap-2 shadow-2xs">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    style={{ backgroundColor: shade.hex }}
+                                    className="w-5 h-5 rounded-full border border-stone-300 shadow-2xs flex-shrink-0"
+                                  />
+                                  <span className="font-bold text-xs text-slate-800">{shade.name}</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveShade(shade.id)}
+                                  className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
+                                  title="Remove shade"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Storefront Ratings & Review Statistics */}
+                      <div className="p-3.5 bg-amber-50/50 rounded-2xl border border-amber-200 space-y-3">
+                        <label className="block font-bold text-amber-950 uppercase tracking-wider text-xs">
+                          Customer Rating & Social Proof
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block font-semibold text-slate-700 uppercase tracking-wider text-[11px] mb-1">
+                              Product Rating (1.0 to 5.0)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="1"
+                              max="5"
+                              value={newRating}
+                              onChange={(e) => setNewRating(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-slate-900 font-bold focus:border-pink-500 focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block font-semibold text-slate-700 uppercase tracking-wider text-[11px] mb-1">
+                              Reviews Count
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              value={newReviewsCount}
+                              onChange={(e) => setNewReviewsCount(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-slate-900 font-bold focus:border-pink-500 focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   )}
                 </div>
 
-                <div>
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1 text-[11px]">
-                    Volume / Size
-                  </label>
-                  <input
-                    type="text"
-                    value={newVolume}
-                    onChange={(e) => setNewVolume(e.target.value)}
-                    placeholder="170ml / 230g"
-                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                    Price (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    required
-                    value={newPrice}
-                    onChange={(e) => setNewPrice(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                    Original Price (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={newOriginalPrice}
-                    onChange={(e) => setNewOriginalPrice(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider mb-1">
-                    Initial Stock
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    required
-                    value={newStock}
-                    onChange={(e) => setNewStock(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none font-bold"
-                  />
-                </div>
-              </div>
-
-              {/* STOREFRONT DISPLAY POSITION (EXPLICIT TOP OF STOREFRONT CHOICE) */}
-              <div className="p-3.5 bg-gradient-to-r from-pink-50/80 via-rose-50/40 to-white rounded-2xl border border-pink-200 shadow-2xs space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ArrowUpDown className="w-4 h-4 text-pink-600" />
-                    <label className="text-xs font-bold text-slate-900 uppercase tracking-wider">
-                      Storefront Catalog Position
-                    </label>
-                  </div>
-                  <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                    newDisplayOrder === '1' || !newDisplayOrder
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : 'bg-pink-100 text-pink-800 border border-pink-300'
-                  }`}>
-                    {newDisplayOrder === '1' || !newDisplayOrder ? '⭐️ Position #1 (Top of Storefront)' : `Position #${newDisplayOrder}`}
-                  </span>
-                </div>
-
-                <p className="text-[11px] text-slate-600">
-                  Choose where this product appears on the homepage and customer catalog:
-                </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewDisplayOrder('1')}
-                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-0.5 ${
-                      newDisplayOrder === '1' || !newDisplayOrder
-                        ? 'bg-pink-600 text-white border-pink-600 shadow-xs ring-2 ring-pink-500/20'
-                        : 'bg-white text-slate-700 border-stone-200 hover:border-pink-300 hover:bg-stone-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs">⭐️ Top of Storefront</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${newDisplayOrder === '1' || !newDisplayOrder ? 'bg-white/20 text-white' : 'bg-pink-50 text-pink-700'}`}>Rank #1</span>
+                {/* Right: Real-time Live Product Card Preview */}
+                {showLiveCardPreview && (
+                  <div className="hidden md:block md:col-span-5 lg:col-span-4 sticky top-0 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-500 px-1">
+                      <span>Live Card Preview</span>
+                      <span className="text-[10px] text-pink-600 font-normal">Real-time storefront rendering</span>
                     </div>
-                    <span className={`text-[10px] ${newDisplayOrder === '1' || !newDisplayOrder ? 'text-pink-100' : 'text-slate-500'}`}>
-                      First item customers see (Recommended)
-                    </span>
-                  </button>
 
-                  <button
-                    type="button"
-                    onClick={() => setNewDisplayOrder(String(products.length + 1))}
-                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-0.5 ${
-                      newDisplayOrder === String(products.length + 1)
-                        ? 'bg-pink-600 text-white border-pink-600 shadow-xs ring-2 ring-pink-500/20'
-                        : 'bg-white text-slate-700 border-stone-200 hover:border-pink-300 hover:bg-stone-50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs">📍 End of Storefront</span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${newDisplayOrder === String(products.length + 1) ? 'bg-white/20 text-white' : 'bg-stone-100 text-slate-700'}`}>Rank #{products.length + 1}</span>
-                    </div>
-                    <span className={`text-[10px] ${newDisplayOrder === String(products.length + 1) ? 'text-pink-100' : 'text-slate-500'}`}>
-                      Place after all current products
-                    </span>
-                  </button>
-
-                  <div className="p-2.5 rounded-xl border bg-white border-stone-200 flex flex-col justify-between">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-bold text-xs text-slate-700">🔢 Custom Rank</span>
-                      <span className="text-[10px] text-slate-400">1 to {products.length + 1}</span>
-                    </div>
-                    <input
-                      type="number"
-                      min="1"
-                      max={products.length + 50}
-                      value={newDisplayOrder}
-                      onChange={(e) => setNewDisplayOrder(e.target.value)}
-                      placeholder="1"
-                      className="w-full px-2 py-1 text-xs font-bold rounded-lg bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-pink-500 focus:outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Coming Soon Pre-Launch Tag Option */}
-              <div className="p-3.5 bg-amber-50/80 rounded-2xl border border-amber-200/90 flex items-center justify-between gap-3 shadow-2xs">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-amber-600" />
-                    <label htmlFor="isComingSoonCheckbox" className="text-xs font-bold text-slate-900 cursor-pointer">
-                      Tag Product as "Coming Soon"
-                    </label>
-                    {newIsComingSoon && (
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider bg-amber-500 text-white shadow-2xs animate-pulse">
-                        Coming Soon Active
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-600 mt-1">
-                    Displays a prominent "COMING SOON" pre-launch badge across customer storefront, category filters, and product page.
-                  </p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    id="isComingSoonCheckbox"
-                    type="checkbox"
-                    checked={newIsComingSoon}
-                    onChange={(e) => setNewIsComingSoon(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-stone-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-stone-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                </label>
-              </div>
-
-              {/* Direct Photo Upload Area (4-5 Photos) */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block font-semibold text-slate-700 uppercase tracking-wider text-xs">
-                    Product Photos (Upload 4–5 Photos)
-                  </label>
-                  <div className="flex items-center gap-2">
-                    {newPhotos.length === 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setNewPhotos(['/products/keana-rice-mask.png'])}
-                        className="text-[11px] font-semibold text-pink-600 hover:text-pink-700 cursor-pointer underline"
-                      >
-                        Use Sample Photo
-                      </button>
-                    )}
-                    <span className={`text-[11px] font-semibold ${newPhotos.length >= 4 ? 'text-emerald-600 font-bold' : newPhotos.length > 0 ? 'text-amber-600' : 'text-slate-400'}`}>
-                      {newPhotos.length} / 5 photos {newPhotos.length >= 4 ? '✓ Ready' : '(Min 1, Recommended 4–5)'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Hidden File Input */}
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/png, image/jpeg, image/webp, image/jpg"
-                  multiple
-                  onChange={handleProductPhotosChange}
-                  className="hidden"
-                />
-
-                {/* Upload Drop/Click Area */}
-                {newPhotos.length < 5 && (
-                  <div
-                    onClick={() => photoInputRef.current?.click()}
-                    className="border-2 border-dashed border-pink-200 hover:border-pink-400 bg-pink-50/40 hover:bg-pink-50/80 rounded-2xl p-4 text-center cursor-pointer transition-all mb-3 group"
-                  >
-                    <div className="flex flex-col items-center justify-center gap-1.5">
-                      <div className="w-10 h-10 rounded-xl bg-pink-100 text-pink-600 flex items-center justify-center group-hover:scale-105 transition-transform">
-                        {isProcessingPhotos ? (
-                          <div className="w-5 h-5 border-2 border-pink-600 border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <Upload className="w-5 h-5" />
-                        )}
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-pink-700">
-                          {isProcessingPhotos ? 'Optimizing & uploading photos...' : 'Click to select product photos'}
-                        </span>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          Select 4–5 photos (front, back/ingredients, texture, and packaging). PNG, JPG, or WebP.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Uploaded Photos Grid */}
-                {newPhotos.length > 0 && (
-                  <div className="grid grid-cols-5 gap-2">
-                    {newPhotos.map((photo, idx) => (
-                      <div
-                        key={idx}
-                        className={`relative aspect-square rounded-xl overflow-hidden border-2 bg-stone-50 p-1 group transition-all ${
-                          idx === 0 ? 'border-pink-500 ring-2 ring-pink-100' : 'border-stone-200 hover:border-stone-300'
-                        }`}
-                      >
+                    {/* Simulated Storefront Card */}
+                    <div className="rounded-2xl p-3 border border-pink-200/90 shadow-md bg-white/95 text-left flex flex-col justify-between pointer-events-none select-none transition-all">
+                      {/* Image Stage */}
+                      <div className="relative aspect-square w-full rounded-xl overflow-hidden mb-2.5 bg-stone-50 border border-slate-200 flex items-center justify-center p-3 shadow-2xs">
                         <img
-                          src={photo}
-                          alt={`Product photo ${idx + 1}`}
-                          className="w-full h-full object-contain"
+                          src={newPhotos[0] || '/products/keana-rice-mask.png'}
+                          alt="Preview"
+                          className="w-full h-full object-contain filter drop-shadow-sm"
                         />
-                        
-                        {/* Badge */}
-                        <span className={`absolute top-1 left-1 px-1.5 py-0.5 rounded text-[8px] font-bold ${
-                          idx === 0 ? 'bg-pink-600 text-white' : 'bg-slate-900/70 text-white'
-                        }`}>
-                          {idx === 0 ? '★ Cover' : `#${idx + 1}`}
-                        </span>
 
-                        {/* Action overlay on hover */}
-                        <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 p-1">
-                          {idx !== 0 && (
-                            <button
-                              type="button"
-                              onClick={() => handleSetCoverPhoto(idx)}
-                              className="px-1 py-0.5 rounded bg-white text-slate-900 text-[8px] font-bold hover:bg-pink-50 hover:text-pink-600 transition-colors cursor-pointer w-full text-center"
-                              title="Set as Main Cover Photo"
-                            >
-                              Make Cover
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => handleRemovePhoto(idx)}
-                            className="p-1 rounded bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer"
-                            title="Remove photo"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                        {/* Coming soon or Badge */}
+                        {newIsComingSoon ? (
+                          <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] font-extrabold uppercase tracking-wider shadow-sm flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            <span>Coming Soon</span>
+                          </span>
+                        ) : newBadges.length > 0 || newIsBestSeller || newIsNew ? (
+                          <span className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-pink-600 text-white text-[9px] font-bold uppercase tracking-wider shadow-2xs">
+                            {newBadges[0] || (newIsBestSeller ? 'Bestseller' : 'New Arrival')}
+                          </span>
+                        ) : null}
+
+                        {/* Volume chip */}
+                        {newVolume && (
+                          <span className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-white/90 text-[9px] font-semibold text-slate-700 border border-slate-200 shadow-2xs">
+                            {newVolume}
+                          </span>
+                        )}
+
+                        {/* Heart icon */}
+                        <div className="absolute top-1.5 right-1.5 w-7 h-7 rounded-xl bg-white/90 flex items-center justify-center text-slate-400 border border-slate-200">
+                          <Heart className="w-3.5 h-3.5" />
                         </div>
                       </div>
-                    ))}
 
-                    {/* Quick Add More Slot Button if < 5 */}
-                    {newPhotos.length < 5 && (
-                      <button
-                        type="button"
-                        onClick={() => photoInputRef.current?.click()}
-                        className="aspect-square rounded-xl border-2 border-dashed border-stone-200 hover:border-pink-400 bg-stone-50/50 hover:bg-pink-50/50 flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-pink-600 transition-all cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span className="text-[9px] font-semibold">Add Photo</span>
-                      </button>
-                    )}
+                      {/* Title & Subtitle */}
+                      <div className="mb-2">
+                        <h4 className="font-bold text-xs text-slate-900 leading-snug line-clamp-2 min-h-[2rem]">
+                          {newTitle || 'Product Title Appears Here'}
+                        </h4>
+                        <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">
+                          {newSubtitle || `${newCategory} • Authentic Japan Skincare`}
+                        </p>
+                      </div>
+
+                      {/* Price & Stock */}
+                      <div className="pt-2 border-t border-slate-100 space-y-2">
+                        <div className="flex items-center justify-between gap-1">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-sm font-extrabold text-slate-900 tracking-tight">
+                              ₹{parseInt(newPrice, 10) || 0}
+                            </span>
+                            {parseInt(newOriginalPrice, 10) > parseInt(newPrice, 10) && (
+                              <>
+                                <span className="text-[11px] text-slate-400 line-through">
+                                  ₹{parseInt(newOriginalPrice, 10)}
+                                </span>
+                                <span className="text-[9px] font-extrabold text-pink-600 bg-pink-50 px-1 py-0.2 rounded">
+                                  {Math.round(((parseInt(newOriginalPrice, 10) - parseInt(newPrice, 10)) / parseInt(newOriginalPrice, 10)) * 100)}% OFF
+                                </span>
+                              </>
+                            )}
+                          </div>
+
+                          {newIsComingSoon ? (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded text-amber-700 bg-amber-50 border border-amber-200">
+                              Coming Soon
+                            </span>
+                          ) : (
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${parseInt(newStock, 10) > 0 ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>
+                              {parseInt(newStock, 10) > 0 ? 'In Stock' : 'Sold Out'}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Quick Add Button */}
+                        <div className={`w-full py-2 px-3 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 text-white ${
+                          newIsComingSoon ? 'bg-amber-500' : (parseInt(newStock, 10) > 0 ? 'bg-pink-600' : 'bg-slate-300 text-slate-500')
+                        }`}>
+                          {newIsComingSoon ? (
+                            <>
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>Coming Soon • Details</span>
+                            </>
+                          ) : (
+                            <>
+                              <ShoppingBag className="w-3.5 h-3.5" />
+                              <span>{parseInt(newStock, 10) > 0 ? 'Add to Cart' : 'Sold Out'}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                )}
-
-                {photoUploadError && (
-                  <p className="text-[11px] text-rose-600 font-semibold mt-2 flex items-center gap-1">
-                    <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span>{photoUploadError}</span>
-                  </p>
                 )}
               </div>
 
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetProductForm();
-                    setShowAddProductModal(false);
-                  }}
-                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 font-semibold cursor-pointer transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingProduct || isProcessingPhotos}
-                  className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-md shadow-pink-600/20 flex items-center gap-2"
-                >
-                  {(isSavingProduct || isProcessingPhotos) && <RefreshCw className="w-4 h-4 animate-spin" />}
-                  <span>
-                    {isProcessingPhotos
-                      ? 'Uploading Photos...'
-                      : isSavingProduct
-                      ? 'Saving to Database...'
-                      : (editingProduct ? 'Save Changes' : 'Publish Item')}
-                  </span>
-                </button>
+              {/* Bottom Action Footer */}
+              <div className="pt-3 border-t border-stone-100 flex items-center justify-between flex-shrink-0">
+                <div className="text-[11px] text-slate-500">
+                  {editingProduct ? 'Changes immediately sync to Supabase cloud and live storefront.' : 'New listing will instantly appear at your selected catalog position.'}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetProductForm();
+                      setShowAddProductModal(false);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 font-semibold cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingProduct || isProcessingPhotos}
+                    className="px-5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-50 text-white font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-md shadow-pink-600/20 flex items-center gap-2"
+                  >
+                    {(isSavingProduct || isProcessingPhotos) && <RefreshCw className="w-4 h-4 animate-spin" />}
+                    <span>
+                      {isProcessingPhotos
+                        ? 'Uploading Photos...'
+                        : isSavingProduct
+                        ? 'Saving to Database...'
+                        : (editingProduct ? 'Save All Changes' : 'Publish Product')}
+                    </span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>
