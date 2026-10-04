@@ -27,6 +27,8 @@ export interface Product {
   slug?: string;
   title: string;
   subtitle: string;
+  brand?: string;
+  sku?: string;
   price: number;
   originalPrice: number;
   rating: number;

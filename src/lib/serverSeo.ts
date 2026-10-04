@@ -92,11 +92,13 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
 
   // Combine products without duplicates
   const allProductsMap = new Map<string, Product>();
-  PRODUCTS.forEach(p => allProductsMap.set(p.id, p));
-  liveProducts.forEach(p => {
-    if (p.id) allProductsMap.set(p.id, { ...allProductsMap.get(p.id), ...p });
+  PRODUCTS.forEach(p => {
+    if (p && p.id) allProductsMap.set(p.id, p);
   });
-  const allProducts = Array.from(allProductsMap.values());
+  (liveProducts || []).forEach(p => {
+    if (p && p.id) allProductsMap.set(p.id, { ...allProductsMap.get(p.id), ...p });
+  });
+  const allProducts = Array.from(allProductsMap.values()).filter(Boolean);
 
   const orgSchema = generateOrganizationJsonLd();
   const webSiteSchema = generateWebSiteJsonLd();
@@ -280,6 +282,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
   }
 
   // 2. CATEGORY / COLLECTION PAGE: /collections/:slug
+  // 2. CATEGORY / COLLECTION PAGE: /collections/:slug
   if (path.startsWith('/collections/')) {
     const slug = path.replace('/collections/', '').toLowerCase().trim();
     const categoryInfo: SeoCategoryInfo | undefined = slug ? SEO_CATEGORIES[slug] : undefined;
@@ -287,6 +290,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
     if (categoryInfo) {
       const canonicalUrl = `${CANONICAL_SITE_URL}/collections/${categoryInfo.slug}`;
       const matchingProducts = allProducts.filter(p => {
+        if (!p) return false;
         const cat = (p.category || '').toLowerCase();
         if (slug === 'sunscreen') return cat.includes('sun') || p.title.toLowerCase().includes('spf');
         if (slug === 'face-wash') return cat.includes('clean') || cat.includes('wash') || p.title.toLowerCase().includes('whip');
@@ -306,23 +310,47 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
       const breadcrumbJsonLd = generateBreadcrumbJsonLd(breadcrumbs);
       const collectionJsonLd = generateCollectionPageJsonLd(categoryInfo.name, categoryInfo.metaDescription, canonicalUrl, matchingProducts);
 
+      const otherCategories = Object.values(SEO_CATEGORIES).filter(c => c.slug !== categoryInfo.slug);
+
       const crawlerHtml = `
-        <main class="seo-crawler-page">
+        <main class="seo-crawler-page collection-page-seo">
           <nav aria-label="Breadcrumb">
-            <a href="/">Home</a> &gt; <span>${categoryInfo.name}</span>
+            <a href="/">Home</a> &gt; <span>${escapeHtml(categoryInfo.name)}</span>
           </nav>
-          <h1>${categoryInfo.h1}</h1>
-          <p>${categoryInfo.introText}</p>
-          <div class="product-listing">
-            <h2>Available Japanese Skincare Products in this Collection</h2>
+          <h1>${escapeHtml(categoryInfo.h1)}</h1>
+          <p class="category-intro">${escapeHtml(categoryInfo.introText)}</p>
+
+          ${categoryInfo.relatedBrandSlugs && categoryInfo.relatedBrandSlugs.length > 0 ? `
+          <section class="category-brands-nav">
+            <h2>Featured Japanese Brands in this Collection</h2>
+            <p>Explore authentic Tokyo brands formulating genuine ${escapeHtml(categoryInfo.name)}:</p>
             <ul>
-              ${matchingProducts.map(p => `
+              ${categoryInfo.relatedBrandSlugs.map(bSlug => {
+                const b = SEO_BRANDS[bSlug];
+                return b ? `<li><a href="/brands/${b.slug}">${escapeHtml(b.name)}</a> – ${escapeHtml(b.h1)}</li>` : '';
+              }).filter(Boolean).join('')}
+            </ul>
+          </section>` : ''}
+
+          <div class="product-listing">
+            <h2>Available ${escapeHtml(categoryInfo.name)} in India (${matchingProducts.length})</h2>
+            ${matchingProducts.length > 0 ? `
+            <ul>
+              ${matchingProducts.filter(Boolean).map(p => `
                 <li>
-                  <a href="${getProductCanonicalUrl(p)}">${p.title}</a> - ₹${p.price}
+                  <a href="${getProductCanonicalUrl(p)}">${escapeHtml(p.title || '')}</a> - ₹${p.price}
                 </li>
               `).join('')}
-            </ul>
+            </ul>` : `
+            <p>Our upcoming Tokyo shipment is currently restocking items in this collection. Explore other Japanese skincare essentials below.</p>`}
           </div>
+
+          <section class="other-collections-nav">
+            <h2>Explore Other Japanese Skincare Collections</h2>
+            <ul>
+              ${otherCategories.map(c => `<li><a href="/collections/${c.slug}">${escapeHtml(c.name)}</a></li>`).join('')}
+            </ul>
+          </section>
         </main>
       `;
 
@@ -351,8 +379,16 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
     if (brandInfo) {
       const canonicalUrl = `${CANONICAL_SITE_URL}/brands/${brandInfo.slug}`;
       const matchingProducts = allProducts.filter(p => {
+        if (!p) return false;
         const brand = inferBrandFromProduct(p);
-        return brand.slug === slug || p.title.toLowerCase().includes(brandInfo.name.toLowerCase());
+        if (brand?.slug === slug) return true;
+        if (brand?.name && brand.name.toLowerCase() === brandInfo.name.toLowerCase()) return true;
+        const titleLower = (p.title || '').toLowerCase();
+        if (titleLower.includes(brandInfo.name.toLowerCase())) return true;
+        // Parent house brand umbrella queries
+        if (slug === 'shiseido' && (titleLower.includes('fino') || titleLower.includes('tsubaki') || titleLower.includes('senka') || titleLower.includes('anessa'))) return true;
+        if (slug === 'rohto' && (titleLower.includes('melano cc') || titleLower.includes('hada labo') || titleLower.includes('skin aqua'))) return true;
+        return false;
       });
 
       const breadcrumbs = [
@@ -364,23 +400,52 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
       const collectionJsonLd = generateCollectionPageJsonLd(brandInfo.name, brandInfo.metaDescription, canonicalUrl, matchingProducts);
 
       const crawlerHtml = `
-        <main class="seo-crawler-page">
+        <main class="seo-crawler-page brand-page-seo">
           <nav aria-label="Breadcrumb">
-            <a href="/">Home</a> &gt; <span>${brandInfo.name}</span>
+            <a href="/">Home</a> &gt; <span>${escapeHtml(brandInfo.name)}</span>
           </nav>
-          <h1>${brandInfo.h1}</h1>
-          <p class="brand-origin">Origin: ${brandInfo.countryOfOrigin} (${brandInfo.japaneseName}) ${brandInfo.foundingYear ? `• Est. ${brandInfo.foundingYear}` : ''}</p>
-          <p>${brandInfo.brandStory}</p>
-          <div class="product-listing">
-            <h2>Authentic ${brandInfo.name} Products Available in India</h2>
+          <h1>${escapeHtml(brandInfo.h1)}</h1>
+          <p class="brand-origin">Origin: ${escapeHtml(brandInfo.countryOfOrigin)} (${escapeHtml(brandInfo.japaneseName)}) ${brandInfo.foundingYear ? `• Est. ${escapeHtml(brandInfo.foundingYear)}` : ''}</p>
+          <p class="brand-story">${escapeHtml(brandInfo.brandStory)}</p>
+
+          ${brandInfo.relatedCategorySlugs && brandInfo.relatedCategorySlugs.length > 0 ? `
+          <section class="brand-categories-nav">
+            <h2>Explore ${escapeHtml(brandInfo.name)} by Category</h2>
             <ul>
-              ${matchingProducts.map(p => `
+              ${brandInfo.relatedCategorySlugs.map(cSlug => {
+                const cat = SEO_CATEGORIES[cSlug];
+                return cat ? `<li><a href="/collections/${cat.slug}">${escapeHtml(cat.name)}</a></li>` : '';
+              }).filter(Boolean).join('')}
+            </ul>
+          </section>` : ''}
+
+          <div class="product-listing">
+            <h2>Authentic ${escapeHtml(brandInfo.name)} Products Available in India (${matchingProducts.length})</h2>
+            ${matchingProducts.length > 0 ? `
+            <ul>
+              ${matchingProducts.filter(Boolean).map(p => `
                 <li>
-                  <a href="${getProductCanonicalUrl(p)}">${p.title}</a> - ₹${p.price}
+                  <a href="${getProductCanonicalUrl(p)}">${escapeHtml(p.title || '')}</a> - ₹${p.price}
                 </li>
               `).join('')}
-            </ul>
+            </ul>` : `
+            <div class="brand-restock-notice">
+              <p>Fresh batches of authentic ${escapeHtml(brandInfo.name)} from Tokyo are currently en route or restocking. In the meantime, browse our popular Japanese skincare essentials below or visit our <a href="/collections/skincare">Skincare Collection</a>.</p>
+              <ul>
+                ${allProducts.slice(0, 6).map(p => `
+                  <li>
+                    <a href="${getProductCanonicalUrl(p)}">${escapeHtml(p.title || '')}</a> - ₹${p.price}
+                  </li>
+                `).join('')}
+              </ul>
+            </div>`}
           </div>
+
+          <footer class="brand-footer-nav">
+            <p>
+              Explore all <a href="/collections/skincare">Japanese Skincare Collections</a> or learn about our direct Tokyo sourcing on our <a href="/about">About Us</a> page.
+            </p>
+          </footer>
         </main>
       `;
 
@@ -506,15 +571,18 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
           <li><a href="/brands/lululun">LuLuLun Daily Face Masks</a></li>
           <li><a href="/brands/capsule-serum">Capsule Serum Japan</a></li>
           <li><a href="/brands/kose">Kosé Cosmeport</a></li>
+          <li><a href="/brands/tsubaki">Tsubaki by Shiseido</a></li>
+          <li><a href="/brands/shiseido">Shiseido Heritage</a></li>
+          <li><a href="/brands/rohto">Rohto Pharmaceutical</a></li>
         </ul>
       </section>
 
       <section class="seo-products-nav">
         <h2>Featured Japanese Skincare Products in India</h2>
         <ul>
-          ${allProducts.map(p => `
+          ${allProducts.filter(Boolean).map(p => `
             <li>
-              <a href="${getProductCanonicalUrl(p)}">${p.title}</a> - ₹${p.price}
+              <a href="${getProductCanonicalUrl(p)}">${escapeHtml(p.title || '')}</a> - ₹${p.price}
             </li>
           `).join('')}
         </ul>

@@ -23,6 +23,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   onEdit,
   isOperator
 }) => {
+  if (!product) return null;
+
   const [selectedShade] = useState<ProductShade | undefined>(
     product.shades ? product.shades[0] : undefined
   );

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Sparkles, ArrowLeft, ShieldCheck } from 'lucide-react';
-import { SeoCategoryInfo } from '../data/seoContent';
+import { SeoCategoryInfo, SEO_BRANDS } from '../data/seoContent';
 import { Breadcrumbs } from './Breadcrumbs';
 
 interface CategorySeoBannerProps {
@@ -45,6 +45,25 @@ export const CategorySeoBanner: React.FC<CategorySeoBannerProps> = ({
           <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-300 leading-relaxed font-light">
             {category.introText}
           </p>
+
+          {category.relatedBrandSlugs && category.relatedBrandSlugs.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap pt-2">
+              <span className="text-xs text-slate-500 dark:text-zinc-400 font-medium">Top Brands:</span>
+              {category.relatedBrandSlugs.map(bSlug => {
+                const b = SEO_BRANDS[bSlug];
+                if (!b) return null;
+                return (
+                  <a
+                    key={b.slug}
+                    href={`/brands/${b.slug}`}
+                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-white/80 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:text-pink-600 dark:hover:text-pink-400 hover:border-pink-300 transition-colors"
+                  >
+                    {b.name}
+                  </a>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-3 shrink-0 self-start md:self-auto">

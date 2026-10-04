@@ -395,10 +395,10 @@ export default function App() {
 
     fetchCategoriesFromStore().then((cats) => {
       if (Array.isArray(cats) && cats.length > 0) {
-        setDbCategories(cats.map(c => ({
+        setDbCategories(cats.filter(Boolean).map(c => ({
           id: c.id || c.name,
           name: c.name,
-          slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+          slug: c.slug || (c.name ? c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') : 'category'),
           display_order: c.display_order ?? 99
         })));
       }
@@ -417,10 +417,10 @@ export default function App() {
           .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => {
             fetchCategoriesFromStore().then(cats => {
               if (Array.isArray(cats) && cats.length > 0) {
-                setDbCategories(cats.map(c => ({
+                setDbCategories(cats.filter(Boolean).map(c => ({
                   id: c.id || c.name,
                   name: c.name,
-                  slug: c.slug || c.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+                  slug: c.slug || (c.name ? c.name.toLowerCase().replace(/[^a-z0-9]/g, '-') : 'category'),
                   display_order: c.display_order ?? 99
                 })));
               }
@@ -748,16 +748,18 @@ export default function App() {
       const slug = cleanPath.replace('/products/', '').toLowerCase().trim();
       const normReqSlug = slug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       const matched = prods.find(p => {
+        if (!p) return false;
         const pSlug = getProductCanonicalSlug(p).toLowerCase();
         const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const rawSlug = (p.slug || '').toLowerCase();
         const normRawSlug = rawSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const id = p.id.toLowerCase();
+        const id = (p.id || '').toLowerCase();
         return pSlug === slug || rawSlug === slug || id === slug || normPSlug === normReqSlug || normRawSlug === normReqSlug;
       }) || PRODUCTS.find(p => {
+        if (!p) return false;
         const pSlug = getProductCanonicalSlug(p).toLowerCase();
         const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        return pSlug === slug || p.id.toLowerCase() === slug || normPSlug === normReqSlug;
+        return pSlug === slug || (p.id || '').toLowerCase() === slug || normPSlug === normReqSlug;
       });
 
       if (matched) {
@@ -1519,7 +1521,8 @@ export default function App() {
   };
 
   // Helper: check if a product belongs to a given category
-  const productBelongsToCategory = (p: Product, cat: { id?: string; name: string; slug?: string }) => {
+  const productBelongsToCategory = (p: Product, cat: { id?: string; name: string; slug?: string } | null | undefined) => {
+    if (!p || !cat) return false;
     const pCatNorm = normalizeCat(p.category);
     const catNameNorm = normalizeCat(cat.name);
     const catSlugNorm = normalizeCat(cat.slug);
@@ -1544,7 +1547,7 @@ export default function App() {
     const seen = new Set<string>();
 
     // 1. Always include 'All' first
-    list.push({ id: 'All', name: 'All', slug: 'all', count: productsList.length });
+    list.push({ id: 'All', name: 'All', slug: 'all', count: (productsList || []).filter(Boolean).length });
     seen.add('all');
 
     // 2. Gather all candidate categories from Supabase (dbCategories), listed products, and presets
@@ -1553,18 +1556,19 @@ export default function App() {
     // Supabase categories
     if (dbCategories.length > 0) {
       dbCategories.forEach((c) => {
+        if (!c) return;
         const norm = normalizeCat(c.name);
-        if (norm && norm !== 'all' && !candidates.some((existing) => normalizeCat(existing.name) === norm)) {
+        if (norm && norm !== 'all' && !candidates.some((existing) => existing && normalizeCat(existing.name) === norm)) {
           candidates.push(c);
         }
       });
     }
 
     // Categories present on active products
-    productsList.forEach((p) => {
-      if (p.category) {
+    (productsList || []).forEach((p) => {
+      if (p && p.category) {
         const norm = normalizeCat(p.category);
-        if (norm && norm !== 'all' && !candidates.some((existing) => normalizeCat(existing.name) === norm)) {
+        if (norm && norm !== 'all' && !candidates.some((existing) => existing && normalizeCat(existing.name) === norm)) {
           candidates.push({
             id: p.category,
             name: p.category,
@@ -1576,8 +1580,9 @@ export default function App() {
 
     // Preset categories
     CATEGORIES.forEach((c) => {
+      if (!c) return;
       const norm = normalizeCat(c.name);
-      if (norm && norm !== 'all' && !candidates.some((existing) => normalizeCat(existing.name) === norm)) {
+      if (norm && norm !== 'all' && !candidates.some((existing) => existing && normalizeCat(existing.name) === norm)) {
         candidates.push(c);
       }
     });
@@ -1585,10 +1590,11 @@ export default function App() {
     // 3. For each candidate category, count matching products currently listed
     // RULE: Don't show categories whose products are currently not listed (count > 0)
     candidates.forEach((cand) => {
+      if (!cand) return;
       const norm = normalizeCat(cand.name);
       if (!norm || seen.has(norm)) return;
 
-      const matchingCount = productsList.filter((p) => productBelongsToCategory(p, cand)).length;
+      const matchingCount = (productsList || []).filter((p) => p && productBelongsToCategory(p, cand)).length;
 
       // Only include categories that currently have at least 1 product listed!
       if (matchingCount > 0) {
@@ -1662,11 +1668,13 @@ export default function App() {
         const matchesCaseInsensitive = p.category?.toLowerCase() === selectedCategory.toLowerCase();
         const matchesNorm = normCat === normSelected;
         const matchingCatObj = displayCategories.find(c => 
-          c.id === selectedCategory || 
-          c.slug === selectedCategory || 
-          c.name.toLowerCase() === selectedCategory.toLowerCase() ||
-          normalizeCat(c.name) === normSelected ||
-          normalizeCat(c.slug) === normSelected
+          c && (
+            c.id === selectedCategory || 
+            c.slug === selectedCategory || 
+            (c.name && c.name.toLowerCase() === selectedCategory.toLowerCase()) ||
+            normalizeCat(c.name) === normSelected ||
+            normalizeCat(c.slug) === normSelected
+          )
         );
         const matchesCatObj = matchingCatObj ? productBelongsToCategory(p, matchingCatObj) : false;
 
@@ -2157,8 +2165,13 @@ export default function App() {
         <BrandLandingPage
           brand={SEO_BRANDS[activeBrandSlug]}
           products={productsList.filter(p => {
+            if (!p) return false;
             const b = inferBrandFromProduct(p);
-            return b.slug === activeBrandSlug || p.title.toLowerCase().includes(SEO_BRANDS[activeBrandSlug].name.toLowerCase());
+            return (
+              b?.slug === activeBrandSlug || 
+              (b?.name && b.name.toLowerCase() === SEO_BRANDS[activeBrandSlug].name.toLowerCase()) || 
+              (p.title && p.title.toLowerCase().includes(SEO_BRANDS[activeBrandSlug].name.toLowerCase()))
+            );
           })}
           onSelectProduct={handleSelectProduct}
           onAddToCart={handleAddToCart}

@@ -2985,7 +2985,7 @@ app.get('/api/categories', async (_req: Request, res: Response) => {
         .order('display_order', { ascending: true });
 
       if (!error && data && data.length > 0) {
-        const filtered = data.filter((c: any) => !c.slug?.startsWith('_app_'));
+        const filtered = data.filter((c: any) => Boolean(c && typeof c.slug === 'string' && !c.slug.startsWith('_app_')));
         saveLocalCategories(filtered);
         return res.json({ success: true, source: 'supabase', categories: filtered });
       }
@@ -3055,7 +3055,7 @@ app.post('/api/categories', async (req: Request, res: Response) => {
   }
 
   const local = getLocalCategories();
-  const existingIdx = local.findIndex((c: any) => c.slug === slug || c.name.toLowerCase() === cleanName.toLowerCase());
+  const existingIdx = local.findIndex((c: any) => c && (c.slug === slug || (c.name && c.name.toLowerCase() === cleanName.toLowerCase())));
   if (existingIdx >= 0) {
     local[existingIdx] = savedRecord;
   } else {
@@ -3103,7 +3103,7 @@ app.put('/api/categories/:idOrSlug', async (req: Request, res: Response) => {
   }
 
   const local = getLocalCategories();
-  const idx = local.findIndex((c: any) => c.id === idOrSlug || c.slug === idOrSlug);
+  const idx = local.findIndex((c: any) => c && (c.id === idOrSlug || c.slug === idOrSlug));
   if (idx >= 0) {
     local[idx] = { ...local[idx], ...patch, ...(updatedRecord || {}) };
     saveLocalCategories(local);
@@ -3134,7 +3134,7 @@ app.delete('/api/categories/:idOrSlug', async (req: Request, res: Response) => {
     }
   }
 
-  const local = getLocalCategories().filter((c: any) => c.id !== idOrSlug && c.slug !== idOrSlug);
+  const local = getLocalCategories().filter((c: any) => c && c.id !== idOrSlug && c.slug !== idOrSlug);
   saveLocalCategories(local);
 
   return res.json({ success: true, deleted: idOrSlug });
@@ -3404,8 +3404,9 @@ function clearDeletedProductIds(): void {
   } catch {}
 }
 
-function isProductDeleted(p: { id: string; dbId?: string; slug?: string }, deletedIds: Set<string>): boolean {
-  if (deletedIds.has(p.id)) return true;
+function isProductDeleted(p: { id: string; dbId?: string; slug?: string } | null | undefined, deletedIds: Set<string>): boolean {
+  if (!p) return false;
+  if (p.id && deletedIds.has(p.id)) return true;
   if (p.dbId && deletedIds.has(p.dbId)) return true;
   if (p.slug && deletedIds.has(p.slug)) return true;
   return false;
@@ -3554,6 +3555,8 @@ function mapSupabaseRowToProduct(row: any, inventoryMap?: Record<string, number>
   return {
     id: productId,
     dbId: row.id,
+    brand: row.brand || (row.brand_name ? row.brand_name : undefined),
+    sku: row.sku || undefined,
     title: row.title,
     subtitle: row.subtitle || '',
     price: row.base_price !== null && row.base_price !== undefined ? Number(row.base_price) : 0,
@@ -3848,7 +3851,7 @@ app.delete('/api/products/:id', async (req: Request, res: Response) => {
 
   // Check custom products for matched item to get slug and dbId
   const custom = getCustomProducts();
-  const matched = custom.find(p => p.id === id || p.dbId === id || (p.slug && p.slug === id) || (dbId && (p.id === dbId || p.dbId === dbId || p.slug === dbId)));
+  const matched = custom.find(p => p && (p.id === id || p.dbId === id || (p.slug && p.slug === id) || (dbId && (p.id === dbId || p.dbId === dbId || p.slug === dbId))));
   if (matched) {
     if (matched.id) targetIds.add(matched.id);
     if (matched.dbId) targetIds.add(matched.dbId);
@@ -3856,7 +3859,7 @@ app.delete('/api/products/:id', async (req: Request, res: Response) => {
   }
 
   // Also check default seed products
-  const defaultProd = PRODUCTS.find(p => p.id === id || (p.slug && p.slug === id) || (dbId && (p.id === dbId || p.slug === dbId)));
+  const defaultProd = PRODUCTS.find(p => p && (p.id === id || (p.slug && p.slug === id) || (dbId && (p.id === dbId || p.slug === dbId))));
   if (defaultProd) {
     if (defaultProd.id) targetIds.add(defaultProd.id);
     if (defaultProd.slug) targetIds.add(defaultProd.slug);
@@ -3866,7 +3869,7 @@ app.delete('/api/products/:id', async (req: Request, res: Response) => {
   targetIds.forEach(tid => saveDeletedProductId(tid));
 
   // 2. Remove from custom products file
-  const updatedCustom = custom.filter(p => !targetIds.has(p.id) && (!p.dbId || !targetIds.has(p.dbId)) && (!p.slug || !targetIds.has(p.slug)));
+  const updatedCustom = custom.filter(p => p && !targetIds.has(p.id) && (!p.dbId || !targetIds.has(p.dbId)) && (!p.slug || !targetIds.has(p.slug)));
   saveCustomProducts(updatedCustom);
 
   // 3. Query Supabase for any other matching rows (by UUID or slug) to collect all aliases and deactivate/delete

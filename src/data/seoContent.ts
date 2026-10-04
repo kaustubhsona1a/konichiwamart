@@ -6,6 +6,7 @@ export interface SeoCategoryInfo {
   h1: string;
   introText: string;
   badge: string;
+  relatedBrandSlugs?: string[];
 }
 
 export interface SeoBrandInfo {
@@ -18,6 +19,7 @@ export interface SeoBrandInfo {
   brandStory: string;
   countryOfOrigin: string;
   foundingYear?: string;
+  relatedCategorySlugs?: string[];
 }
 
 export interface SeoGuideInfo {
@@ -47,65 +49,72 @@ export const SEO_CATEGORIES: Record<string, SeoCategoryInfo> = {
   'sunscreen': {
     slug: 'sunscreen',
     name: 'Japanese Sunscreen',
-    title: 'Japanese Sunscreens in India | Watery Essence & Mineral UV | Konichiwa Mart',
-    metaDescription: 'Shop 100% authentic Japanese sunscreens in India. Ultra-light watery gel textures with zero white cast and sweat resistance: Bioré UV Aqua Rich, Bioré Kids & more.',
-    h1: 'Authentic Japanese Sunscreens',
-    introText: 'Japanese sunscreens are globally celebrated for their revolutionary micro-defense filters, weightless water-gel textures, and completely transparent, non-greasy finishes that perform exceptionally well in humid Indian weather.',
-    badge: 'High UV Protection PA++++'
+    title: 'Japanese Sunscreens in India | SPF & UV Protection | Konichiwa Mart',
+    metaDescription: 'Shop authentic Japanese sunscreens in India at Konichiwa Mart. Ultra-light watery gel textures with SPF50+ PA++++, zero white cast, and verified Tokyo imports.',
+    h1: 'Authentic Japanese Sunscreens (SPF50+ PA++++)',
+    introText: 'Japanese sunscreens are globally celebrated for their revolutionary micro-defense filters, weightless water-gel textures, and completely transparent, non-greasy finishes that perform exceptionally well in humid Indian weather. Formulated with skin-conditioning ingredients like hyaluronic acid, they provide broad-spectrum UVA and UVB defense with zero white cast.',
+    badge: 'High UV Protection PA++++',
+    relatedBrandSlugs: ['biore', 'skin-aqua', 'anessa', 'canmake']
   },
   'face-wash': {
     slug: 'face-wash',
     name: 'Japanese Face Wash & Cleansers',
-    title: 'Japanese Cleansers & Face Wash in India | Senka Perfect Whip | Konichiwa Mart',
-    metaDescription: 'Buy authentic Japanese facial cleansers in India. Rich micro-dense whipped foams with silk essence & collagen that cleanse deeply without stripping moisture.',
-    h1: 'Japanese Micro-Dense Cleansers & Face Washes',
-    introText: 'Japanese facial cleansing centers on high-density micro-foam cushions that cleanse pores through surface tension rather than harsh rubbing, safeguarding the skin barrier.',
-    badge: 'Silk Essence Micro-Foam'
+    title: 'Japanese Face Wash & Cleansers in India | Konichiwa Mart',
+    metaDescription: 'Buy authentic Japanese facial cleansers and face washes in India at Konichiwa Mart. Micro-dense whipped foam cleansers that purify pores without stripping moisture.',
+    h1: 'Japanese Micro-Dense Face Washes & Cleansers',
+    introText: 'Japanese facial cleansing centers on high-density micro-foam cushions that cleanse pores through gentle surface tension rather than harsh friction. Enriched with natural silk essence, collagen, and hyaluronic acid, these cleansers lift daily pollutants and excess sebum while safeguarding your natural moisture barrier.',
+    badge: 'Silk Essence Micro-Foam',
+    relatedBrandSlugs: ['senka', 'biore', 'kose']
   },
   'toner': {
     slug: 'toner',
     name: 'Japanese Hydrating Lotions & Toners',
-    title: 'Japanese Toners & Hydrating Lotions in India | Melano CC, Hada Labo | Konichiwa Mart',
-    metaDescription: 'Shop genuine Japanese lotion toners in India. Multi-molecular hyaluronic acid and stable active vitamin C formulas for plumping glass skin and blemish control.',
+    title: 'Japanese Toners & Hydrating Lotions in India | Konichiwa Mart',
+    metaDescription: 'Order genuine Japanese hydrating toners and lotions in India at Konichiwa Mart. Multi-molecular hyaluronic acid and stable Vitamin C lotions for clear glass skin.',
     h1: 'Japanese Hydrating Lotions & Conditioning Toners',
-    introText: 'In Japanese skincare (J-Beauty), "lotion" (Keshousui) is the cornerstone hydration step, replenishing water-soluble actives deep into the stratum corneum before heavier treatments.',
-    badge: 'Glass Skin Hydration'
+    introText: 'In Japanese skincare (J-Beauty), "lotion" (Keshousui) is the cornerstone hydration step, delivering water-soluble actives deep into the stratum corneum before heavier treatments. Featuring multi-molecular hyaluronic acid and stabilized Vitamin C, Japanese toners restore moisture balance, refine pores, and prepare skin for maximum absorption.',
+    badge: 'Glass Skin Hydration',
+    relatedBrandSlugs: ['melano-cc', 'hada-labo', 'rohto']
   },
   'serum': {
     slug: 'serum',
     name: 'Japanese Face Serums & Treatments',
-    title: 'Japanese Face Serums in India | Fresh Capsule Vitamin C | Konichiwa Mart',
-    metaDescription: 'Discover viral Japanese face serums in India. Fresh micro-capsule Vitamin C, pore tightening and brightening treatments direct from Tokyo.',
-    h1: 'Japanese Intensive Serums & Concentrates',
-    introText: 'Targeted Japanese serums harness stabilization technology—such as micro-capsule encapsulation—to preserve raw actives and deliver uncompromised potency.',
-    badge: 'Fresh Capsule Potency'
+    title: 'Japanese Face Serums & Treatments in India | Konichiwa Mart',
+    metaDescription: 'Shop viral Japanese face serums in India at Konichiwa Mart. Fresh micro-encapsulated Vitamin C, brightening actives, and pore-refining treatments direct from Tokyo.',
+    h1: 'Japanese Intensive Face Serums & Concentrates',
+    introText: 'Japanese serums utilize micro-encapsulation and targeted stabilization technologies to preserve fragile, high-potency actives like pure Vitamin C until the moment of application. Designed for fast absorption with non-greasy finishes, these concentrated treatments target dullness, uneven texture, and enlarged pores for radiant skin.',
+    badge: 'Fresh Capsule Potency',
+    relatedBrandSlugs: ['capsule-serum', 'melano-cc', 'quality-1st']
   },
   'face-mask': {
     slug: 'face-mask',
     name: 'Japanese Sheet Masks',
-    title: 'Japanese Sheet Masks in India | Keana Rice, LuLuLun, Derma Laser | Konichiwa Mart',
-    metaDescription: 'Buy authentic Japanese sheet masks in India. Keana Nadeshiko domestic rice extract, LuLuLun multi-sheet packs & Derma Laser Super Retinol treatments.',
-    h1: 'Japanese Sheet Masks & Intensive Packs',
-    introText: 'From 100% Japanese domestic rice ferment masks to daily multi-sheet cotton packs and clinical Derma Laser silicone-fit sheets, explore Tokyo’s most iconic sheet mask rituals.',
-    badge: 'Pure Ferment & Botanical'
+    title: 'Japanese Sheet Masks in India | Daily & Intensive Care | Konichiwa Mart',
+    metaDescription: 'Buy authentic Japanese sheet masks in India at Konichiwa Mart. 100% domestic rice extract, daily cotton packs, and laser nanocapsule masks direct from Tokyo.',
+    h1: 'Japanese Sheet Masks & Intensive Facial Packs',
+    introText: 'From 100% Japanese domestic rice ferment masks to daily multi-sheet cotton packs and clinical laser-cut sheets, Japanese face masks deliver concentrated hydration and barrier-reinforcing nutrients. Engineered for close facial adherence, they replenish moisture, smooth rough texture, and boost natural skin elasticity.',
+    badge: 'Pure Ferment & Botanical',
+    relatedBrandSlugs: ['keana-nadeshiko', 'lululun', 'quality-1st', 'kose']
   },
   'hair-care': {
     slug: 'hair-care',
     name: 'Japanese Hair Care & Treatments',
-    title: 'Japanese Hair Care in India | Fino Premium Touch, &honey | Konichiwa Mart',
-    metaDescription: 'Shop cult-favorite Japanese hair masks and treatments in India. Shiseido Fino Premium Touch 7-essence mask and &honey organic deep repair packs.',
-    h1: 'Japanese Hair Care & Intensive Hair Masks',
-    introText: 'Japanese hair treatments utilize salon-grade royal jelly, lipid-replenishing squalane, and amino acid complexes that melt into damaged cuticles for lasting mirror shine.',
-    badge: 'Salon Royal Jelly Care'
+    title: 'Japanese Hair Care & Treatments in India | Konichiwa Mart',
+    metaDescription: 'Shop cult-favorite Japanese hair masks and deep treatments in India at Konichiwa Mart. Shiseido Fino 7-essence mask and &honey organic moisture treatments.',
+    h1: 'Japanese Hair Care & Intensive Conditioning Masks',
+    introText: 'Japanese hair treatments combine salon-grade royal jelly, lipid-replenishing squalane, organic honey, and amino acid complexes that melt into damaged cuticles. Engineered for frizzy, dry, or chemically processed hair, they restore silky suppleness, lock in moisture, and provide lasting mirror shine without heaviness.',
+    badge: 'Salon Royal Jelly Care',
+    relatedBrandSlugs: ['fino', 'honey', 'tsubaki', 'shiseido']
   },
   'skincare': {
     slug: 'skincare',
     name: 'All Japanese Skincare',
-    title: 'Authentic Japanese Skincare Products in India | 100% Japan Import | Konichiwa Mart',
-    metaDescription: 'Explore the complete collection of 100% authentic Japanese skincare in India. Curated Tokyo bestsellers with express shipping and genuine batch authentication.',
-    h1: 'Complete Japanese Skincare Collection',
-    introText: 'Every item in our collection is sourced directly from certified Tokyo distributors, featuring genuine Japanese seals, verified expiration batches, and doorstep delivery across India.',
-    badge: '100% Tokyo Imports'
+    title: 'Authentic Japanese Skincare in India | 100% Tokyo Imports | Konichiwa Mart',
+    metaDescription: 'Explore 100% authentic Japanese skincare products in India at Konichiwa Mart. Curated Tokyo bestsellers, verified batch codes, and express delivery across India.',
+    h1: 'Complete Japanese Skincare & Beauty Collection',
+    introText: 'Every item in our collection is imported directly from certified Tokyo distributors, featuring authentic packaging, genuine batch seals, and reliable doorstep delivery across India. Discover the proven principles of Japanese skincare: gentle double cleansing, multi-layer watery hydration, and disciplined daily sun protection.',
+    badge: '100% Tokyo Imports',
+    relatedBrandSlugs: ['senka', 'biore', 'hada-labo', 'melano-cc', 'fino', 'lululun']
   }
 };
 
@@ -117,133 +126,157 @@ export const SEO_BRANDS: Record<string, SeoBrandInfo> = {
     slug: 'biore',
     name: 'Bioré',
     japaneseName: 'ビオレ',
-    title: 'Bioré Japan Products in India | UV Aqua Rich & Sunscreens | Konichiwa Mart',
-    metaDescription: 'Shop original Bioré Japan skincare and sunscreens in India. Official Tokyo batches of Bioré UV Aqua Rich Watery Essence SPF 50+ PA++++ with zero white cast.',
-    h1: 'Bioré Japan – World-Renowned UV & Pore Care',
-    brandStory: 'Created by Kao Corporation in Japan, Bioré revolutionized daily sun protection with its patented Micro Defense technology—delivering sub-micron UV capsule coverage in water-light formulations.',
+    title: 'Bioré Products in India | UV Aqua Rich & Sunscreens | Konichiwa Mart',
+    metaDescription: 'Shop original Bioré Japan sunscreens and facial washes in India at Konichiwa Mart. Bioré UV Aqua Rich Watery Essence SPF50+ PA++++ with zero white cast.',
+    h1: 'Bioré Japan – Water-Light UV Defense & Cleansers',
+    brandStory: 'Created by Kao Corporation in Japan, Bioré revolutionized daily sun protection with its patented Micro Defense technology, delivering sub-micron UV capsule coverage in water-light, refreshing formulations.',
     countryOfOrigin: 'Japan',
-    foundingYear: '1980'
+    foundingYear: '1980',
+    relatedCategorySlugs: ['sunscreen', 'face-wash', 'skincare']
   },
   'senka': {
     slug: 'senka',
     name: 'Senka',
     japaneseName: '専科',
-    title: 'Senka Shiseido Products in India | Perfect Whip Cleansers | Konichiwa Mart',
-    metaDescription: 'Buy authentic Senka Shiseido Perfect Whip face washes in India. Iconic Japanese micro-dense whipped foams with natural silk essence and hyaluronic acid.',
+    title: 'Senka Products in India | Perfect Whip Cleansers | Konichiwa Mart',
+    metaDescription: 'Buy authentic Senka Perfect Whip facial cleansers in India at Konichiwa Mart. Micro-dense whipped foam cleansers with natural silk essence direct from Tokyo.',
     h1: 'Senka by Shiseido – Japan’s No. 1 Whipped Cleansing Foam',
-    brandStory: 'Senka is Shiseido’s beloved cleansing line, famous across Asia for Perfect Whip—a micro-dense foam whose ultra-fine bubbles lift deep pore dirt without friction.',
+    brandStory: 'Senka is Shiseido’s beloved cleansing line, famous across Asia for Perfect Whip—a micro-dense foam whose ultra-fine bubbles lift deep pore impurities without friction or moisture loss.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2003'
+    foundingYear: '2003',
+    relatedCategorySlugs: ['face-wash', 'skincare']
   },
   'hada-labo': {
     slug: 'hada-labo',
     name: 'Hada Labo',
     japaneseName: '肌ラボ',
-    title: 'Hada Labo Tokyo Products in India | Gokujyun Premium Lotion | Konichiwa Mart',
-    metaDescription: 'Order genuine Rohto Hada Labo hyaluronic acid lotions in India. Multi-weight hyaluronic acid hydration matrices for healthy, bouncy glass skin.',
-    h1: 'Hada Labo Rohto – Hyaluronic Acid Perfection',
-    brandStory: 'Formulated under Rohto Pharmaceutical’s "Perfect x Simple" philosophy, Hada Labo eliminates unnecessary mineral oils, fragrances, and colorants to focus on medical-grade multi-layer hyaluronic acid.',
+    title: 'Hada Labo Products in India | Japanese Skincare | Konichiwa Mart',
+    metaDescription: 'Shop 100% authentic Rohto Hada Labo hyaluronic acid lotions and skincare in India at Konichiwa Mart. Direct Tokyo imports with verified freshness.',
+    h1: 'Hada Labo – Authentic Japanese Hyaluronic Acid Skincare',
+    brandStory: 'Formulated under Rohto Pharmaceutical’s "Perfect x Simple" philosophy in Japan, Hada Labo eliminates unnecessary mineral oils, fragrances, and colorants to focus on multi-weight hyaluronic acid for deep hydration.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2004'
+    foundingYear: '2004',
+    relatedCategorySlugs: ['toner', 'skincare']
   },
   'melano-cc': {
     slug: 'melano-cc',
     name: 'Melano CC',
     japaneseName: 'メラノCC',
-    title: 'Melano CC Rohto in India | Vitamin C Brightening Toners | Konichiwa Mart',
-    metaDescription: 'Buy 100% original Rohto Melano CC Vitamin C skincare in India. Stabilized pure ascorbic acid toners that fade post-acne marks and tighten pores without oxidizing.',
-    h1: 'Melano CC by Rohto – Non-Oxidizing Vitamin C Expertise',
-    brandStory: 'Rohto Pharmaceutical’s patented Vitamin C technology protects pure ascorbic acid from breakdown, delivering gentle yet potent brightening and pore refinement.',
+    title: 'Melano CC Products in India | Vitamin C Brightening | Konichiwa Mart',
+    metaDescription: 'Buy authentic Rohto Melano CC Vitamin C skincare in India at Konichiwa Mart. Stabilized pure ascorbic acid toners that fade post-acne marks and tighten pores.',
+    h1: 'Melano CC by Rohto – Pure Vitamin C Skincare',
+    brandStory: 'Rohto Pharmaceutical’s patented Vitamin C technology protects pure ascorbic acid from breakdown, delivering gentle yet potent brightening, post-acne blemish care, and pore refinement.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2005'
+    foundingYear: '2005',
+    relatedCategorySlugs: ['toner', 'serum', 'skincare']
   },
   'lululun': {
     slug: 'lululun',
     name: 'LuLuLun',
     japaneseName: 'ルルルン',
-    title: 'LuLuLun Sheet Masks in India | Precious Clear, Balance & Moist | Konichiwa Mart',
-    metaDescription: 'Shop authentic LuLuLun Japanese facial sheet masks in India. Daily luxury 3-layer cotton sheets soaked in botanical rice and seaweed essences.',
+    title: 'LuLuLun Sheet Masks in India | Daily Facial Masks | Konichiwa Mart',
+    metaDescription: 'Shop authentic LuLuLun Japanese facial sheet masks in India at Konichiwa Mart. Daily luxury 3-layer cotton sheets soaked in botanical rice and seaweed essences.',
     h1: 'LuLuLun – Japan’s Iconic Daily Face Mask Ritual',
     brandStory: 'LuLuLun pioneered the "daily mask" movement in Tokyo, formulating gentle micro-fiber sheets tailored for every skin stage—from youthful clarity to mature barrier renewal.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2011'
+    foundingYear: '2011',
+    relatedCategorySlugs: ['face-mask', 'skincare']
   },
   'fino': {
     slug: 'fino',
     name: 'Fino',
     japaneseName: 'フィーノ',
-    title: 'Fino Shiseido Hair Care in India | Premium Touch Hair Mask | Konichiwa Mart',
-    metaDescription: 'Buy viral Shiseido Fino Premium Touch Hair Mask in India. 7 beauty essence deep conditioning treatment for silky, smooth, salon-finish hair.',
-    h1: 'Fino by Shiseido – Japan’s Viral Salon Conditioning Mask',
+    title: 'Fino Hair Care in India | Premium Touch Hair Mask | Konichiwa Mart',
+    metaDescription: 'Buy viral Shiseido Fino Premium Touch Hair Mask in India at Konichiwa Mart. 7 beauty essence deep conditioning treatment for silky salon-finish hair.',
+    h1: 'Fino by Shiseido – Japan’s Viral Salon Hair Mask',
     brandStory: 'Fino combines royal jelly extract, PCA, and squalane into an intensive conditioning treatment that repairs heat and environmental damage from cuticle to core.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2005'
+    foundingYear: '2005',
+    relatedCategorySlugs: ['hair-care']
   },
   'honey': {
     slug: 'honey',
     name: '&honey',
     japaneseName: 'アンドハニー',
-    title: '&honey Japanese Hair Care in India | Melty Moist Repair Packs | Konichiwa Mart',
-    metaDescription: 'Shop authentic &honey Japanese hair and body products in India. Organic Manuka honey moisture-lock formulas for frizzy, dry, and wavy hair.',
+    title: '&honey Products in India | Organic Honey Hair Care | Konichiwa Mart',
+    metaDescription: 'Shop authentic &honey Japanese hair and body treatments in India at Konichiwa Mart. Organic Manuka honey moisture-lock formulas for frizzy, dry hair.',
     h1: '&honey – Organic Honey Moisture Science',
     brandStory: '&honey formulates hair and body rituals with a unique 14% optimal moisture retention ratio, using certified organic Manuka, Acacia, and Japanese raw honey.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2018'
+    foundingYear: '2018',
+    relatedCategorySlugs: ['hair-care']
   },
   'keana-nadeshiko': {
     slug: 'keana-nadeshiko',
     name: 'Keana Nadeshiko',
     japaneseName: '毛穴撫子',
-    title: 'Keana Nadeshiko Rice Masks in India | Ishizawa Laboratories | Konichiwa Mart',
-    metaDescription: 'Buy genuine Keana Nadeshiko Rice Mask in India. 100% Japanese domestic rice extract sheet masks for rough texture, dryness, and open pores.',
+    title: 'Keana Nadeshiko Products in India | Rice Pore Care | Konichiwa Mart',
+    metaDescription: 'Buy genuine Keana Nadeshiko Rice Masks in India at Konichiwa Mart. 100% Japanese domestic rice extract sheet masks for rough texture and open pores.',
     h1: 'Keana Nadeshiko – 100% Domestic Japanese Rice Care',
     brandStory: 'Manufactured by Ishizawa Laboratories in Tokyo, Keana Nadeshiko utilizes four nutrient-rich extracts derived from 100% Japanese rice to minimize pore visibility and condition uneven texture.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2007'
+    foundingYear: '2007',
+    relatedCategorySlugs: ['face-mask', 'face-wash', 'skincare']
   },
   'quality-1st': {
     slug: 'quality-1st',
     name: 'Quality 1st',
     japaneseName: 'クオリティファースト',
-    title: 'Quality 1st Derma Laser Masks in India | Super Retinol & Glutathione | Konichiwa Mart',
-    metaDescription: 'Shop Quality 1st Derma Laser sheet masks in India. High-adhesion laser-cut sheets infused with concentrated Retinol, Glutathione, and Niacinamide.',
-    h1: 'Quality 1st Derma Laser – Advanced Transdermal Care',
+    title: 'Quality 1st Derma Laser in India | Sheet Masks | Konichiwa Mart',
+    metaDescription: 'Shop Quality 1st Derma Laser sheet masks in India at Konichiwa Mart. High-adhesion laser-cut sheets with Retinol, Glutathione, and Niacinamide.',
+    h1: 'Quality 1st Derma Laser – Advanced Nanocapsule Care',
     brandStory: 'Quality 1st combines clinical-grade active concentrations with high-density laser-cut sheets engineered to match facial contours for maximum transdermal absorption.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2012'
+    foundingYear: '2012',
+    relatedCategorySlugs: ['face-mask', 'serum', 'skincare']
   },
   'kose': {
     slug: 'kose',
     name: 'Kosé',
     japaneseName: 'コーセー',
-    title: 'Kosé Japan Beauty & Clear Turn in India | Sheet Masks & Mist | Konichiwa Mart',
-    metaDescription: 'Explore genuine Kosé Japan cosmetics, Clear Turn Vitamin Bomb face masks, and Makeup Keep Mist in India with verified Tokyo authentication.',
-    h1: 'Kosé Cosmeport – Pioneer in Japanese Beauty Innovation',
+    title: 'Kosé Beauty Products in India | Clear Turn & Mist | Konichiwa Mart',
+    metaDescription: 'Explore genuine Kosé Japan cosmetics, Clear Turn Vitamin Bomb face masks, and Makeup Keep Mist in India with verified Tokyo authentication at Konichiwa Mart.',
+    h1: 'Kosé Japan – Pioneer in Japanese Beauty Innovation',
     brandStory: 'Founded in Tokyo in 1946, Kosé is one of Japan’s premier cosmetics houses, renowned for pioneering powder foundations, beauty serums, and ultra-hydrating sheet masks.',
     countryOfOrigin: 'Japan',
-    foundingYear: '1946'
+    foundingYear: '1946',
+    relatedCategorySlugs: ['face-mask', 'toner', 'skincare']
   },
   'capsule-serum': {
     slug: 'capsule-serum',
     name: 'Capsule Serum',
     japaneseName: 'カプセルセラム',
-    title: 'Capsule Serum Japan in India | Fresh Vitamin C Serums | Konichiwa Mart',
-    metaDescription: 'Shop authentic Capsule Serum skincare in India. Fresh micro-capsule Vitamin C technology that preserves active potency for luminous glass skin.',
-    h1: 'Capsule Serum Japan – Fresh Micro-Encapsulated Actives',
+    title: 'Capsule Serum Products in India | Fresh Vitamin C Serums | Konichiwa Mart',
+    metaDescription: 'Shop authentic Capsule Serum skincare in India at Konichiwa Mart. Fresh micro-capsule Vitamin C technology that preserves active potency for glass skin.',
+    h1: 'Capsule Serum Japan – Fresh Encapsulated Actives',
     brandStory: 'Capsule Serum is a breakthrough Japanese skincare brand that utilizes micro-capsule suspension to keep fragile active ingredients like pure Vitamin C fresh and stable until the moment of application.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2021'
+    foundingYear: '2021',
+    relatedCategorySlugs: ['serum', 'skincare']
+  },
+  'tsubaki': {
+    slug: 'tsubaki',
+    name: 'Tsubaki',
+    japaneseName: 'TSUBAKI / 資生堂',
+    title: 'Tsubaki Shiseido Hair Care in India | Camellia Oil Masks | Konichiwa Mart',
+    metaDescription: 'Buy authentic Tsubaki by Shiseido hair masks and treatments in India at Konichiwa Mart. Pure Japanese red camellia oil formulas for salon-grade gloss and repair.',
+    h1: 'Tsubaki by Shiseido – Japanese Camellia Oil Hair Rituals',
+    brandStory: 'Tsubaki by Shiseido infuses high-purity Japanese red camellia seed oil with dual-repair amino acids to deeply reconstruct hair cuticles, delivering silky salon shine.',
+    countryOfOrigin: 'Japan',
+    foundingYear: '2006',
+    relatedCategorySlugs: ['hair-care']
   },
   'shiseido': {
     slug: 'shiseido',
     name: 'Shiseido',
     japaneseName: '資生堂',
-    title: 'Shiseido Japan Skincare & Cosmetics in India | Konichiwa Mart',
-    metaDescription: 'Shop authentic Shiseido Japan beauty products in India. Iconic formulations from Japan’s premier heritage cosmetics house, direct from Tokyo.',
+    title: 'Shiseido Products in India | Japanese Beauty & Hair Care | Konichiwa Mart',
+    metaDescription: 'Shop authentic Shiseido Japan beauty products in India at Konichiwa Mart. Iconic formulations from Japan’s premier heritage cosmetics house direct from Tokyo.',
     h1: 'Shiseido Japan – Heritage of Japanese Beauty & Innovation',
     brandStory: 'Founded in Ginza, Tokyo in 1872, Shiseido is Japan’s oldest and most prestigious beauty house, blending centuries of Eastern aesthetics with cutting-edge dermatological science.',
     countryOfOrigin: 'Japan',
-    foundingYear: '1872'
+    foundingYear: '1872',
+    relatedCategorySlugs: ['hair-care', 'face-wash', 'sunscreen', 'skincare']
   },
   'canmake': {
     slug: 'canmake',
@@ -254,7 +287,8 @@ export const SEO_BRANDS: Record<string, SeoBrandInfo> = {
     h1: 'Canmake Tokyo – Vibrant, Joyful Japanese Cosmetics',
     brandStory: 'Created by IDA Laboratories in Tokyo, Canmake has been a cornerstone of Japanese high-street beauty since 1985, delivering lightweight, pore-smoothing cosmetics.',
     countryOfOrigin: 'Japan',
-    foundingYear: '1985'
+    foundingYear: '1985',
+    relatedCategorySlugs: ['sunscreen', 'skincare']
   },
   'skin-aqua': {
     slug: 'skin-aqua',
@@ -265,7 +299,8 @@ export const SEO_BRANDS: Record<string, SeoBrandInfo> = {
     h1: 'Skin Aqua by Rohto – Water-Burst Sun Defense',
     brandStory: 'Skin Aqua, developed by Rohto Pharmaceutical, is renowned for its water-capsule technology that melts onto skin like water while providing broad-spectrum SPF50+ PA++++ protection.',
     countryOfOrigin: 'Japan',
-    foundingYear: '2008'
+    foundingYear: '2008',
+    relatedCategorySlugs: ['sunscreen', 'skincare']
   },
   'anessa': {
     slug: 'anessa',
@@ -276,7 +311,8 @@ export const SEO_BRANDS: Record<string, SeoBrandInfo> = {
     h1: 'Anessa by Shiseido – Japan’s Gold-Standard Sun Protection',
     brandStory: 'Anessa is Shiseido’s world-renowned sun care authority, celebrated across Asia for its Auto Booster technology that actually strengthens the protective UV veil when exposed to heat and moisture.',
     countryOfOrigin: 'Japan',
-    foundingYear: '1992'
+    foundingYear: '1992',
+    relatedCategorySlugs: ['sunscreen', 'skincare']
   },
   'rohto': {
     slug: 'rohto',
@@ -287,7 +323,8 @@ export const SEO_BRANDS: Record<string, SeoBrandInfo> = {
     h1: 'Rohto Pharmaceutical – Evidence-Based Japanese Skincare Science',
     brandStory: 'Founded in Osaka in 1899, Rohto Pharmaceutical is a titan in Japanese health and beauty, creating iconic formulas centered on biological compatibility and active ingredient stability.',
     countryOfOrigin: 'Japan',
-    foundingYear: '1899'
+    foundingYear: '1899',
+    relatedCategorySlugs: ['toner', 'serum', 'sunscreen', 'skincare']
   }
 };
 

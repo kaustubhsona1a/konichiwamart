@@ -1476,7 +1476,7 @@ export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; na
         .order('display_order', { ascending: true });
 
       if (!error && Array.isArray(data) && data.length > 0) {
-        const filtered = data.filter((c: any) => !c.slug?.startsWith('_app_'));
+        const filtered = data.filter((c: any) => Boolean(c && typeof c.slug === 'string' && !c.slug.startsWith('_app_')));
         try {
           localStorage.setItem('km_custom_categories', JSON.stringify(filtered));
         } catch {}
@@ -1493,7 +1493,7 @@ export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; na
     if (res.ok) {
       const data = await res.json();
       if (data?.success && Array.isArray(data.categories) && data.categories.length > 0) {
-        const filtered = data.categories.filter((c: any) => !c.slug?.startsWith('_app_'));
+        const filtered = data.categories.filter((c: any) => Boolean(c && typeof c.slug === 'string' && !c.slug.startsWith('_app_')));
         try {
           localStorage.setItem('km_custom_categories', JSON.stringify(filtered));
         } catch {}
@@ -1510,7 +1510,7 @@ export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; na
     if (local) {
       const parsed = JSON.parse(local);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.filter((c: any) => !c.slug?.startsWith('_app_'));
+        return parsed.filter((c: any) => Boolean(c && typeof c.slug === 'string' && !c.slug.startsWith('_app_')));
       }
     }
   } catch {}

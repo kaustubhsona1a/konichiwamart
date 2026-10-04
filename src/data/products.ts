@@ -3,6 +3,7 @@ import { Product } from '../types';
 export const PRODUCTS: Product[] = [
   {
     "id": "senka-perfect-whip",
+    "brand": "Senka",
     "title": "Senka Perfect Whip Face Wash",
     "subtitle": "Micro-Dense Cleansing Foam with Silk Essence",
     "price": 1099,
@@ -53,6 +54,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "fino-premium-touch-mask",
+    "brand": "Fino",
     "title": "Fino Premium Touch Hair Mask",
     "subtitle": "Deep Hydration & Skin Conditioning Essence Mask",
     "price": 999,
@@ -107,6 +109,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "melano-cc-brightening-toner",
+    "brand": "Melano CC",
     "title": "Rohto Melano CC Vitamin C Toner",
     "subtitle": "Brightening & Blemish Care Daily Essence Lotion",
     "price": 1225,
@@ -162,6 +165,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "biore-uv-aqua-rich-sunscreen",
+    "brand": "Bioré",
     "title": "Bioré UV Aqua Rich Watery Essence SPF 50+",
     "subtitle": "Invisible Water-Light Daily Sunscreen with PA++++",
     "price": 1275,
@@ -215,6 +219,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "capsule-serum-vitamin-c",
+    "brand": "Capsule Serum",
     "title": "Premium Capsule Serum Vitamin C",
     "subtitle": "Enriched by Fresh Micro-Capsules for Pore & Radiance Renewal",
     "price": 4499,
@@ -276,6 +281,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "quality-1st-derma-laser-super-retinol-100",
+    "brand": "Quality 1st",
     "title": "Quality 1st Derma Laser Super Retinol 100",
     "subtitle": "Night Intensive Anti-Aging Mask with Laser Delivery Nanocapsules",
     "price": 1099,
@@ -337,6 +343,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "derma-laser-glutathione",
+    "brand": "Quality 1st",
     "title": "Quality 1st Derma Laser Super Glutathione 100",
     "subtitle": "Intense Brightening & Translucency Mask",
     "price": 1099,
@@ -392,6 +399,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "keana-rice-mask",
+    "brand": "Keana Nadeshiko",
     "title": "Keana Nadeshiko Rice Mask (10th Anniversary)",
     "subtitle": "100% Japanese Rice-Derived Pore Care Sheet Mask",
     "price": 1099,
@@ -446,6 +454,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "lululun-precious-clear",
+    "brand": "LuLuLun",
     "title": "LuLuLun Precious CLEAR (White)",
     "subtitle": "Daily Brightening & Radiance Sheet Mask",
     "price": 799,
@@ -496,6 +505,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "honey-melty-hair-pack",
+    "brand": "&honey",
     "title": "&honey Melty Moist Repair Hair Pack Step 1.5",
     "subtitle": "Intensive Honey Treatment for Frizzy Hair",
     "price": 1549,
@@ -548,6 +558,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "vitamin-c-capsule-serum",
+    "brand": "Capsule Serum",
     "title": "Vitamin C Capsule Serum",
     "subtitle": "Fresh Encapsulated Pure Vitamin C (10%)",
     "price": 3999,
@@ -604,6 +615,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     "id": "km-1789596639792",
+    "brand": "Senka",
     "title": "Senka Perfect Whip (Pink-Collagen)",
     "subtitle": "Face Wash • Authentic Japan Skincare",
     "price": 1199,

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Sparkles, MapPin, Calendar, ArrowLeft, ShieldCheck } from 'lucide-react';
-import { SeoBrandInfo } from '../data/seoContent';
+import { SeoBrandInfo, SEO_CATEGORIES } from '../data/seoContent';
 import { Product, ProductShade } from '../types';
 import { Breadcrumbs } from './Breadcrumbs';
 import { ProductCard } from './ProductCard';
@@ -69,6 +69,25 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
             <p className="text-xs sm:text-sm text-slate-600 dark:text-zinc-300 leading-relaxed font-light">
               {brand.brandStory}
             </p>
+
+            {brand.relatedCategorySlugs && brand.relatedCategorySlugs.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap pt-2">
+                <span className="text-xs text-slate-500 dark:text-zinc-400 font-medium">Categories:</span>
+                {brand.relatedCategorySlugs.map(catSlug => {
+                  const cat = SEO_CATEGORIES[catSlug];
+                  if (!cat) return null;
+                  return (
+                    <a
+                      key={cat.slug}
+                      href={`/collections/${cat.slug}`}
+                      className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-white/80 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:text-pink-600 dark:hover:text-pink-400 hover:border-pink-300 transition-colors"
+                    >
+                      {cat.name}
+                    </a>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3 shrink-0">

@@ -31,22 +31,24 @@ export function slugify(text: string): string {
 /**
  * Normalizes product slug for public canonical URLs
  */
-export function getProductCanonicalSlug(product: { id: string; slug?: string; title?: string }): string {
+export function getProductCanonicalSlug(product: { id: string; slug?: string; title?: string } | null | undefined): string {
+  if (!product) return '';
   if (product.slug && !product.slug.startsWith('km-1')) {
     return slugify(product.slug);
   }
   if (product.title) {
     return slugify(product.title);
   }
-  return slugify(product.slug || product.id);
+  return slugify(product.slug || product.id || '');
 }
 
 /**
  * Returns canonical absolute URL for a product
  */
-export function getProductCanonicalUrl(product: { id: string; slug?: string; title?: string }): string {
+export function getProductCanonicalUrl(product: { id: string; slug?: string; title?: string } | null | undefined): string {
+  if (!product) return CANONICAL_SITE_URL;
   const slug = getProductCanonicalSlug(product);
-  return `${CANONICAL_SITE_URL}/products/${slug}`;
+  return slug ? `${CANONICAL_SITE_URL}/products/${slug}` : CANONICAL_SITE_URL;
 }
 
 /**
@@ -65,19 +67,45 @@ export function getCategoryCollectionSlug(category?: string): string {
 }
 
 /**
- * Infers brand metadata from explicit product field or verified Japanese brand names
- * Omits brand if no trustworthy brand is identified (never fabricates or guesses from random words)
+ * Resolves brand metadata following the preferred architecture:
+ * product → explicit brand → normalized brand name → brand slug → /brands/{brand-slug}
+ * Title-based inference is used ONLY as a clearly isolated legacy fallback when explicit brand is missing.
  */
 export function inferBrandFromProduct(product: { title: string; category?: string; brand?: string }): { name: string; slug?: string } | null {
-  // 1. Explicit brand field
-  if (product.brand && typeof product.brand === 'string' && product.brand.trim()) {
-    const bName = product.brand.trim();
-    const bSlug = slugify(bName);
-    return { name: bName, slug: SEO_BRANDS[bSlug] ? bSlug : undefined };
+  // 1. Explicit brand field (PRIMARY ARCHITECTURE)
+  const explicitBrand = (product.brand && typeof product.brand === 'string' && product.brand.trim())
+    ? product.brand.trim()
+    : ((product as any).brand_name && typeof (product as any).brand_name === 'string' && (product as any).brand_name.trim())
+      ? (product as any).brand_name.trim()
+      : null;
+
+  if (explicitBrand) {
+    const rawSlug = slugify(explicitBrand);
+    // Exact match in SEO_BRANDS registry
+    if (SEO_BRANDS[rawSlug]) {
+      return { name: SEO_BRANDS[rawSlug].name, slug: SEO_BRANDS[rawSlug].slug };
+    }
+    // Case-insensitive match in SEO_BRANDS
+    const matchedBrand = Object.values(SEO_BRANDS).find(b => 
+      b.name.toLowerCase() === explicitBrand.toLowerCase() || 
+      b.slug.toLowerCase() === rawSlug.toLowerCase()
+    );
+    if (matchedBrand) {
+      return { name: matchedBrand.name, slug: matchedBrand.slug };
+    }
+    return { name: explicitBrand, slug: rawSlug };
   }
 
-  // 2. Verified authentic Japanese brand detection
-  const t = (product.title || '').toLowerCase();
+  // 2. Isolated legacy title-based fallback (ONLY when explicit brand is not available)
+  return inferBrandFromTitleFallback(product.title);
+}
+
+/**
+ * Isolated legacy title fallback for unmigrated product records.
+ */
+function inferBrandFromTitleFallback(title?: string): { name: string; slug?: string } | null {
+  if (!title) return null;
+  const t = title.toLowerCase();
   if (t.includes('senka')) return { name: 'Senka', slug: 'senka' };
   if (t.includes('bioré') || t.includes('biore')) return { name: 'Bioré', slug: 'biore' };
   if (t.includes('hada labo') || t.includes('hadalabo')) return { name: 'Hada Labo', slug: 'hada-labo' };
@@ -94,8 +122,8 @@ export function inferBrandFromProduct(product: { title: string; category?: strin
   if (t.includes('skin aqua')) return { name: 'Skin Aqua', slug: 'skin-aqua' };
   if (t.includes('anessa')) return { name: 'Anessa', slug: 'anessa' };
   if (t.includes('rohto')) return { name: 'Rohto', slug: 'rohto' };
-  if (t.includes('tsubaki')) return { name: 'Tsubaki' };
-  if (t.includes('dhc')) return { name: 'DHC' };
+  if (t.includes('tsubaki')) return { name: 'Tsubaki', slug: 'tsubaki' };
+  if (t.includes('dhc')) return { name: 'DHC', slug: 'dhc' };
   if (t.includes('kiss me') || t.includes('heroine make')) return { name: 'Kiss Me Heroine Make' };
 
   return null;
@@ -225,6 +253,26 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
       return `${CANONICAL_SITE_URL}${cleanPath}`;
     });
 
+  const offer: Record<string, any> = {
+    '@type': 'Offer',
+    'url': canonicalUrl,
+    'priceCurrency': 'INR',
+    'price': typeof product.price === 'number' ? product.price : Number(product.price) || 0,
+    'itemCondition': 'https://schema.org/NewCondition',
+    'availability': isInStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+    'seller': {
+      '@type': 'Organization',
+      'name': 'Konichiwa Mart',
+      'url': CANONICAL_SITE_URL
+    }
+  };
+
+  // Only emit priceValidUntil if trustworthy date exists on product/offer; never invent dates
+  const validUntil = (product as any).priceValidUntil || (product as any).offerValidUntil;
+  if (validUntil && typeof validUntil === 'string' && /^\d{4}-\d{2}-\d{2}/.test(validUntil.trim())) {
+    offer.priceValidUntil = validUntil.trim().slice(0, 10);
+  }
+
   const jsonLd: Record<string, any> = {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -232,19 +280,7 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
     'description': product.description || product.subtitle || `Authentic ${product.title} imported directly from Tokyo, Japan.`,
     'image': absoluteImages.length > 0 ? absoluteImages : [`${CANONICAL_SITE_URL}/products/keana-rice-mask.png`],
     'url': canonicalUrl,
-    'offers': {
-      '@type': 'Offer',
-      'url': canonicalUrl,
-      'priceCurrency': 'INR',
-      'price': typeof product.price === 'number' ? product.price : Number(product.price) || 0,
-      'itemCondition': 'https://schema.org/NewCondition',
-      'availability': isInStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
-      'seller': {
-        '@type': 'Organization',
-        'name': 'Konichiwa Mart',
-        'url': CANONICAL_SITE_URL
-      }
-    }
+    'offers': offer
   };
 
   // Only include Brand property if trustworthy brand exists
@@ -260,14 +296,15 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
     jsonLd.category = product.category;
   }
 
-  // SKU if available from product
-  if (product.slug || product.id) {
-    jsonLd.sku = product.slug || product.id;
+  // SKU: Only emit if genuine, trustworthy SKU exists on product; NEVER fabricate or use slug/internal id
+  const rawSku = (product as any).sku || (product as any).product_code;
+  if (rawSku && typeof rawSku === 'string' && rawSku.trim()) {
+    jsonLd.sku = rawSku.trim();
   }
 
   // CRITICAL: NEVER emit aggregateRating or reviews unless genuine submitted review data exists
   if (productReviews.length > 0) {
-    const validRatings = productReviews.map(r => r.rating).filter(r => typeof r === 'number' && !isNaN(r));
+    const validRatings = productReviews.map(r => r.rating).filter(r => typeof r === 'number' && !isNaN(r) && r > 0 && r <= 5);
     if (validRatings.length > 0) {
       const avg = validRatings.reduce((sum, r) => sum + r, 0) / validRatings.length;
       jsonLd.aggregateRating = {
@@ -277,22 +314,33 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
         'bestRating': '5',
         'worstRating': '1'
       };
-      jsonLd.review = productReviews.slice(0, 5).map(r => ({
-        '@type': 'Review',
-        'reviewRating': {
-          '@type': 'Rating',
-          'ratingValue': r.rating,
-          'bestRating': '5',
-          'worstRating': '1'
-        },
-        'author': {
-          '@type': 'Person',
-          'name': r.author || 'Customer'
-        },
-        ...(r.headline ? { 'headline': r.headline } : {}),
-        ...(r.comment ? { 'reviewBody': r.comment } : {}),
-        ...(r.createdAt ? { 'datePublished': r.createdAt.slice(0, 10) } : {})
-      }));
+      const genuineReviews = productReviews
+        .filter(r => r && typeof r.rating === 'number' && r.rating >= 1 && r.rating <= 5 && r.author && typeof r.author === 'string' && r.author.trim())
+        .slice(0, 5)
+        .map(r => ({
+          '@type': 'Review',
+          'reviewRating': {
+            '@type': 'Rating',
+            'ratingValue': r.rating,
+            'bestRating': '5',
+            'worstRating': '1'
+          },
+          'author': {
+            '@type': 'Person',
+            'name': r.author.trim()
+          },
+          ...(r.headline && typeof r.headline === 'string' && r.headline.trim() ? { 'headline': r.headline.trim() } : {}),
+          ...(r.comment && typeof r.comment === 'string' && r.comment.trim() ? { 'reviewBody': r.comment.trim() } : {}),
+          ...(r.createdAt && typeof r.createdAt === 'string' && /^\d{4}-\d{2}-\d{2}/.test(r.createdAt.trim()) 
+            ? { 'datePublished': r.createdAt.trim().slice(0, 10) } 
+            : (r.date && typeof r.date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(r.date.trim()) 
+              ? { 'datePublished': r.date.trim().slice(0, 10) } 
+              : {}))
+        }));
+
+      if (genuineReviews.length > 0) {
+        jsonLd.review = genuineReviews;
+      }
     }
   }
 
