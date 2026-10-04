@@ -75,7 +75,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       <div className="relative aspect-square w-full rounded-xl overflow-hidden mb-2 sm:mb-3 bg-white dark:bg-zinc-950 border border-slate-200/80 dark:border-zinc-800 flex items-center justify-center p-2.5 sm:p-4 group-hover:border-pink-200 dark:group-hover:border-pink-500/30 transition-colors shadow-2xs">
         <img
           src={product.image}
-          alt={`${product.title} - Authentic Japanese Skincare`}
+          alt={product.title}
           className="w-full h-full object-contain filter drop-shadow-[0_4px_12px_rgba(15,23,42,0.10)] transition-transform duration-300 group-hover:scale-105"
           referrerPolicy="no-referrer"
           loading="lazy"

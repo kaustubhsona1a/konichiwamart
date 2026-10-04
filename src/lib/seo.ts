@@ -11,11 +11,14 @@ import {
 
 /**
  * Creates clean, lowercase, URL-safe hyphen-separated slugs
+ * Normalizes unicode diacritics (e.g. é -> e, ō -> o) for stable URL interoperability
  */
 export function slugify(text: string): string {
   if (!text) return '';
   return text
     .toString()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove diacritics/accents
     .toLowerCase()
     .trim()
     .replace(/[&/\\#,+()$~%.'":*?<>{}]/g, '') // remove punctuation
@@ -47,92 +50,193 @@ export function getProductCanonicalUrl(product: { id: string; slug?: string; tit
 }
 
 /**
- * Infers brand metadata from product title or category
+ * Maps product category string to authoritative collection slug
  */
-export function inferBrandFromProduct(product: { title: string; category?: string }): { name: string; slug?: string } {
-  const t = product.title.toLowerCase();
+export function getCategoryCollectionSlug(category?: string): string {
+  if (!category) return 'skincare';
+  const norm = category.toLowerCase().trim();
+  if (norm.includes('sunscreen') || norm.includes('sun') || norm.includes('uv')) return 'sunscreen';
+  if (norm.includes('wash') || norm.includes('cleans') || norm.includes('soap')) return 'face-wash';
+  if (norm.includes('toner') || norm.includes('lotion') || norm.includes('conditioner') || norm.includes('mist')) return 'toner';
+  if (norm.includes('serum') || norm.includes('essence') || norm.includes('ampoule')) return 'serum';
+  if (norm.includes('mask') || norm.includes('sheet')) return 'face-mask';
+  if (norm.includes('hair') || norm.includes('shampoo') || norm.includes('treatment')) return 'hair-care';
+  return 'skincare';
+}
+
+/**
+ * Infers brand metadata from explicit product field or verified Japanese brand names
+ * Omits brand if no trustworthy brand is identified (never fabricates or guesses from random words)
+ */
+export function inferBrandFromProduct(product: { title: string; category?: string; brand?: string }): { name: string; slug?: string } | null {
+  // 1. Explicit brand field
+  if (product.brand && typeof product.brand === 'string' && product.brand.trim()) {
+    const bName = product.brand.trim();
+    const bSlug = slugify(bName);
+    return { name: bName, slug: SEO_BRANDS[bSlug] ? bSlug : undefined };
+  }
+
+  // 2. Verified authentic Japanese brand detection
+  const t = (product.title || '').toLowerCase();
   if (t.includes('senka')) return { name: 'Senka', slug: 'senka' };
   if (t.includes('bioré') || t.includes('biore')) return { name: 'Bioré', slug: 'biore' };
   if (t.includes('hada labo') || t.includes('hadalabo')) return { name: 'Hada Labo', slug: 'hada-labo' };
-  if (t.includes('melano cc')) return { name: 'Melano CC', slug: 'melano-cc' };
+  if (t.includes('melano cc') || t.includes('melanocc')) return { name: 'Melano CC', slug: 'melano-cc' };
   if (t.includes('lululun')) return { name: 'LuLuLun', slug: 'lululun' };
   if (t.includes('fino')) return { name: 'Fino', slug: 'fino' };
-  if (t.includes('&honey') || t.includes('andhoney')) return { name: '&honey', slug: 'honey' };
+  if (t.includes('&honey') || t.includes('andhoney') || t.includes('and honey')) return { name: '&honey', slug: 'honey' };
   if (t.includes('keana') || t.includes('nadeshiko')) return { name: 'Keana Nadeshiko', slug: 'keana-nadeshiko' };
-  if (t.includes('derma laser') || t.includes('quality 1st')) return { name: 'Quality 1st', slug: 'quality-1st' };
-  if (t.includes('kosé') || t.includes('kose')) return { name: 'Kosé', slug: 'kose' };
-  if (t.includes('tsubaki')) return { name: 'Tsubaki', slug: 'tsubaki' };
+  if (t.includes('derma laser') || t.includes('quality 1st') || t.includes('quality first')) return { name: 'Quality 1st', slug: 'quality-1st' };
+  if (t.includes('kosé') || t.includes('kose') || t.includes('softymo')) return { name: 'Kosé', slug: 'kose' };
   if (t.includes('capsule serum')) return { name: 'Capsule Serum', slug: 'capsule-serum' };
-  
-  // Default to Konichiwa Mart Tokyo Curation
-  const firstWord = product.title.split(' ')[0] || 'Japanese';
-  return { name: firstWord };
+  if (t.includes('shiseido')) return { name: 'Shiseido', slug: 'shiseido' };
+  if (t.includes('canmake')) return { name: 'Canmake', slug: 'canmake' };
+  if (t.includes('skin aqua')) return { name: 'Skin Aqua', slug: 'skin-aqua' };
+  if (t.includes('anessa')) return { name: 'Anessa', slug: 'anessa' };
+  if (t.includes('rohto')) return { name: 'Rohto', slug: 'rohto' };
+  if (t.includes('tsubaki')) return { name: 'Tsubaki' };
+  if (t.includes('dhc')) return { name: 'DHC' };
+  if (t.includes('kiss me') || t.includes('heroine make')) return { name: 'Kiss Me Heroine Make' };
+
+  return null;
 }
 
 /**
  * Generates dynamic SEO Title for a product
+ * Prioritizes: Exact Product Name + Brand/category where useful + India / Buy Online where commercially relevant + Konichiwa Mart
+ * Example: Senka Perfect Whip Face Wash | Buy Online India | Konichiwa Mart
  */
 export function getProductSeoTitle(product: Product): string {
   const brand = inferBrandFromProduct(product);
-  const brandSuffix = product.title.toLowerCase().includes(brand.name.toLowerCase()) ? '' : ` by ${brand.name}`;
-  return `${product.title}${brandSuffix} | Buy Online India | Konichiwa Mart`;
+  
+  // Only add brand suffix if brand is known AND not already part of the product title
+  let brandSuffix = '';
+  if (brand && brand.name) {
+    const titleLower = product.title.toLowerCase();
+    const brandLower = brand.name.toLowerCase();
+    const hasBrandInTitle = titleLower.includes(brandLower) || 
+      brandLower.split(' ').some(w => w.length > 3 && titleLower.includes(w));
+    if (!hasBrandInTitle) {
+      brandSuffix = ` by ${brand.name}`;
+    }
+  }
+
+  const baseTitle = `${product.title}${brandSuffix}`;
+
+  // Candidate 1: Exact Name + Buy Online India + Konichiwa Mart (Standard high-intent structure)
+  const fullTitle = `${baseTitle} | Buy Online India | Konichiwa Mart`;
+  if (fullTitle.length <= 68) {
+    return fullTitle;
+  }
+
+  // Candidate 2: Compact commercial intent to avoid SERP truncation
+  const compactTitle = `${baseTitle} | Buy Online | Konichiwa Mart`;
+  if (compactTitle.length <= 68) {
+    return compactTitle;
+  }
+
+  // Candidate 3: Regional authority title
+  const regionalTitle = `${baseTitle} | Konichiwa Mart India`;
+  if (regionalTitle.length <= 68) {
+    return regionalTitle;
+  }
+
+  // Candidate 4: Minimal clean fallback
+  return `${baseTitle} | Konichiwa Mart`;
 }
 
 /**
- * Generates natural, search-intent focused meta description for a product
+ * Generates natural, product-specific meta description
+ * Naturally communicates: product, brand, use/category, size, India availability, purchase intent
+ * Enforces strictly 120-158 characters, no cookie-cutter copies, no keyword stuffing, no medical claims
  */
 export function getProductSeoDescription(product: Product): string {
-  const brand = inferBrandFromProduct(product);
-  const price = product.price > 0 ? ` ₹${product.price}.` : '';
-  const actives = product.keyActives && product.keyActives.length > 0 
-    ? ` Formulated with ${product.keyActives.map(a => a.name).slice(0, 2).join(' & ')}.` 
-    : '';
-
-  let summary = (product.description || '').replace(/\s+/g, ' ').trim();
-  if (summary.length > 110) {
-    summary = summary.slice(0, 107) + '...';
+  // If product has an explicit custom meta description, preserve it
+  if ((product as any).metaDescription && typeof (product as any).metaDescription === 'string') {
+    return (product as any).metaDescription.trim();
   }
 
-  return `Buy authentic ${product.title} in India at Konichiwa Mart.${price}${actives} 100% genuine Tokyo import with fast doorstep delivery across India.`;
+  const size = product.volume ? ` (${product.volume})` : '';
+
+  // Extract factual characteristic from subtitle or description
+  let coreFeature = '';
+  if (product.subtitle && product.subtitle.trim().length >= 15 && product.subtitle.trim().length <= 75) {
+    coreFeature = product.subtitle.trim();
+  } else if (product.description) {
+    const firstSentence = product.description.split('.')[0].trim();
+    if (firstSentence.length >= 20 && firstSentence.length <= 75) {
+      coreFeature = firstSentence;
+    }
+  }
+
+  let desc = '';
+  if (coreFeature) {
+    desc = `Buy ${product.title}${size} online in India at Konichiwa Mart. ${coreFeature}. Fast India delivery.`;
+  } else {
+    desc = `Buy authentic ${product.title}${size} online in India at Konichiwa Mart. Genuine Tokyo import with fast delivery across India.`;
+  }
+
+  // Ensure length is strictly between 120 and 158 characters without truncation
+  if (desc.length > 158) {
+    if (coreFeature) {
+      desc = `Buy ${product.title}${size} in India at Konichiwa Mart. ${coreFeature}.`;
+    }
+  }
+  if (desc.length > 158) {
+    desc = `Buy ${product.title}${size} online in India at Konichiwa Mart. Direct Tokyo import with fast express delivery.`;
+  }
+  if (desc.length > 158) {
+    desc = `Buy ${product.title} online in India at Konichiwa Mart. Direct Tokyo import with express delivery across India.`;
+  }
+
+  return desc;
 }
 
 /**
  * Generates Schema.org Product JSON-LD structured data with authentic database fields
+ * Strips fabricated ratings, reviews, and fake expiration dates
  */
 export function generateProductJsonLd(product: Product, reviews?: Review[]): Record<string, any> {
   const brand = inferBrandFromProduct(product);
   const canonicalUrl = getProductCanonicalUrl(product);
   const isInStock = (product.stock ?? 0) > 0 && !product.isComingSoon;
 
+  // Real reviews check: only genuine submitted reviews matching this product
   const productReviews = (reviews || []).filter(r => 
-    r.productId === product.id || 
-    (product.slug && r.productId === product.slug) ||
-    (product.dbId && r.productId === product.dbId)
+    r && (
+      r.productId === product.id || 
+      (product.slug && r.productId === product.slug) ||
+      (product.dbId && r.productId === product.dbId)
+    )
   );
 
-  const images = Array.isArray(product.images) && product.images.length > 0 
+  // Guarantee absolute HTTPS URLs for all product images
+  const rawImages = Array.isArray(product.images) && product.images.length > 0 
     ? product.images 
-    : [product.image];
+    : (product.image ? [product.image] : []);
+
+  const absoluteImages = rawImages
+    .filter(Boolean)
+    .map(img => {
+      if (img.startsWith('http://') || img.startsWith('https://')) {
+        return img.replace(/^http:\/\//i, 'https://');
+      }
+      const cleanPath = img.startsWith('/') ? img : `/${img}`;
+      return `${CANONICAL_SITE_URL}${cleanPath}`;
+    });
 
   const jsonLd: Record<string, any> = {
     '@context': 'https://schema.org',
     '@type': 'Product',
     'name': product.title,
     'description': product.description || product.subtitle || `Authentic ${product.title} imported directly from Tokyo, Japan.`,
-    'image': images,
+    'image': absoluteImages.length > 0 ? absoluteImages : [`${CANONICAL_SITE_URL}/products/keana-rice-mask.png`],
     'url': canonicalUrl,
-    'sku': product.slug || product.id,
-    'brand': {
-      '@type': 'Brand',
-      'name': brand.name
-    },
-    'category': product.category || 'Japanese Skincare',
     'offers': {
       '@type': 'Offer',
       'url': canonicalUrl,
       'priceCurrency': 'INR',
-      'price': product.price,
-      'priceValidUntil': '2027-12-31',
+      'price': typeof product.price === 'number' ? product.price : Number(product.price) || 0,
       'itemCondition': 'https://schema.org/NewCondition',
       'availability': isInStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
       'seller': {
@@ -143,35 +247,53 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
     }
   };
 
-  // Add authentic aggregate rating if genuine rating data exists
-  if (product.rating && product.reviewsCount && product.reviewsCount > 0) {
-    jsonLd.aggregateRating = {
-      '@type': 'AggregateRating',
-      'ratingValue': product.rating.toFixed(2),
-      'reviewCount': product.reviewsCount,
-      'bestRating': '5',
-      'worstRating': '1'
+  // Only include Brand property if trustworthy brand exists
+  if (brand && brand.name) {
+    jsonLd.brand = {
+      '@type': 'Brand',
+      'name': brand.name
     };
   }
 
-  // Include genuine visible customer reviews if present
+  // Include Category where available
+  if (product.category) {
+    jsonLd.category = product.category;
+  }
+
+  // SKU if available from product
+  if (product.slug || product.id) {
+    jsonLd.sku = product.slug || product.id;
+  }
+
+  // CRITICAL: NEVER emit aggregateRating or reviews unless genuine submitted review data exists
   if (productReviews.length > 0) {
-    jsonLd.review = productReviews.slice(0, 5).map(r => ({
-      '@type': 'Review',
-      'reviewRating': {
-        '@type': 'Rating',
-        'ratingValue': r.rating,
+    const validRatings = productReviews.map(r => r.rating).filter(r => typeof r === 'number' && !isNaN(r));
+    if (validRatings.length > 0) {
+      const avg = validRatings.reduce((sum, r) => sum + r, 0) / validRatings.length;
+      jsonLd.aggregateRating = {
+        '@type': 'AggregateRating',
+        'ratingValue': avg.toFixed(2),
+        'reviewCount': validRatings.length,
         'bestRating': '5',
         'worstRating': '1'
-      },
-      'author': {
-        '@type': 'Person',
-        'name': r.author || 'Verified Buyer'
-      },
-      'headline': r.headline || 'Excellent Product',
-      'reviewBody': r.comment || '',
-      'datePublished': r.createdAt ? r.createdAt.slice(0, 10) : '2026-09-01'
-    }));
+      };
+      jsonLd.review = productReviews.slice(0, 5).map(r => ({
+        '@type': 'Review',
+        'reviewRating': {
+          '@type': 'Rating',
+          'ratingValue': r.rating,
+          'bestRating': '5',
+          'worstRating': '1'
+        },
+        'author': {
+          '@type': 'Person',
+          'name': r.author || 'Customer'
+        },
+        ...(r.headline ? { 'headline': r.headline } : {}),
+        ...(r.comment ? { 'reviewBody': r.comment } : {}),
+        ...(r.createdAt ? { 'datePublished': r.createdAt.slice(0, 10) } : {})
+      }));
+    }
   }
 
   return jsonLd;

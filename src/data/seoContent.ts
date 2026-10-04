@@ -222,6 +222,72 @@ export const SEO_BRANDS: Record<string, SeoBrandInfo> = {
     brandStory: 'Founded in Tokyo in 1946, Kosé is one of Japan’s premier cosmetics houses, renowned for pioneering powder foundations, beauty serums, and ultra-hydrating sheet masks.',
     countryOfOrigin: 'Japan',
     foundingYear: '1946'
+  },
+  'capsule-serum': {
+    slug: 'capsule-serum',
+    name: 'Capsule Serum',
+    japaneseName: 'カプセルセラム',
+    title: 'Capsule Serum Japan in India | Fresh Vitamin C Serums | Konichiwa Mart',
+    metaDescription: 'Shop authentic Capsule Serum skincare in India. Fresh micro-capsule Vitamin C technology that preserves active potency for luminous glass skin.',
+    h1: 'Capsule Serum Japan – Fresh Micro-Encapsulated Actives',
+    brandStory: 'Capsule Serum is a breakthrough Japanese skincare brand that utilizes micro-capsule suspension to keep fragile active ingredients like pure Vitamin C fresh and stable until the moment of application.',
+    countryOfOrigin: 'Japan',
+    foundingYear: '2021'
+  },
+  'shiseido': {
+    slug: 'shiseido',
+    name: 'Shiseido',
+    japaneseName: '資生堂',
+    title: 'Shiseido Japan Skincare & Cosmetics in India | Konichiwa Mart',
+    metaDescription: 'Shop authentic Shiseido Japan beauty products in India. Iconic formulations from Japan’s premier heritage cosmetics house, direct from Tokyo.',
+    h1: 'Shiseido Japan – Heritage of Japanese Beauty & Innovation',
+    brandStory: 'Founded in Ginza, Tokyo in 1872, Shiseido is Japan’s oldest and most prestigious beauty house, blending centuries of Eastern aesthetics with cutting-edge dermatological science.',
+    countryOfOrigin: 'Japan',
+    foundingYear: '1872'
+  },
+  'canmake': {
+    slug: 'canmake',
+    name: 'Canmake',
+    japaneseName: 'キャンメイク',
+    title: 'Canmake Tokyo Cosmetics in India | Mermaid Skin Gel UV | Konichiwa Mart',
+    metaDescription: 'Shop genuine Canmake Tokyo makeup and UV sunscreen gels in India. Adorable, high-performance Japanese beauty essentials imported from Tokyo.',
+    h1: 'Canmake Tokyo – Vibrant, Joyful Japanese Cosmetics',
+    brandStory: 'Created by IDA Laboratories in Tokyo, Canmake has been a cornerstone of Japanese high-street beauty since 1985, delivering lightweight, pore-smoothing cosmetics.',
+    countryOfOrigin: 'Japan',
+    foundingYear: '1985'
+  },
+  'skin-aqua': {
+    slug: 'skin-aqua',
+    name: 'Skin Aqua',
+    japaneseName: 'スキンアクア',
+    title: 'Rohto Skin Aqua Sunscreens in India | UV Super Moisture Gel | Konichiwa Mart',
+    metaDescription: 'Buy authentic Rohto Skin Aqua sunscreens in India. Ultra-hydrating water-light sun gels with multi-weight hyaluronic acid and zero stickiness.',
+    h1: 'Skin Aqua by Rohto – Water-Burst Sun Defense',
+    brandStory: 'Skin Aqua, developed by Rohto Pharmaceutical, is renowned for its water-capsule technology that melts onto skin like water while providing broad-spectrum SPF50+ PA++++ protection.',
+    countryOfOrigin: 'Japan',
+    foundingYear: '2008'
+  },
+  'anessa': {
+    slug: 'anessa',
+    name: 'Anessa',
+    japaneseName: 'アネッサ',
+    title: 'Anessa Shiseido Sunscreens in India | Perfect UV Sunscreen Milk | Konichiwa Mart',
+    metaDescription: 'Order original Shiseido Anessa sunscreens in India. Japan’s No. 1 sun care with Auto Booster technology that strengthens UV protection with heat and sweat.',
+    h1: 'Anessa by Shiseido – Japan’s Gold-Standard Sun Protection',
+    brandStory: 'Anessa is Shiseido’s world-renowned sun care authority, celebrated across Asia for its Auto Booster technology that actually strengthens the protective UV veil when exposed to heat and moisture.',
+    countryOfOrigin: 'Japan',
+    foundingYear: '1992'
+  },
+  'rohto': {
+    slug: 'rohto',
+    name: 'Rohto',
+    japaneseName: 'ロート製薬',
+    title: 'Rohto Pharmaceutical Japan Products in India | Konichiwa Mart',
+    metaDescription: 'Discover authentic Rohto Pharmaceutical skincare and eye care in India. Pioneers of Hada Labo, Melano CC, and Skin Aqua, direct from Osaka, Japan.',
+    h1: 'Rohto Pharmaceutical – Evidence-Based Japanese Skincare Science',
+    brandStory: 'Founded in Osaka in 1899, Rohto Pharmaceutical is a titan in Japanese health and beauty, creating iconic formulas centered on biological compatibility and active ingredient stability.',
+    countryOfOrigin: 'Japan',
+    foundingYear: '1899'
   }
 };
 

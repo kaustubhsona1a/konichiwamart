@@ -13,6 +13,7 @@ import {
   getProductCanonicalUrl, 
   getProductSeoTitle, 
   getProductSeoDescription,
+  getCategoryCollectionSlug,
   generateProductJsonLd,
   generateOrganizationJsonLd,
   generateWebSiteJsonLd,
@@ -103,11 +104,25 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
   // 1. PRODUCT DETAIL PAGE: /products/:slug
   if (path.startsWith('/products/')) {
     const slug = path.replace('/products/', '').toLowerCase().trim();
+    const normalizedReqSlug = slug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const strippedReqSlug = normalizedReqSlug.replace(/^(rohto|shiseido|kose|kao)-/, '');
     const product = slug ? allProducts.find(p => {
       const pSlug = getProductCanonicalSlug(p).toLowerCase();
+      const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       const rawSlug = (p.slug || '').toLowerCase();
+      const normRawSlug = rawSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       const id = p.id.toLowerCase();
-      return pSlug === slug || rawSlug === slug || id === slug;
+      return pSlug === slug || 
+             rawSlug === slug || 
+             id === slug || 
+             normPSlug === normalizedReqSlug || 
+             normRawSlug === normalizedReqSlug ||
+             normPSlug === strippedReqSlug ||
+             normRawSlug === strippedReqSlug;
+    }) || PRODUCTS.find(p => {
+      const pSlug = getProductCanonicalSlug(p).toLowerCase();
+      const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      return pSlug === slug || p.id.toLowerCase() === slug || normPSlug === normalizedReqSlug || normPSlug === strippedReqSlug;
     }) : undefined;
 
     if (product) {
@@ -115,29 +130,135 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
       const description = getProductSeoDescription(product);
       const canonicalUrl = getProductCanonicalUrl(product);
       const brand = inferBrandFromProduct(product);
+      const categorySlug = getCategoryCollectionSlug(product.category);
+      const categoryInfo = SEO_CATEGORIES[categorySlug] || SEO_CATEGORIES['skincare'];
+      const categoryName = categoryInfo ? categoryInfo.name : (product.category || 'Japanese Skincare');
+      const hasBrandLink = Boolean(brand && brand.slug && SEO_BRANDS[brand.slug]);
+      
       const productJsonLd = generateProductJsonLd(product);
+      
       const breadcrumbs = [
         { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
-        { name: product.category || 'Japanese Skincare', url: `${CANONICAL_SITE_URL}/collections/${(product.category || '').toLowerCase().replace(/[^a-z0-9]/g, '-')}` },
+        { name: categoryName, url: `${CANONICAL_SITE_URL}/collections/${categorySlug}` },
+        ...(hasBrandLink && brand ? [{ name: brand.name, url: `${CANONICAL_SITE_URL}/brands/${brand.slug}` }] : []),
         { name: product.title, url: canonicalUrl }
       ];
       const breadcrumbJsonLd = generateBreadcrumbJsonLd(breadcrumbs);
 
       const isInStock = (product.stock ?? 0) > 0 && !product.isComingSoon;
+      const mainImage = product.image?.startsWith('http') 
+        ? product.image 
+        : `${CANONICAL_SITE_URL}${product.image?.startsWith('/') ? product.image : `/${product.image || 'products/keana-rice-mask.png'}`}`;
+
+      const relatedProducts = allProducts
+        .filter(p => p.id !== product.id && getCategoryCollectionSlug(p.category) === categorySlug)
+        .slice(0, 4);
+
       const crawlerHtml = `
-        <article class="seo-crawler-page">
+        <article class="seo-crawler-page product-page-seo" itemscope itemtype="https://schema.org/Product">
           <nav aria-label="Breadcrumb">
             <a href="/">Home</a> &gt; 
-            <a href="/#collection">${product.category || 'Japanese Skincare'}</a> &gt; 
-            <span>${product.title}</span>
+            <a href="/collections/${categorySlug}">${escapeHtml(categoryName)}</a>
+            ${hasBrandLink && brand ? ` &gt; <a href="/brands/${brand.slug}">${escapeHtml(brand.name)}</a>` : ''} &gt; 
+            <span>${escapeHtml(product.title)}</span>
           </nav>
-          <h1>${product.title}</h1>
-          <p class="subtitle">${product.subtitle || ''}</p>
-          <div class="product-price">Price: ₹${product.price} (Inclusive of all taxes)</div>
-          <div class="product-status">Availability: ${isInStock ? 'In Stock (Direct Tokyo Import)' : 'Pre-Order / Coming Soon'}</div>
-          <div class="product-description">${product.description || ''}</div>
-          <p>Brand: ${brand.name} | Category: ${product.category} | 100% Authentic Japanese Skincare India</p>
-          <a href="/">Return to Konichiwa Mart Storefront</a>
+
+          <h1 itemprop="name">${escapeHtml(product.title)}</h1>
+          ${product.subtitle ? `<p class="product-subtitle">${escapeHtml(product.subtitle)}</p>` : ''}
+
+          <div class="product-core-meta">
+            <p>
+              ${brand && brand.name ? `<strong>Brand:</strong> ${hasBrandLink ? `<a href="/brands/${brand.slug}">${escapeHtml(brand.name)}</a>` : `<span>${escapeHtml(brand.name)}</span>`} | ` : ''}
+              <strong>Category:</strong> <a href="/collections/${categorySlug}">${escapeHtml(product.category || categoryName)}</a>
+              ${product.volume ? ` | <strong>Size:</strong> <span>${escapeHtml(product.volume)}</span>` : ''} | 
+              <strong>Origin:</strong> <span>Japan (Direct Tokyo Import)</span>
+            </p>
+          </div>
+
+          <div class="product-media">
+            <img src="${escapeAttr(mainImage)}" alt="${escapeAttr(product.title)}" itemprop="image" loading="eager" />
+          </div>
+
+          <div class="product-purchase" itemprop="offers" itemscope itemtype="https://schema.org/Offer">
+            <link itemprop="url" href="${escapeAttr(canonicalUrl)}" />
+            <meta itemprop="priceCurrency" content="INR" />
+            <meta itemprop="price" content="${product.price}" />
+            <link itemprop="availability" href="${isInStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock'}" />
+            <div class="product-price">
+              <strong>Price:</strong> ₹${product.price} INR (Inclusive of all taxes)
+              ${product.originalPrice && product.originalPrice > product.price ? ` <span class="product-mrp">(MRP: ₹${product.originalPrice})</span>` : ''}
+            </div>
+            <div class="product-status">
+              <strong>Availability:</strong> ${isInStock ? 'In Stock — Available for online order in India' : 'Currently Out of Stock'}
+            </div>
+          </div>
+
+          <section class="product-description" itemprop="description">
+            <h2>Product Description</h2>
+            <p>${escapeHtml(product.description || product.subtitle || `${product.title} imported directly from Tokyo, Japan.`)}</p>
+          </section>
+
+          ${product.benefits && product.benefits.length > 0 ? `
+          <section class="product-benefits">
+            <h2>Key Benefits</h2>
+            <ul>
+              ${product.benefits.map(b => `<li>${escapeHtml(b)}</li>`).join('')}
+            </ul>
+          </section>` : ''}
+
+          ${product.keyActives && product.keyActives.length > 0 ? `
+          <section class="product-actives">
+            <h2>Key Ingredients &amp; Actives</h2>
+            <ul>
+              ${product.keyActives.map(a => `<li><strong>${escapeHtml(a.name)}</strong>${a.percentage ? ` (${escapeHtml(a.percentage)})` : ''}: ${escapeHtml(a.purpose)}</li>`).join('')}
+            </ul>
+          </section>` : ''}
+
+          ${product.fullIngredients ? `
+          <section class="product-ingredients">
+            <h2>Full Ingredients (INCI)</h2>
+            <p>${escapeHtml(product.fullIngredients)}</p>
+          </section>` : ''}
+
+          ${product.usageHowTo ? `
+          <section class="product-usage">
+            <h2>How to Use</h2>
+            <p>${escapeHtml(product.usageHowTo)}</p>
+          </section>` : ''}
+
+          ${product.skinTypes && product.skinTypes.length > 0 && !product.skinTypes.includes('All') ? `
+          <div class="product-skintypes">
+            <strong>Suitable Skin Types:</strong> ${product.skinTypes.map(escapeHtml).join(', ')}
+          </div>` : ''}
+
+          ${product.skinConcerns && product.skinConcerns.length > 0 ? `
+          <div class="product-concerns">
+            <strong>Target Skin Concerns:</strong> ${product.skinConcerns.map(escapeHtml).join(', ')}
+          </div>` : ''}
+
+          ${product.routine ? `
+          <div class="product-routine">
+            <strong>Recommended Routine:</strong> ${escapeHtml(product.routine)}
+          </div>` : ''}
+
+          ${relatedProducts.length > 0 ? `
+          <section class="related-products">
+            <h2>More Japanese ${escapeHtml(categoryName)} Products</h2>
+            <ul>
+              ${relatedProducts.map(rp => `
+                <li>
+                  <a href="${getProductCanonicalUrl(rp)}">${escapeHtml(rp.title)}</a> - ₹${rp.price}
+                </li>
+              `).join('')}
+            </ul>
+          </section>` : ''}
+
+          <footer class="product-footer-links">
+            <p>
+              Explore all <a href="/collections/${categorySlug}">${escapeHtml(categoryName)}</a> and genuine Tokyo imports at <a href="/">Konichiwa Mart</a>.
+              ${hasBrandLink && brand ? ` View more products from <a href="/brands/${brand.slug}">${escapeHtml(brand.name)}</a>.` : ''}
+            </p>
+          </footer>
         </article>
       `;
 
@@ -145,7 +266,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
         title,
         description,
         canonicalUrl,
-        ogImage: product.image?.startsWith('http') ? product.image : `${CANONICAL_SITE_URL}${product.image}`,
+        ogImage: mainImage,
         ogType: 'product',
         jsonLd: [orgSchema, webSiteSchema, breadcrumbJsonLd, productJsonLd],
         h1: product.title,
@@ -358,10 +479,40 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
     <main class="seo-crawler-page">
       <h1>Konichiwa Mart – Authentic Japanese Skincare & Cosmetics India</h1>
       <p>Direct Tokyo imports of verified Japanese beauty essentials: sunscreens, face washes, multi-weight hyaluronic lotions, and hair masks.</p>
-      <section>
-        <h2>Featured Japanese Skincare Products</h2>
+
+      <section class="seo-collections-nav">
+        <h2>Shop by Japanese Skincare Collection</h2>
         <ul>
-          ${allProducts.slice(0, 16).map(p => `
+          <li><a href="/collections/sunscreen">Authentic Japanese Sunscreens (SPF50+ PA++++)</a></li>
+          <li><a href="/collections/face-wash">Japanese Cleansers & Face Washes (Micro-Dense Foam)</a></li>
+          <li><a href="/collections/toner">Hydrating Toners & Conditioning Lotions (Hyaluronic Acid & Vit C)</a></li>
+          <li><a href="/collections/serum">Japanese Serums & Fresh Micro-Capsules</a></li>
+          <li><a href="/collections/face-mask">Japanese Sheet Masks (100% Domestic Rice & Laser Delivery)</a></li>
+          <li><a href="/collections/hair-care">Japanese Hair Masks & Deep Treatments</a></li>
+        </ul>
+      </section>
+
+      <section class="seo-brands-nav">
+        <h2>Authentic Tokyo Brands</h2>
+        <ul>
+          <li><a href="/brands/senka">Senka by Shiseido</a></li>
+          <li><a href="/brands/biore">Bioré UV & Skincare</a></li>
+          <li><a href="/brands/hada-labo">Hada Labo Rohto</a></li>
+          <li><a href="/brands/melano-cc">Melano CC Vitamin C</a></li>
+          <li><a href="/brands/fino">Fino Premium Touch</a></li>
+          <li><a href="/brands/honey">&honey Organic Moisture</a></li>
+          <li><a href="/brands/keana-nadeshiko">Keana Nadeshiko Rice Care</a></li>
+          <li><a href="/brands/quality-1st">Quality 1st Derma Laser</a></li>
+          <li><a href="/brands/lululun">LuLuLun Daily Face Masks</a></li>
+          <li><a href="/brands/capsule-serum">Capsule Serum Japan</a></li>
+          <li><a href="/brands/kose">Kosé Cosmeport</a></li>
+        </ul>
+      </section>
+
+      <section class="seo-products-nav">
+        <h2>Featured Japanese Skincare Products in India</h2>
+        <ul>
+          ${allProducts.map(p => `
             <li>
               <a href="${getProductCanonicalUrl(p)}">${p.title}</a> - ₹${p.price}
             </li>

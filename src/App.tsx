@@ -746,14 +746,18 @@ export default function App() {
     // 1. /products/:slug
     if (cleanPath.startsWith('/products/')) {
       const slug = cleanPath.replace('/products/', '').toLowerCase().trim();
+      const normReqSlug = slug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       const matched = prods.find(p => {
         const pSlug = getProductCanonicalSlug(p).toLowerCase();
+        const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const rawSlug = (p.slug || '').toLowerCase();
+        const normRawSlug = rawSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
         const id = p.id.toLowerCase();
-        return pSlug === slug || rawSlug === slug || id === slug;
+        return pSlug === slug || rawSlug === slug || id === slug || normPSlug === normReqSlug || normRawSlug === normReqSlug;
       }) || PRODUCTS.find(p => {
         const pSlug = getProductCanonicalSlug(p).toLowerCase();
-        return pSlug === slug || p.id.toLowerCase() === slug;
+        const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        return pSlug === slug || p.id.toLowerCase() === slug || normPSlug === normReqSlug;
       });
 
       if (matched) {
