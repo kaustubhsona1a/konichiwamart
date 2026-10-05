@@ -1,6 +1,6 @@
 import React from 'react';
-import { Sparkles, MapPin, Calendar, ArrowLeft, ShieldCheck } from 'lucide-react';
-import { SeoBrandInfo, SEO_CATEGORIES } from '../data/seoContent';
+import { Sparkles, MapPin, Calendar, ArrowLeft, BookOpen } from 'lucide-react';
+import { SeoBrandInfo, SEO_CATEGORIES, SEO_GUIDES } from '../data/seoContent';
 import { Product, ProductShade } from '../types';
 import { Breadcrumbs } from './Breadcrumbs';
 import { ProductCard } from './ProductCard';
@@ -13,6 +13,8 @@ interface BrandLandingPageProps {
   onToggleWishlist: (productId: string) => void;
   isWishlisted: (productId: string) => boolean;
   onBackToStore: () => void;
+  onNavigateCategory?: (categorySlug: string) => void;
+  onNavigateGuide?: (guideSlug: string) => void;
   onEdit?: (product: Product) => void;
   isOperator?: boolean;
 }
@@ -25,9 +27,16 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
   onToggleWishlist,
   isWishlisted,
   onBackToStore,
+  onNavigateCategory,
+  onNavigateGuide,
   onEdit,
   isOperator
 }) => {
+  const brandGuides = Object.values(SEO_GUIDES).filter(g => 
+    (brand.relatedGuideSlugs && brand.relatedGuideSlugs.includes(g.slug)) ||
+    (g.relatedBrandSlugs && g.relatedBrandSlugs.includes(brand.slug))
+  );
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left space-y-8 animate-in fade-in duration-300">
       {/* Brand Header Banner */}
@@ -80,12 +89,42 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
                     <a
                       key={cat.slug}
                       href={`/collections/${cat.slug}`}
+                      onClick={(e) => {
+                        if (!e.metaKey && !e.ctrlKey && onNavigateCategory) {
+                          e.preventDefault();
+                          onNavigateCategory(cat.slug);
+                        }
+                      }}
                       className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-white/80 dark:bg-zinc-800/80 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 hover:text-pink-600 dark:hover:text-pink-400 hover:border-pink-300 transition-colors"
                     >
                       {cat.name}
                     </a>
                   );
                 })}
+              </div>
+            )}
+
+            {brandGuides.length > 0 && (
+              <div className="flex items-center gap-2 flex-wrap pt-1">
+                <span className="text-xs text-slate-500 dark:text-zinc-400 font-medium flex items-center gap-1">
+                  <BookOpen className="w-3.5 h-3.5 text-pink-500" />
+                  <span>Guide:</span>
+                </span>
+                {brandGuides.map(g => (
+                  <a
+                    key={g.slug}
+                    href={`/guides/${g.slug}`}
+                    onClick={(e) => {
+                      if (!e.metaKey && !e.ctrlKey && onNavigateGuide) {
+                        e.preventDefault();
+                        onNavigateGuide(g.slug);
+                      }
+                    }}
+                    className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-pink-50/90 dark:bg-pink-950/50 border border-pink-200 dark:border-pink-800 text-pink-700 dark:text-pink-300 hover:bg-pink-100 dark:hover:bg-pink-900/60 transition-colors"
+                  >
+                    {g.h1}
+                  </a>
+                ))}
               </div>
             )}
           </div>

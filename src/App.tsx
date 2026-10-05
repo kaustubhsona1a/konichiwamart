@@ -2178,6 +2178,8 @@ export default function App() {
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted}
           onBackToStore={handleNavigateHome}
+          onNavigateCategory={handleNavigateCategory}
+          onNavigateGuide={handleNavigateGuide}
           onEdit={handleStartEditProduct}
           isOperator={Boolean(operatorSession)}
         />
@@ -2190,6 +2192,8 @@ export default function App() {
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted}
           onBackToStore={handleNavigateHome}
+          onNavigateCategory={handleNavigateCategory}
+          onNavigateGuide={handleNavigateGuide}
           onEdit={handleStartEditProduct}
           isOperator={Boolean(operatorSession)}
         />
@@ -2221,6 +2225,8 @@ export default function App() {
                 productCount={filteredProducts.length}
                 onBackToAll={handleNavigateHome}
                 onNavigateHome={handleNavigateHome}
+                onNavigateBrand={handleNavigateBrand}
+                onNavigateGuide={handleNavigateGuide}
               />
             )}
             

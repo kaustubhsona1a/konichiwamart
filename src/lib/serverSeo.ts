@@ -156,6 +156,12 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
         .filter(p => p.id !== product.id && getCategoryCollectionSlug(p.category) === categorySlug)
         .slice(0, 4);
 
+      const relevantGuides = Object.values(SEO_GUIDES).filter(g => 
+        g.sections.some(s => (s.recommendedProductSlugs || []).some(rSlug => rSlug === product.id || (product.slug && rSlug === product.slug))) ||
+        g.relatedCategorySlug === categorySlug ||
+        (brand?.slug && g.relatedBrandSlugs?.includes(brand.slug))
+      );
+
       const crawlerHtml = `
         <article class="seo-crawler-page product-page-seo" itemscope itemtype="https://schema.org/Product">
           <nav aria-label="Breadcrumb">
@@ -255,6 +261,18 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
             </ul>
           </section>` : ''}
 
+          ${relevantGuides.length > 0 ? `
+          <section class="product-guide-links">
+            <h2>Helpful Japanese Skincare Guides</h2>
+            <ul>
+              ${relevantGuides.map(g => `
+                <li>
+                  <a href="/guides/${g.slug}">${escapeHtml(g.h1)}</a> – ${escapeHtml(g.excerpt)}
+                </li>
+              `).join('')}
+            </ul>
+          </section>` : ''}
+
           <footer class="product-footer-links">
             <p>
               Explore all <a href="/collections/${categorySlug}">${escapeHtml(categoryName)}</a> and genuine Tokyo imports at <a href="/">Konichiwa Mart</a>.
@@ -311,6 +329,10 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
       const collectionJsonLd = generateCollectionPageJsonLd(categoryInfo.name, categoryInfo.metaDescription, canonicalUrl, matchingProducts);
 
       const otherCategories = Object.values(SEO_CATEGORIES).filter(c => c.slug !== categoryInfo.slug);
+      const categoryGuides = Object.values(SEO_GUIDES).filter(g => 
+        (categoryInfo.relatedGuideSlugs && categoryInfo.relatedGuideSlugs.includes(g.slug)) ||
+        g.relatedCategorySlug === categoryInfo.slug
+      );
 
       const crawlerHtml = `
         <main class="seo-crawler-page collection-page-seo">
@@ -329,6 +351,15 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
                 const b = SEO_BRANDS[bSlug];
                 return b ? `<li><a href="/brands/${b.slug}">${escapeHtml(b.name)}</a> – ${escapeHtml(b.h1)}</li>` : '';
               }).filter(Boolean).join('')}
+            </ul>
+          </section>` : ''}
+
+          ${categoryGuides.length > 0 ? `
+          <section class="category-guides-nav">
+            <h2>Recommended Japanese Skincare Guides</h2>
+            <p>Learn the proven techniques and routine steps for ${escapeHtml(categoryInfo.name)}:</p>
+            <ul>
+              ${categoryGuides.map(g => `<li><a href="/guides/${g.slug}">${escapeHtml(g.h1)}</a> (${escapeHtml(g.readTime)})</li>`).join('')}
             </ul>
           </section>` : ''}
 
@@ -399,6 +430,11 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
       const breadcrumbJsonLd = generateBreadcrumbJsonLd(breadcrumbs);
       const collectionJsonLd = generateCollectionPageJsonLd(brandInfo.name, brandInfo.metaDescription, canonicalUrl, matchingProducts);
 
+      const brandGuides = Object.values(SEO_GUIDES).filter(g => 
+        (brandInfo.relatedGuideSlugs && brandInfo.relatedGuideSlugs.includes(g.slug)) ||
+        (g.relatedBrandSlugs && g.relatedBrandSlugs.includes(brandInfo.slug))
+      );
+
       const crawlerHtml = `
         <main class="seo-crawler-page brand-page-seo">
           <nav aria-label="Breadcrumb">
@@ -416,6 +452,14 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
                 const cat = SEO_CATEGORIES[cSlug];
                 return cat ? `<li><a href="/collections/${cat.slug}">${escapeHtml(cat.name)}</a></li>` : '';
               }).filter(Boolean).join('')}
+            </ul>
+          </section>` : ''}
+
+          ${brandGuides.length > 0 ? `
+          <section class="brand-guides-nav">
+            <h2>Japanese Skincare Guides Featuring ${escapeHtml(brandInfo.name)}</h2>
+            <ul>
+              ${brandGuides.map(g => `<li><a href="/guides/${g.slug}">${escapeHtml(g.h1)}</a> – ${escapeHtml(g.excerpt)}</li>`).join('')}
             </ul>
           </section>` : ''}
 
@@ -473,28 +517,97 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
 
     if (guideInfo) {
       const canonicalUrl = `${CANONICAL_SITE_URL}/guides/${guideInfo.slug}`;
+      const guideCategorySlug = guideInfo.relatedCategorySlug || 'skincare';
+      const guideCategory = SEO_CATEGORIES[guideCategorySlug] || SEO_CATEGORIES['skincare'];
       const breadcrumbs = [
         { name: 'Home', url: `${CANONICAL_SITE_URL}/` },
-        { name: 'Skincare Guides', url: `${CANONICAL_SITE_URL}/#collection` },
+        { name: guideCategory.name, url: `${CANONICAL_SITE_URL}/collections/${guideCategory.slug}` },
         { name: guideInfo.title, url: canonicalUrl }
       ];
       const breadcrumbJsonLd = generateBreadcrumbJsonLd(breadcrumbs);
       const guideJsonLd = generateGuideJsonLd(guideInfo);
 
+      const guideRecommendedSlugs = new Set<string>();
+      guideInfo.sections.forEach(s => {
+        (s.recommendedProductSlugs || []).forEach(rSlug => guideRecommendedSlugs.add(rSlug.toLowerCase()));
+      });
+      const matchedProducts = allProducts.filter(p => {
+        if (!p) return false;
+        const pSlug = getProductCanonicalSlug(p).toLowerCase();
+        const rawSlug = (p.slug || '').toLowerCase();
+        const id = p.id.toLowerCase();
+        return guideRecommendedSlugs.has(id) || guideRecommendedSlugs.has(pSlug) || guideRecommendedSlugs.has(rawSlug);
+      });
+      const otherGuides = Object.values(SEO_GUIDES).filter(g => g.slug !== guideInfo.slug);
+
       const crawlerHtml = `
-        <article class="seo-crawler-page">
+        <article class="seo-crawler-page guide-page-seo" itemscope itemtype="https://schema.org/Article">
           <nav aria-label="Breadcrumb">
-            <a href="/">Home</a> &gt; <span>${guideInfo.title}</span>
+            <a href="/">Home</a> &gt; 
+            <a href="/collections/${guideCategory.slug}">${escapeHtml(guideCategory.name)}</a> &gt; 
+            <span>${escapeHtml(guideInfo.title)}</span>
           </nav>
-          <h1>${guideInfo.h1}</h1>
-          <p>By ${guideInfo.author} | Updated: ${guideInfo.updatedDate} | ${guideInfo.readTime}</p>
-          <p>${guideInfo.excerpt}</p>
-          ${guideInfo.sections.map(s => `
-            <section>
-              <h2>${s.heading}</h2>
-              <p>${s.content}</p>
-            </section>
-          `).join('')}
+          <h1 itemprop="headline">${escapeHtml(guideInfo.h1)}</h1>
+          <p class="guide-meta">
+            By <span itemprop="author">${escapeHtml(guideInfo.author)}</span> | 
+            Updated: <time itemprop="dateModified">${escapeHtml(guideInfo.updatedDate)}</time> | 
+            <span>${escapeHtml(guideInfo.readTime)}</span> | 
+            Category: <a href="/collections/${guideCategory.slug}">${escapeHtml(guideCategory.name)}</a>
+          </p>
+          <p class="guide-excerpt" itemprop="description">${escapeHtml(guideInfo.excerpt)}</p>
+
+          <div class="guide-sections">
+            ${guideInfo.sections.map(s => `
+              <section class="guide-section">
+                <h2>${escapeHtml(s.heading)}</h2>
+                <p>${escapeHtml(s.content)}</p>
+              </section>
+            `).join('')}
+          </div>
+
+          ${matchedProducts.length > 0 ? `
+          <section class="guide-recommended-products">
+            <h2>Recommended Japanese Skincare Products in this Guide</h2>
+            <p>Every product recommended in this guide is 100% authentic, imported directly from Tokyo, and stocked for fast delivery in India:</p>
+            <ul>
+              ${matchedProducts.map(p => {
+                const brand = inferBrandFromProduct(p);
+                const hasBrandLink = Boolean(brand?.slug && SEO_BRANDS[brand.slug]);
+                return `
+                  <li>
+                    <strong><a href="${getProductCanonicalUrl(p)}">${escapeHtml(p.title)}</a></strong>
+                    ${brand?.name ? ` by ${hasBrandLink && brand.slug ? `<a href="/brands/${brand.slug}">${escapeHtml(brand.name)}</a>` : escapeHtml(brand.name)}` : ''} 
+                    – ₹${p.price} INR
+                    ${p.volume ? ` (${escapeHtml(p.volume)})` : ''}
+                  </li>
+                `;
+              }).join('')}
+            </ul>
+          </section>` : ''}
+
+          <section class="guide-related-collections">
+            <h2>Explore Related Japanese Skincare Collections</h2>
+            <ul>
+              <li><a href="/collections/${guideCategory.slug}">Shop All ${escapeHtml(guideCategory.name)}</a></li>
+              ${guideInfo.relatedBrandSlugs && guideInfo.relatedBrandSlugs.length > 0 ? guideInfo.relatedBrandSlugs.map(bSlug => {
+                const b = SEO_BRANDS[bSlug];
+                return b ? `<li><a href="/brands/${b.slug}">Explore ${escapeHtml(b.name)} Products</a></li>` : '';
+              }).filter(Boolean).join('') : ''}
+            </ul>
+          </section>
+
+          <section class="other-guides-nav">
+            <h2>More Japanese Skincare &amp; Beauty Guides</h2>
+            <ul>
+              ${otherGuides.map(og => `<li><a href="/guides/${og.slug}">${escapeHtml(og.h1)}</a></li>`).join('')}
+            </ul>
+          </section>
+
+          <footer class="guide-footer-links">
+            <p>
+              Return to <a href="/">Konichiwa Mart Storefront</a> or browse all authentic <a href="/collections/skincare">Japanese Skincare Collections</a>.
+            </p>
+          </footer>
         </article>
       `;
 
@@ -574,6 +687,13 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
           <li><a href="/brands/tsubaki">Tsubaki by Shiseido</a></li>
           <li><a href="/brands/shiseido">Shiseido Heritage</a></li>
           <li><a href="/brands/rohto">Rohto Pharmaceutical</a></li>
+        </ul>
+      </section>
+
+      <section class="seo-guides-nav">
+        <h2>Helpful Japanese Skincare &amp; Beauty Guides</h2>
+        <ul>
+          ${Object.values(SEO_GUIDES).map(g => `<li><a href="/guides/${g.slug}">${escapeHtml(g.h1)}</a> – ${escapeHtml(g.excerpt)}</li>`).join('')}
         </ul>
       </section>
 

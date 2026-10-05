@@ -11,7 +11,8 @@ import {
   Check,
   ChevronRight,
   Home,
-  Edit3
+  Edit3,
+  BookOpen
 } from 'lucide-react';
 import { Product, ProductShade, Review } from '../types';
 import { formatINR } from '../data/pincodes';
@@ -22,9 +23,11 @@ import {
   getProductCanonicalUrl, 
   generateProductJsonLd, 
   updateClientSeoMetadata,
-  slugify
+  slugify,
+  inferBrandFromProduct,
+  getCategoryCollectionSlug
 } from '../lib/seo';
-import { CANONICAL_SITE_URL } from '../data/seoContent';
+import { CANONICAL_SITE_URL, SEO_CATEGORIES, SEO_GUIDES } from '../data/seoContent';
 import { Breadcrumbs } from './Breadcrumbs';
 
 interface ProductModalProps {
@@ -237,14 +240,23 @@ export const ProductModal: React.FC<ProductModalProps> = ({
             <div className="md:col-span-7 space-y-3.5 sm:space-y-4">
               
               {/* Product SEO Breadcrumbs */}
-              <div className="mb-1">
-                <Breadcrumbs
-                  items={[
-                    { label: product.category || 'Japanese Skincare', href: '/#collection', onClick: onClose },
-                    { label: product.title }
-                  ]}
-                />
-              </div>
+              {(() => {
+                const brand = inferBrandFromProduct(product);
+                const categorySlug = getCategoryCollectionSlug(product.category);
+                const categoryInfo = SEO_CATEGORIES[categorySlug];
+                return (
+                  <div className="mb-1">
+                    <Breadcrumbs
+                      items={[
+                        { label: 'Home', href: '/', onClick: onClose },
+                        { label: categoryInfo ? categoryInfo.name : (product.category || 'Skincare'), href: `/collections/${categorySlug}`, onClick: onClose },
+                        ...(brand?.slug ? [{ label: brand.name, href: `/brands/${brand.slug}`, onClick: onClose }] : []),
+                        { label: product.title }
+                      ]}
+                    />
+                  </div>
+                );
+              })()}
 
               {/* Header info */}
               <div>
@@ -271,6 +283,33 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 <p className="text-xs sm:text-sm md:text-base text-pink-700 dark:text-pink-400 font-medium mt-0.5 sm:mt-1">
                   {product.subtitle}
                 </p>
+
+                {/* Direct brand & category discovery anchors */}
+                {(() => {
+                  const brand = inferBrandFromProduct(product);
+                  const categorySlug = getCategoryCollectionSlug(product.category);
+                  const categoryInfo = SEO_CATEGORIES[categorySlug];
+                  return (
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
+                      <a
+                        href={`/collections/${categorySlug}`}
+                        onClick={onClose}
+                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-medium hover:text-pink-600 transition-colors"
+                      >
+                        {categoryInfo ? categoryInfo.name : product.category}
+                      </a>
+                      {brand && brand.name && (
+                        <a
+                          href={brand.slug ? `/brands/${brand.slug}` : `/collections/${categorySlug}`}
+                          onClick={onClose}
+                          className="inline-flex items-center px-2 py-0.5 rounded-md bg-pink-50 dark:bg-pink-950/50 border border-pink-100 dark:border-pink-900/50 text-pink-700 dark:text-pink-300 font-medium hover:bg-pink-100 transition-colors"
+                        >
+                          Brand: {brand.name}
+                        </a>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Price section */}
@@ -334,6 +373,33 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                 <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
                 <span className="font-medium text-slate-800 dark:text-zinc-200">3-5 day pan India delivery</span>
               </div>
+
+              {/* Relevant Skincare Guide Tip */}
+              {(() => {
+                const brand = inferBrandFromProduct(product);
+                const categorySlug = getCategoryCollectionSlug(product.category);
+                const relevantGuide = Object.values(SEO_GUIDES).find(g => 
+                  g.sections.some(s => (s.recommendedProductSlugs || []).some(slug => slug === product.id || (product.slug && slug === product.slug))) ||
+                  g.relatedCategorySlug === categorySlug ||
+                  (brand?.slug && g.relatedBrandSlugs?.includes(brand.slug))
+                );
+                if (!relevantGuide) return null;
+                return (
+                  <div className="p-2.5 rounded-xl bg-pink-50/70 dark:bg-pink-950/30 border border-pink-100 dark:border-pink-900/40 text-xs flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-pink-800 dark:text-pink-300 font-medium">
+                      <BookOpen className="w-3.5 h-3.5 text-pink-500 shrink-0" />
+                      <span className="line-clamp-1">Guide: {relevantGuide.h1}</span>
+                    </div>
+                    <a
+                      href={`/guides/${relevantGuide.slug}`}
+                      onClick={onClose}
+                      className="text-pink-600 dark:text-pink-400 hover:underline font-bold shrink-0 text-[11px]"
+                    >
+                      Read Guide &rarr;
+                    </a>
+                  </div>
+                );
+              })()}
 
               {/* Tabs for Details */}
               <div className="space-y-2 pt-1">

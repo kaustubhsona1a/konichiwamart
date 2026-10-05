@@ -403,6 +403,34 @@ export const Footer: React.FC<FooterProps> = ({
                   Double Cleansing 101 for Glass Skin
                 </a>
               </li>
+              <li>
+                <a
+                  href="/guides/how-to-choose-japanese-face-wash"
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && onNavigateGuide) {
+                      e.preventDefault();
+                      onNavigateGuide('how-to-choose-japanese-face-wash');
+                    }
+                  }}
+                  className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                >
+                  How to Choose Japanese Face Wash
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/guides/how-to-use-japanese-hair-mask"
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && onNavigateGuide) {
+                      e.preventDefault();
+                      onNavigateGuide('how-to-use-japanese-hair-mask');
+                    }
+                  }}
+                  className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                >
+                  How to Use Japanese Hair Masks
+                </a>
+              </li>
             </ul>
           </div>
 
