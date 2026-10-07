@@ -103,7 +103,9 @@ import {
   saveAddressToSupabase,
   fetchCategoriesFromStore,
   applyProductOrderClient,
-  saveProductOrderToStore
+  saveProductOrderToStore,
+  getOperatorAuthHeaders,
+  isVerifiedOperator
 } from './lib/supabase';
 import { FallingPetalsBackground } from './components/FallingPetalsBackground';
 import { formatINR } from './data/pincodes';
@@ -364,13 +366,19 @@ export default function App() {
   const [operatorSession, setOperatorSession] = useState<OperatorSession | null>(() => getStoredOperatorSession());
   const [adminEditingProduct, setAdminEditingProduct] = useState<Product | null>(null);
 
+  const isOperator = Boolean(
+    operatorSession && (operatorSession.role === 'operator' || operatorSession.role === 'admin')
+  );
+
   const handleStartEditProduct = (product: Product) => {
-    setAdminEditingProduct(product);
-    if (operatorSession) {
-      setIsAdminOpen(true);
-    } else {
+    const session = getStoredOperatorSession();
+    if (!session || (session.role !== 'operator' && session.role !== 'admin')) {
+      setAdminEditingProduct(null);
       setIsAdminLoginOpen(true);
+      return;
     }
+    setAdminEditingProduct(product);
+    setIsAdminOpen(true);
   };
   const [customerSession, setCustomerSession] = useState<{ id: string; email: string; name: string; phone?: string } | null>(() => getActiveCustomerSession());
   const [isCustomerAuthOpen, setIsCustomerAuthOpen] = useState(false);
@@ -1171,6 +1179,10 @@ export default function App() {
   });
 
   const handleUpdateSiteSettings = (newSettings: Partial<SiteSettings>) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to modify site settings.');
+      return;
+    }
     setSiteSettings((prev) => {
       const updated = { ...prev, ...newSettings };
       if (newSettings.flowerDriftEnabled !== undefined) {
@@ -1197,7 +1209,7 @@ export default function App() {
       // Sync settings to server/Supabase
       fetch('/api/site-settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
         body: JSON.stringify({ settings: updated })
       }).catch(err => console.warn('Failed to sync site settings to server:', err));
 
@@ -1320,6 +1332,10 @@ export default function App() {
 
   // Inventory & Stock Controls
   const handleUpdateProductStock = async (productId: string, inStock: boolean, stockCount?: number) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to update inventory.');
+      return false;
+    }
     const finalStock = stockCount !== undefined 
       ? Math.max(0, stockCount) 
       : (inStock ? 50 : 0);
@@ -1348,6 +1364,10 @@ export default function App() {
   };
 
   const handleUpdateProductPrice = async (productId: string, newPrice: number) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to update pricing.');
+      return false;
+    }
     const validPrice = Math.max(0, newPrice);
     setProductsList((prev) => {
       const updated = prev.map((p) => {
@@ -1374,6 +1394,10 @@ export default function App() {
 
   // New Product Upload Handler
   const handleAddProduct = async (newProduct: Product) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to add products.');
+      return false;
+    }
     const targetRank = typeof newProduct.displayOrder === 'number' && newProduct.displayOrder > 0
       ? newProduct.displayOrder
       : 1;
@@ -1402,6 +1426,10 @@ export default function App() {
   };
 
   const handleEditProduct = async (updatedProduct: Product) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to modify product info.');
+      return false;
+    }
     setProductsList((prev) => {
       const updated = prev.map(p => p.id === updatedProduct.id ? updatedProduct : p);
       try {
@@ -1425,6 +1453,10 @@ export default function App() {
 
   // Remove Product Handler (Permanently deletes from Supabase, Server Storage, and Local state)
   const handleRemoveProduct = async (productId: string, explicitDbId?: string) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to delete products.');
+      return false;
+    }
     const target = productsList.find(p => p.id === productId || p.dbId === productId || (p.slug && p.slug === productId));
     const targetDbId = explicitDbId || target?.dbId;
     const targetSlug = target?.slug;
@@ -1472,6 +1504,10 @@ export default function App() {
 
   // Restore Original Catalog Handler
   const handleResetDefaultProducts = async () => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to reset catalog.');
+      return;
+    }
     await resetProductsInStore();
     const fresh = await fetchProductsFromStore();
     setProductsList(fresh);
@@ -1479,6 +1515,10 @@ export default function App() {
 
   // Reorder Products Handler (Persists custom website product sequence to Supabase, server, and local storage)
   const handleReorderProducts = async (reordered: Product[]) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to reorder products.');
+      return false;
+    }
     const withOrder = reordered.map((p, idx) => ({
       ...p,
       displayOrder: idx + 1
@@ -1895,6 +1935,10 @@ export default function App() {
 
   // Update order status in admin portal
   const handleUpdateOrderStatus = async (orderId: string, status: Order['status']) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to update orders.');
+      return;
+    }
     const existing = storeOrders.find(o => o.id === orderId || o.orderNumber === orderId);
     const orderNum = existing?.orderNumber;
 
@@ -1953,6 +1997,10 @@ export default function App() {
   };
 
   const handleDeleteOrder = (orderId: string) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to delete orders.');
+      return;
+    }
     const existing = storeOrders.find(o => o.id === orderId || o.orderNumber === orderId);
     const orderNum = existing?.orderNumber;
 
@@ -2002,6 +2050,10 @@ export default function App() {
   };
 
   const handleModifyOrder = (orderId: string, updates: Partial<Order>) => {
+    if (!isOperator) {
+      console.error('[Security] Unauthorized: Supabase operator access required to modify orders.');
+      return;
+    }
     const existing = storeOrders.find(o => o.id === orderId || o.orderNumber === orderId);
     const orderNum = existing?.orderNumber;
 

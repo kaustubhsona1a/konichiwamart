@@ -183,8 +183,8 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
                 onAddToCart={onAddToCart}
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={isWishlisted(product.id)}
-                onEdit={onEdit}
-                isOperator={isOperator}
+                onEdit={isOperator ? onEdit : undefined}
+                isOperator={Boolean(isOperator)}
               />
             ))}
           </div>

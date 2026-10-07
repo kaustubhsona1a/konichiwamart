@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowRight, Upload } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Product } from '../types';
 
 interface HeroBannerProps {
@@ -71,9 +71,6 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const setBannerUrl = setInternalBannerUrl;
 
   const heroSectionRef = useRef<HTMLElement>(null);
-  const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleShopNowClick = () => {
     const el = document.getElementById('collection');
@@ -82,98 +79,12 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     }
   };
 
-  // Upload file helper for direct banner image drop
-  const processUploadedFile = (file: File) => {
-    if (!file) return;
-
-    if (file.type.startsWith('image/')) {
-      setIsUploading(true);
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const base64 = reader.result as string;
-        setBannerUrl(base64);
-        try {
-          localStorage.setItem('km_hero_banner_data', base64);
-          await fetch('/api/upload-banner', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageBase64: base64 })
-          });
-        } catch (err) {
-          console.error('Failed to save banner on server:', err);
-        } finally {
-          setIsUploading(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processUploadedFile(file);
-    }
-  };
-
-  // Drag and drop handlers
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      processUploadedFile(file);
-    }
-  };
-
   return (
     <section 
       id="hero-banner" 
       ref={heroSectionRef}
       className="relative w-full overflow-hidden bg-stone-950 dark:bg-black h-[calc(100svh-56px)] min-h-[calc(100svh-56px)] sm:h-[72vh] md:h-[78vh] lg:h-[84vh] 2xl:max-h-[900px] flex flex-col m-0 p-0"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
     >
-      {/* Hidden file input for direct banner photo upload */}
-      <input
-        type="file"
-        ref={fileInputRef}
-        onChange={handleFileChange}
-        accept="image/*"
-        className="hidden"
-      />
-
-      {/* Drag Over Active Overlay */}
-      {isDragging && (
-        <div className="absolute inset-0 z-40 bg-[#C52857]/25 backdrop-blur-sm border-4 border-dashed border-[#C52857] flex flex-col items-center justify-center pointer-events-none">
-          <div className="bg-white/95 px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 text-[#912B52] font-semibold text-sm animate-pulse">
-            <Upload className="w-6 h-6 text-[#C52857]" />
-            <span>Drop photo here to set as hero background</span>
-          </div>
-        </div>
-      )}
-
-      {/* Uploading progress indicator */}
-      {isUploading && (
-        <div className="absolute top-4 right-4 z-30 bg-black/75 backdrop-blur-md px-4 py-2 rounded-full border border-white/20 text-white text-xs font-semibold flex items-center gap-2">
-          <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-          <span>Updating banner photo...</span>
-        </div>
-      )}
 
       {/* FULL-VIEWPORT HERO IMAGE BANNER CONTAINER */}
       <div className="relative w-full h-full flex-1 overflow-hidden m-0 p-0">

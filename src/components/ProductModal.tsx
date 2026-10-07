@@ -133,8 +133,8 @@ export const ProductModal: React.FC<ProductModalProps> = ({
           <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-700" />
         </div>
 
-        {/* Admin Quick Edit Button */}
-        {onEditProduct && (
+        {/* Operator Quick Edit Button: strictly restricted to verified Supabase operators */}
+        {isOperator && onEditProduct && (
           <button
             type="button"
             onClick={() => {
@@ -142,7 +142,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               onEditProduct(product);
             }}
             className="absolute top-3 right-14 sm:top-4 sm:right-16 h-9 sm:h-10 px-3 rounded-full bg-slate-900/90 hover:bg-pink-600 text-white flex items-center gap-1.5 transition-all cursor-pointer z-30 border border-slate-700 shadow-md text-xs font-bold active:scale-95"
-            title={`Edit all product info for "${product.title}"`}
+            title={`Operator Quick Edit: "${product.title}"`}
           >
             <Edit3 className="w-3.5 h-3.5 text-pink-300" />
             <span className="hidden sm:inline">Edit Product</span>

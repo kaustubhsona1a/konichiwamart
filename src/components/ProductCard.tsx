@@ -89,8 +89,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           }}
         />
 
-        {/* Quick Edit Button on Card */}
-        {onEdit && (
+        {/* Operator Quick Edit Button: strictly restricted to verified Supabase operators */}
+        {isOperator && onEdit && (
           <button
             type="button"
             onClick={(e) => {
@@ -98,27 +98,23 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               e.preventDefault();
               onEdit(product);
             }}
-            className={`absolute top-1.5 left-1.5 sm:top-2 sm:left-2 z-20 px-2 py-1 rounded-lg ${
-              isOperator
-                ? 'bg-slate-900/90 hover:bg-pink-600 text-white shadow-md'
-                : 'bg-white/95 hover:bg-pink-600 hover:text-white text-slate-700 border border-slate-200/90 shadow-xs opacity-0 group-hover:opacity-100 sm:opacity-90'
-            } flex items-center gap-1 transition-all hover:scale-105 backdrop-blur-xs text-[10px] font-bold`}
-            title={`Edit all product info for "${product.title}"`}
+            className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 z-20 px-2 py-1 rounded-lg bg-slate-900/90 hover:bg-pink-600 text-white shadow-md flex items-center gap-1 transition-all hover:scale-105 backdrop-blur-xs text-[10px] font-bold cursor-pointer"
+            title={`Operator Quick Edit: "${product.title}"`}
             aria-label={`Edit ${product.title}`}
           >
-            <Edit3 className={`w-3 h-3 ${isOperator ? 'text-pink-300' : 'text-pink-600 group-hover:text-white'}`} />
+            <Edit3 className="w-3 h-3 text-pink-300" />
             <span className="hidden sm:inline">Edit</span>
           </button>
         )}
 
         {/* Coming Soon or Promotional Tag Badge */}
         {isComingSoon ? (
-          <span className={`absolute ${onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shadow-sm z-10 flex items-center gap-1`}>
+          <span className={`absolute ${isOperator && onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shadow-sm z-10 flex items-center gap-1`}>
             <Sparkles className="w-2.5 h-2.5" />
             <span>Coming Soon</span>
           </span>
         ) : promoBadge ? (
-          <span className={`absolute ${onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-pink-600 text-white text-[9px] sm:text-[10px] font-bold uppercase tracking-wider shadow-2xs z-10`}>
+          <span className={`absolute ${isOperator && onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-pink-600 text-white text-[9px] sm:text-[10px] font-bold uppercase tracking-wider shadow-2xs z-10`}>
             {promoBadge}
           </span>
         ) : null}

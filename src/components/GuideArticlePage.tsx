@@ -155,8 +155,8 @@ export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
                 onAddToCart={onAddToCart}
                 onToggleWishlist={onToggleWishlist}
                 isWishlisted={isWishlisted(p.id)}
-                onEdit={onEdit}
-                isOperator={isOperator}
+                onEdit={isOperator ? onEdit : undefined}
+                isOperator={Boolean(isOperator)}
               />
             ))}
           </div>

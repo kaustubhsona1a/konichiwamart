@@ -99,6 +99,29 @@ export const setStoredOperatorSession = (session: OperatorSession | null): void 
 };
 
 /**
+ * Checks if the current browser session has verified Supabase operator credentials.
+ */
+export const isVerifiedOperator = (): boolean => {
+  const session = getStoredOperatorSession();
+  return Boolean(session && (session.role === 'operator' || session.role === 'admin'));
+};
+
+/**
+ * Builds HTTP authorization headers carrying the verified Supabase operator access token.
+ */
+export const getOperatorAuthHeaders = (): Record<string, string> => {
+  const session = getStoredOperatorSession();
+  if (!session || (session.role !== 'operator' && session.role !== 'admin')) {
+    return {};
+  }
+  return {
+    'Authorization': session.accessToken ? `Bearer ${session.accessToken}` : '',
+    'x-operator-email': session.email || '',
+    'x-operator-token': session.accessToken || ''
+  };
+};
+
+/**
  * Pure Supabase Authentication for Store Operators.
  * Signs in using real supabase.auth.signInWithPassword.
  */
@@ -859,6 +882,11 @@ export const fetchAllOrdersFromSupabase = async (): Promise<Order[]> => {
 };
 
 export const updateOrderStatusInSupabase = async (orderId: string, status: string, orderNumber?: string): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to update order status.');
+    return false;
+  }
+
   const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
   const targetOrderNum = orderNumber || (!isUuid(orderId) ? orderId : null);
 
@@ -866,7 +894,7 @@ export const updateOrderStatusInSupabase = async (orderId: string, status: strin
   try {
     const res = await fetch('/api/admin/update-order-status', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
       body: JSON.stringify({ orderId, status, orderNumber: targetOrderNum })
     });
     if (res.ok) {
@@ -908,6 +936,11 @@ export const updateOrderStatusInSupabase = async (orderId: string, status: strin
 };
 
 export const deleteOrderFromSupabase = async (orderId: string, orderNumber?: string): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to delete order.');
+    return false;
+  }
+
   const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
   const targetOrderNum = orderNumber || (!isUuid(orderId) ? orderId : null);
 
@@ -924,7 +957,8 @@ export const deleteOrderFromSupabase = async (orderId: string, orderNumber?: str
   // 2. Server API route
   try {
     const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: { ...getOperatorAuthHeaders() }
     });
     if (res.ok) {
       const data = await res.json();
@@ -955,6 +989,11 @@ export const deleteOrderFromSupabase = async (orderId: string, orderNumber?: str
 };
 
 export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Order>, orderNumber?: string): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to modify order.');
+    return false;
+  }
+
   const isUuid = (val: any) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
   const targetOrderNum = orderNumber || (!isUuid(orderId) ? orderId : null);
 
@@ -981,7 +1020,7 @@ export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Or
   try {
     const res = await fetch(`/api/admin/orders/${encodeURIComponent(orderId)}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
       body: JSON.stringify(updates)
     });
     if (res.ok) {
@@ -1522,6 +1561,11 @@ export const fetchCategoriesFromStore = async (): Promise<Array<{ id: string; na
  * Saves a new category to server and Supabase
  */
 export const saveCategoryToStore = async (name: string, description?: string): Promise<{ id: string; name: string; slug: string } | null> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to create categories.');
+    return null;
+  }
+
   const cleanName = name.trim();
   if (!cleanName) return null;
   const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
@@ -1554,7 +1598,7 @@ export const saveCategoryToStore = async (name: string, description?: string): P
   try {
     const res = await fetch('/api/categories', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
       body: JSON.stringify({ name: cleanName, description })
     });
     if (res.ok) {
@@ -1584,6 +1628,11 @@ export const updateCategoryInStore = async (
   idOrSlug: string,
   updates: { name?: string; description?: string; slug?: string }
 ): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to update categories.');
+    return false;
+  }
+
   // 1. Direct Supabase
   const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
@@ -1600,7 +1649,7 @@ export const updateCategoryInStore = async (
   try {
     await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
       body: JSON.stringify(updates)
     });
   } catch {}
@@ -1612,6 +1661,11 @@ export const updateCategoryInStore = async (
  * Deletes a category from server and Supabase
  */
 export const deleteCategoryFromStore = async (idOrSlug: string): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to delete categories.');
+    return false;
+  }
+
   // 1. Direct Supabase
   const client = await ensureSupabaseClient() || getSupabaseClient();
   if (client) {
@@ -1626,7 +1680,10 @@ export const deleteCategoryFromStore = async (idOrSlug: string): Promise<boolean
 
   // 2. Server API
   try {
-    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, { method: 'DELETE' });
+    await fetch(`/api/categories/${encodeURIComponent(idOrSlug)}`, {
+      method: 'DELETE',
+      headers: { ...getOperatorAuthHeaders() }
+    });
   } catch {}
 
   return true;
@@ -1687,6 +1744,11 @@ export const applyProductOrderClient = (products: Product[], customOrderIds?: st
  * Persists custom product display order to localStorage, Supabase, and Server backend.
  */
 export const saveProductOrderToStore = async (orderedProductIds: string[]): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to reorder products.');
+    return false;
+  }
+
   try {
     // 1. Local Storage
     localStorage.setItem('km_product_order', JSON.stringify(orderedProductIds));
@@ -1712,7 +1774,7 @@ export const saveProductOrderToStore = async (orderedProductIds: string[]): Prom
     try {
       await fetch('/api/products/reorder', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
         body: JSON.stringify({ orderIds: orderedProductIds })
       });
     } catch {}
@@ -1905,6 +1967,11 @@ export const fetchProductsFromStore = async (): Promise<Product[]> => {
  * Ensures the product NEVER reappears across refreshes, other tabs, or new devices.
  */
 export const deleteProductFromStore = async (productId: string, dbId?: string): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to delete product.');
+    return false;
+  }
+
   // 1. Local optimistic update across all identifiers
   const targetIds = new Set<string>();
   if (productId) targetIds.add(productId);
@@ -1978,7 +2045,8 @@ export const deleteProductFromStore = async (productId: string, dbId?: string): 
   try {
     const url = `/api/products/${encodeURIComponent(productId)}${dbId ? `?dbId=${encodeURIComponent(dbId)}` : ''}`;
     await fetch(url, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: { ...getOperatorAuthHeaders() }
     });
   } catch (err) {
     console.warn('[Products Store] Server API delete error:', err);
@@ -1991,6 +2059,11 @@ export const deleteProductFromStore = async (productId: string, dbId?: string): 
  * Updates a product's details, stock or price across server and Supabase.
  */
 export const updateProductInStore = async (productId: string, updates: Partial<Product>): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to update product.');
+    return false;
+  }
+
   // 1. Local Cache Update
   try {
     const saved = localStorage.getItem('km_custom_products');
@@ -2157,7 +2230,7 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
   try {
     fetch(`/api/products/${encodeURIComponent(productId)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
       body: JSON.stringify(updates)
     }).catch(() => {});
   } catch {}
@@ -2169,6 +2242,11 @@ export const updateProductInStore = async (productId: string, updates: Partial<P
  * Adds a new product to server and Supabase.
  */
 export const addProductToStore = async (product: Product): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to add products.');
+    return false;
+  }
+
   // 1. Maintain local product order cache
   const targetRank = typeof product.displayOrder === 'number' && product.displayOrder > 0 
     ? product.displayOrder 
@@ -2274,7 +2352,7 @@ export const addProductToStore = async (product: Product): Promise<boolean> => {
   try {
     const res = await fetch('/api/products', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
       body: JSON.stringify(product)
     });
     if (res.ok) {
@@ -2295,10 +2373,17 @@ export const addProductToStore = async (product: Product): Promise<boolean> => {
  * Resets the catalog to defaults.
  */
 export const resetProductsInStore = async (): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to reset catalog.');
+    return false;
+  }
   try {
     localStorage.removeItem('km_deleted_product_ids');
     localStorage.removeItem('km_custom_products');
-    fetch('/api/products/reset', { method: 'POST' }).catch(() => {});
+    await fetch('/api/products/reset', {
+      method: 'POST',
+      headers: { ...getOperatorAuthHeaders() }
+    }).catch(() => {});
   } catch {}
   return true;
 };
@@ -2307,9 +2392,16 @@ export const resetProductsInStore = async (): Promise<boolean> => {
  * Syncs the entire local catalog of products directly to Supabase.
  */
 export const syncCatalogToSupabase = async (productsToSync: Product[] = PRODUCTS): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to sync catalog.');
+    return false;
+  }
   // Try server endpoint first
   try {
-    const res = await fetch('/api/products/sync-supabase', { method: 'POST' });
+    const res = await fetch('/api/products/sync-supabase', {
+      method: 'POST',
+      headers: { ...getOperatorAuthHeaders() }
+    });
     if (res.ok) {
       console.log('[Supabase] Catalog synced via server API.');
       return true;
@@ -2362,6 +2454,10 @@ export const fetchReelsFromSupabase = async (): Promise<any[]> => {
 };
 
 export const syncReelsListToSupabase = async (reels: any[]): Promise<boolean> => {
+  if (!isVerifiedOperator()) {
+    console.error('[Security] Unauthorized: Supabase operator access required to sync reels.');
+    return false;
+  }
   const supabase = getSupabaseClient();
   if (!supabase) return false;
   try {
