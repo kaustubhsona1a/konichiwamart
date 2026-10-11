@@ -1,6 +1,15 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-NHQG4M6DKH"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-NHQG4M6DKH');
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India</title>
@@ -23,15 +32,83 @@
         }
       } catch (_) {}
 
-      // 2. Intercept and suppress any cross-origin frame access SecurityErrors & third-party extension noise (e.g. EmptyRanges)
+      // 2. Intercept Vite HMR WebSocket in Cloud Run iframe preview environment where WebSockets are closed
+      (function() {
+        try {
+          if (typeof window !== 'undefined' && window.WebSocket) {
+            var OriginalWebSocket = window.WebSocket;
+            var ViteMockWebSocket = function(url, protocols) {
+              var isVite = (typeof protocols === 'string' && (protocols === 'vite-hmr' || protocols === 'vite-ping')) ||
+                           (Array.isArray(protocols) && (protocols.indexOf('vite-hmr') !== -1 || protocols.indexOf('vite-ping') !== -1)) ||
+                           (typeof url === 'string' && (url.indexOf('token=') !== -1 || url.indexOf('vite') !== -1));
+              if (isVite) {
+                var listeners = {};
+                var dummyWs = {
+                  binaryType: 'blob',
+                  readyState: 1, // OPEN
+                  url: url,
+                  protocol: Array.isArray(protocols) ? protocols[0] : (protocols || ''),
+                  extensions: '',
+                  bufferedAmount: 0,
+                  OPEN: 1,
+                  CONNECTING: 0,
+                  CLOSING: 2,
+                  CLOSED: 3,
+                  send: function() {},
+                  close: function() {
+                    dummyWs.readyState = 3;
+                    var evt = new Event('close');
+                    (listeners['close'] || []).forEach(function(fn) { try { fn(evt); } catch(_) {} });
+                    if (dummyWs.onclose) dummyWs.onclose(evt);
+                  },
+                  addEventListener: function(type, fn) {
+                    listeners[type] = listeners[type] || [];
+                    listeners[type].push(fn);
+                    if (type === 'open') {
+                      setTimeout(function() {
+                        var evt = new Event('open');
+                        try { fn(evt); } catch(_) {}
+                      }, 0);
+                    }
+                  },
+                  removeEventListener: function(type, fn) {
+                    if (listeners[type]) {
+                      listeners[type] = listeners[type].filter(function(cb) { return cb !== fn; });
+                    }
+                  },
+                  dispatchEvent: function() { return true; }
+                };
+                setTimeout(function() {
+                  if (dummyWs.onopen) {
+                    try { dummyWs.onopen(new Event('open')); } catch(_) {}
+                  }
+                }, 0);
+                return dummyWs;
+              }
+              return new OriginalWebSocket(url, protocols);
+            };
+            ViteMockWebSocket.prototype = OriginalWebSocket.prototype;
+            ViteMockWebSocket.CONNECTING = 0;
+            ViteMockWebSocket.OPEN = 1;
+            ViteMockWebSocket.CLOSING = 2;
+            ViteMockWebSocket.CLOSED = 3;
+            window.WebSocket = ViteMockWebSocket;
+          }
+        } catch (_) {}
+      })();
+
+      // 3. Intercept and suppress any cross-origin frame access, WebSocket errors & third-party extension noise
       try {
         if (typeof window !== 'undefined') {
           window.addEventListener('error', function(e) {
             var msg = (e && (e.message || (e.error && e.error.message))) || '';
+            var file = (e && e.filename) || '';
             if (
               msg.indexOf('cross-origin') !== -1 ||
               msg.indexOf('Blocked a frame with origin') !== -1 ||
               msg.indexOf('EmptyRanges') !== -1 ||
+              msg.indexOf('WebSocket') !== -1 ||
+              file.indexOf('@vite/client') !== -1 ||
               (e.error && e.error.name === 'SecurityError')
             ) {
               e.preventDefault();
@@ -43,24 +120,31 @@
           window.addEventListener('unhandledrejection', function(e) {
             var reason = e && e.reason;
             var msg = (reason && (reason.message || String(reason))) || '';
+            var stack = (reason && reason.stack) || '';
             if (
               msg.indexOf('cross-origin') !== -1 ||
               msg.indexOf('Blocked a frame with origin') !== -1 ||
               msg.indexOf('EmptyRanges') !== -1 ||
+              msg.indexOf('WebSocket') !== -1 ||
+              stack.indexOf('@vite/client') !== -1 ||
               (reason && reason.name === 'SecurityError')
             ) {
               e.preventDefault();
               e.stopImmediatePropagation();
+              return true;
             }
           }, true);
 
           var prevOnError = window.onerror;
           window.onerror = function(msg, src, lineno, colno, err) {
             var str = (msg && String(msg)) || '';
+            var fileStr = (src && String(src)) || '';
             if (
               str.indexOf('cross-origin') !== -1 ||
               str.indexOf('Blocked a frame with origin') !== -1 ||
               str.indexOf('EmptyRanges') !== -1 ||
+              str.indexOf('WebSocket') !== -1 ||
+              fileStr.indexOf('@vite/client') !== -1 ||
               (err && err.name === 'SecurityError')
             ) {
               return true;

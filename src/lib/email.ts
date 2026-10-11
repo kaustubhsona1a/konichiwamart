@@ -358,60 +358,66 @@ export async function sendPasswordResetEmail(
   }
 
   try {
-    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <info@konichiwamart.com>';
+    const fromAddress = 'Konichiwa Mart <info@konichiwamart.com>';
+    const emailHtml = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 560px; margin: 0 auto; padding: 32px 24px; background: #ffffff; border-radius: 20px; border: 1px solid #e2e8f0; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);">
+          <!-- Header -->
+          <div style="text-align: center; margin-bottom: 24px;">
+            <div style="display: inline-block; width: 52px; height: 52px; line-height: 52px; border-radius: 14px; background: #fff1f2; font-size: 28px;">🌸</div>
+            <h2 style="color: #be123c; margin: 12px 0 4px 0; font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Konichiwa Mart</h2>
+            <p style="color: #64748b; font-size: 13px; margin: 0; font-weight: 500;">Direct-From-Japan Luxury Cosmetics & Skincare</p>
+          </div>
+          
+          <div style="background: #f8fafc; border-radius: 14px; padding: 20px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
+            <h3 style="color: #0f172a; margin: 0 0 8px 0; font-size: 16px; font-weight: 700;">Password Reset Request</h3>
+            <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0;">
+              Hello,<br>
+              We received a request to reset your password for your Konichiwa Mart account (<strong style="color: #0f172a;">${toEmail}</strong>).
+            </p>
+          </div>
+
+          ${otpCode ? `
+          <div style="background: #fff1f2; border: 2px dashed #fda4af; border-radius: 14px; padding: 20px; text-align: center; margin: 24px 0;">
+            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: #9f1239; margin-bottom: 8px; font-weight: 800;">Your 8-Digit Security / OTP Code</div>
+            <div style="font-size: 34px; font-weight: 900; letter-spacing: 8px; color: #be123c; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;">${otpCode}</div>
+            <div style="font-size: 12px; color: #9f1239; margin-top: 8px; font-weight: 500;">Click the button below to automatically set your new password, or enter this code on the website.</div>
+          </div>
+          ` : ''}
+
+          <!-- Direct CTA button -->
+          <div style="text-align: center; margin: 28px 0;">
+            <a href="${resetLink}" target="_blank" style="background: linear-gradient(135deg, #e11d48 0%, #be123c 100%); color: #ffffff; padding: 15px 36px; border-radius: 9999px; text-decoration: none; font-size: 15px; font-weight: 700; display: inline-block; box-shadow: 0 4px 16px rgba(225, 29, 72, 0.35);">
+              Reset & Set New Password &rarr;
+            </a>
+          </div>
+
+          <div style="background: #fdf4ff; border: 1px solid #f5d0fe; border-radius: 10px; padding: 12px 16px; margin: 20px 0;">
+            <p style="font-size: 12px; line-height: 1.6; color: #701a75; margin: 0;">
+              <strong>Direct link not opening?</strong> Copy and paste this URL into your browser:<br>
+              <a href="${resetLink}" style="color: #be123c; word-break: break-all; text-decoration: underline; font-size: 11px;">${resetLink}</a>
+            </p>
+          </div>
+
+          <div style="background: #f1f5f9; border-radius: 10px; padding: 12px 16px; margin: 20px 0;">
+            <p style="font-size: 11px; color: #64748b; margin: 0; line-height: 1.5;">
+              🔒 <strong>Security Notice:</strong> If you did not request a password reset, you can safely ignore this email. Your Konichiwa Mart account remains secure and unchanged.
+            </p>
+          </div>
+
+          <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;">
+          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0; line-height: 1.5;">
+            Sent by <strong>Konichiwa Mart</strong> &bull; Authentic Japanese Cosmetics Directly Imported From Japan<br>
+            Official Support: <a href="mailto:info@konichiwamart.com" style="color: #be123c; text-decoration: none; font-weight: 600;">info@konichiwamart.com</a>
+          </p>
+        </div>
+      `;
+
     const response = await client.emails.send({
       from: fromAddress,
       replyTo: 'info@konichiwamart.com',
       to: [toEmail],
       subject: '🔒 Reset Your Konichiwa Mart Account Password',
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 540px; margin: 0 auto; padding: 28px; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);">
-          <div style="text-align: center; margin-bottom: 24px;">
-            <div style="display: inline-block; width: 48px; height: 48px; line-height: 48px; border-radius: 12px; background: #fff1f2; font-size: 26px;">🌸</div>
-            <h2 style="color: #be123c; margin: 12px 0 4px 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">Konichiwa Mart</h2>
-            <p style="color: #64748b; font-size: 13px; margin: 0; font-weight: 500;">Direct-From-Japan Luxury Cosmetics</p>
-          </div>
-          
-          <div style="background: #f8fafc; border-radius: 12px; padding: 20px; margin-bottom: 20px; border: 1px solid #e2e8f0;">
-            <h3 style="color: #0f172a; margin: 0 0 8px 0; font-size: 16px; font-weight: 700;">Password Reset Request</h3>
-            <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0;">
-              Hello,<br>
-              We received a request to reset your password for your Konichiwa Mart account (<strong>${toEmail}</strong>).
-            </p>
-          </div>
-
-          ${otpCode ? `
-          <div style="background: #fff1f2; border: 2px dashed #fda4af; border-radius: 12px; padding: 18px; text-align: center; margin: 20px 0;">
-            <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #9f1239; margin-bottom: 6px; font-weight: 800;">Your Security / OTP Verification Code</div>
-            <div style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #be123c; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace;">${otpCode}</div>
-            <div style="font-size: 11px; color: #9f1239; margin-top: 6px;">Enter this 8-digit code on the reset password screen.</div>
-          </div>
-          ` : ''}
-
-          <div style="text-align: center; margin: 24px 0;">
-            <a href="${resetLink}" target="_blank" style="background-color: #e11d48; color: #ffffff; padding: 14px 32px; border-radius: 9999px; text-decoration: none; font-size: 14px; font-weight: 700; display: inline-block; box-shadow: 0 4px 14px rgba(225, 29, 72, 0.35);">
-              Reset Password
-            </a>
-          </div>
-
-          <p style="font-size: 12px; line-height: 1.6; color: #64748b;">
-            If the button doesn't open, copy and paste this link into your browser:<br>
-            <a href="${resetLink}" style="color: #be123c; word-break: break-all; text-decoration: underline;">${resetLink}</a>
-          </p>
-
-          <div style="background: #f1f5f9; border-radius: 8px; padding: 12px 16px; margin: 24px 0;">
-            <p style="font-size: 11px; color: #64748b; margin: 0; line-height: 1.5;">
-              🔒 <strong>Security Notice:</strong> If you did not request a password reset, please ignore this email. Your account password remains completely safe and unchanged.
-            </p>
-          </div>
-
-          <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;">
-          <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0;">
-            ${SELLER_DETAILS.tradeName} • Direct Logistics<br>
-            Sent from: <a href="mailto:info@konichiwamart.com" style="color: #be123c;">info@konichiwamart.com</a>
-          </p>
-        </div>
-      `
+      html: emailHtml
     });
 
     if (response.error) {

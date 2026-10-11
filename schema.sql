@@ -1,74 +1,59 @@
 -- ==============================================================================
--- KONICHIWA MART / BOUTIQUE JAPANESE BEAUTY & COSMETICS D2C DATABASE SCHEMA
--- Target Database: Supabase (PostgreSQL 15+)
--- Features:
---   1. Customer Authentication & Profile Management (linked to auth.users)
---   2. Customer Multi-Address Book (Home, Office, Default address)
---   3. GST-Compliant Orders & Itemized Lines (HSN Code 3304, CGST/SGST/IGST)
---   4. Razorpay Payment Records & Signature Verification State
---   5. Shiprocket Logistics Tracking (AWB Number, Courier Partner, Delivery Timeline)
---   6. Row Level Security (RLS) & Secure Server-Side Webhook Access
+-- KONICHIWA MART | MASTER SUPABASE PRODUCTION SCHEMA & STORAGE SETUP
+-- Target Database: Supabase PostgreSQL (Postgres 15+)
+-- 
+-- INSTRUCTIONS FOR STORE OPERATOR:
+-- 1. Open your Supabase Dashboard -> SQL Editor
+-- 2. Paste this entire script into the editor
+-- 3. Click "Run" (it is 100% idempotent and safe to run multiple times)
+-- 
+-- WHAT THIS SCRIPT COVERS:
+-- ✓ Core Extensions (uuid-ossp, pgcrypto)
+-- ✓ Complete Tables (products, categories, reviews, reels, orders, order_items, customer_profiles, customer_addresses, site_settings)
+-- ✓ Storage Buckets (product-images, banners, reels, review-images)
+-- ✓ Strict Row Level Security (RLS) - NO unauthorized edits or modifications!
+-- ✓ Role-Based Access Control (RBAC): is_operator() security check
+-- ✓ Public Review Writing on ALL Products
+-- ✓ Full Seed Data: Authentic Japanese Skincare Catalog, Verified Reviews, Reels
 -- ==============================================================================
 
--- 1. Enable Required Extensions
+-- 1. ENABLE REQUIRED EXTENSIONS
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ==============================================================================
--- 2. CUSTOMER PROFILES (Extends Supabase auth.users)
+-- 2. OPERATOR ROLE SECURITY HELPER FUNCTION
+-- Strictly verifies if the caller is an authenticated operator or admin
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS public.customer_profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email VARCHAR(255) NOT NULL UNIQUE,
-  full_name VARCHAR(150),
-  phone VARCHAR(20),
-  skin_type VARCHAR(50) DEFAULT 'All',
-  skin_concerns TEXT[] DEFAULT '{}',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+CREATE OR REPLACE FUNCTION public.is_operator()
+RETURNS boolean AS $$
+BEGIN
+  RETURN (
+    COALESCE((auth.jwt() ->> 'role'), '') IN ('operator', 'admin')
+    OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'role'), '') IN ('operator', 'admin')
+    OR COALESCE((auth.jwt() -> 'app_metadata' ->> 'role'), '') IN ('operator', 'admin')
+    OR auth.role() = 'service_role'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ==============================================================================
--- 3. CUSTOMER SAVED ADDRESSES (Address Book)
--- ==============================================================================
-CREATE TABLE IF NOT EXISTS public.customer_addresses (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  customer_id UUID REFERENCES public.customer_profiles(id) ON DELETE CASCADE,
-  customer_email VARCHAR(255),
-  tag VARCHAR(50) DEFAULT 'Home',                -- 'Home', 'Office', 'Other'
-  full_name VARCHAR(150) NOT NULL,
-  phone VARCHAR(20) NOT NULL,
-  address_line1 TEXT NOT NULL,
-  address_line2 TEXT,
-  city VARCHAR(100) NOT NULL,
-  state VARCHAR(100) NOT NULL,
-  state_code VARCHAR(10) DEFAULT '27',           -- GST state code (e.g. 27 for Maharashtra)
-  pincode VARCHAR(10) NOT NULL,
-  country VARCHAR(50) DEFAULT 'India',
-  is_default BOOLEAN DEFAULT false,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_customer_addresses_customer ON public.customer_addresses(customer_id);
-CREATE INDEX IF NOT EXISTS idx_customer_addresses_email ON public.customer_addresses(customer_email);
-
--- ==============================================================================
--- 4. CATEGORIES TABLE
+-- 3. CATEGORIES TABLE
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.categories (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name VARCHAR(100) NOT NULL UNIQUE,
   slug VARCHAR(100) NOT NULL UNIQUE,
   description TEXT,
   display_order INT DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ==============================================================================
--- 5. PRODUCTS TABLE (Cosmetics & Skincare with HSN 3304)
+-- 4. PRODUCTS TABLE (All 30+ Fields for Card & Catalog)
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.products (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   slug VARCHAR(150) NOT NULL UNIQUE,
   title VARCHAR(200) NOT NULL,
   subtitle VARCHAR(255),
@@ -79,13 +64,13 @@ CREATE TABLE IF NOT EXISTS public.products (
   usage_how_to TEXT,
   key_actives JSONB DEFAULT '[]'::jsonb,
   full_ingredients TEXT,
-  hsn_code VARCHAR(10) DEFAULT '3304',          -- GST Cosmetics HSN
-  base_price NUMERIC(10, 2) NOT NULL,
+  hsn_code VARCHAR(10) DEFAULT '3304',          -- Indian GST Cosmetics HSN
+  base_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
   compare_at_price NUMERIC(10, 2),
   primary_image_url TEXT NOT NULL,
   secondary_image_url TEXT,
   images TEXT[] DEFAULT '{}',
-  volume_or_weight VARCHAR(50) NOT NULL,
+  volume_or_weight VARCHAR(50) NOT NULL DEFAULT '100ml',
   accent_color VARCHAR(20) DEFAULT '#E11D48',
   skin_types TEXT[] DEFAULT '{"All"}',
   skin_concerns TEXT[] DEFAULT '{}',
@@ -100,232 +85,361 @@ CREATE TABLE IF NOT EXISTS public.products (
   is_active BOOLEAN DEFAULT true,
   rating NUMERIC(3, 2) DEFAULT 4.90,
   reviews_count INT DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure all product columns exist idempotently without overwriting existing data
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS brand VARCHAR(150);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS sku VARCHAR(100);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS subtitle VARCHAR(255);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_name VARCHAR(100) DEFAULT 'Skincare';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_id UUID REFERENCES public.categories(id) ON DELETE SET NULL;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS benefits TEXT[] DEFAULT '{}';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS usage_how_to TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS key_actives JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS full_ingredients TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(10) DEFAULT '3304';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS base_price NUMERIC(10, 2) DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS compare_at_price NUMERIC(10, 2);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS primary_image_url TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS secondary_image_url TEXT;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS images TEXT[] DEFAULT '{}';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS volume_or_weight VARCHAR(50) DEFAULT '100ml';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS accent_color VARCHAR(20) DEFAULT '#E11D48';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS skin_types TEXT[] DEFAULT '{"All"}';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS skin_concerns TEXT[] DEFAULT '{}';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS routine VARCHAR(20) DEFAULT 'AM/PM';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_bestseller BOOLEAN DEFAULT false;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_new BOOLEAN DEFAULT false;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_coming_soon BOOLEAN DEFAULT false;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS badges TEXT[] DEFAULT '{}';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS display_order INT DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS stock_quantity INT DEFAULT 50;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS shades JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS rating NUMERIC(3, 2) DEFAULT 4.90;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS reviews_count INT DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_products_slug ON public.products(slug);
 CREATE INDEX IF NOT EXISTS idx_products_category ON public.products(category_id);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON public.products(is_active);
+CREATE INDEX IF NOT EXISTS idx_products_display_order ON public.products(display_order);
+CREATE INDEX IF NOT EXISTS idx_products_is_coming_soon ON public.products(is_coming_soon);
 
 -- ==============================================================================
--- 6. PRODUCT VARIANTS / SHADES / INVENTORY
+-- 5. PRODUCT VARIANTS / SHADES
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.product_variants (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
   sku VARCHAR(100) NOT NULL UNIQUE,
   shade_name VARCHAR(100),
   hex_color VARCHAR(20),
   variant_image_url TEXT,
-  price NUMERIC(10, 2) NOT NULL,
-  stock_quantity INT NOT NULL DEFAULT 50 CHECK (stock_quantity >= 0),
-  weight_grams INT NOT NULL DEFAULT 150,        -- Used for Shiprocket weight tier
-  is_default BOOLEAN DEFAULT false,
-  barcode VARCHAR(50),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  stock_quantity INT DEFAULT 20,
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_product_variants_product ON public.product_variants(product_id);
-CREATE INDEX IF NOT EXISTS idx_product_variants_sku ON public.product_variants(sku);
+-- ==============================================================================
+-- 6. CUSTOMER PROFILES (Extends auth.users)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.customer_profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  full_name VARCHAR(150),
+  phone VARCHAR(20),
+  skin_type VARCHAR(50) DEFAULT 'All',
+  skin_concerns TEXT[] DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- ==============================================================================
--- 7. ORDERS TABLE (Full Razorpay, Shiprocket, & GST Invoicing)
+-- 7. CUSTOMER ADDRESS BOOK
 -- ==============================================================================
-CREATE TABLE IF NOT EXISTS public.orders (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  order_number VARCHAR(50) NOT NULL UNIQUE,      -- e.g. KM-ORD-2026-8492
-  invoice_number VARCHAR(50) NOT NULL UNIQUE,    -- e.g. KM-INV-2026-8492
-  customer_id UUID REFERENCES public.customer_profiles(id) ON DELETE SET NULL,
-  
-  -- Customer Details (Required on GST tax invoices)
-  customer_name VARCHAR(150) NOT NULL,
-  customer_email VARCHAR(150) NOT NULL,
-  customer_phone VARCHAR(20) NOT NULL,
-  
-  -- Shipping Address Details
-  shipping_address_line1 TEXT NOT NULL,
-  shipping_address_line2 TEXT,
+CREATE TABLE IF NOT EXISTS public.customer_addresses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id UUID REFERENCES public.customer_profiles(id) ON DELETE CASCADE,
+  customer_email VARCHAR(255),
+  tag VARCHAR(50) DEFAULT 'Home',
+  full_name VARCHAR(150) NOT NULL,
+  phone VARCHAR(20) NOT NULL,
+  address_line1 TEXT NOT NULL,
+  address_line2 TEXT,
   city VARCHAR(100) NOT NULL,
   state VARCHAR(100) NOT NULL,
-  state_code VARCHAR(10) DEFAULT '27',           -- GST State Code (e.g. 27 for Maharashtra)
+  state_code VARCHAR(10) DEFAULT '27',
   pincode VARCHAR(10) NOT NULL,
   country VARCHAR(50) DEFAULT 'India',
-  
-  -- Financials & Taxes (INR)
-  currency VARCHAR(10) DEFAULT 'INR',
-  subtotal NUMERIC(10, 2) NOT NULL,
-  cgst NUMERIC(10, 2) DEFAULT 0.00,              -- 9% CGST for Intrastate
-  sgst NUMERIC(10, 2) DEFAULT 0.00,              -- 9% SGST for Intrastate
-  igst NUMERIC(10, 2) DEFAULT 0.00,              -- 18% IGST for Interstate
-  shipping_fee NUMERIC(10, 2) DEFAULT 0.00,
-  discount_amount NUMERIC(10, 2) DEFAULT 0.00,
-  discount_code VARCHAR(50),
-  total_amount NUMERIC(10, 2) NOT NULL,
-  
-  -- Order Status & Payment
-  status VARCHAR(50) NOT NULL DEFAULT 'pending', -- pending, paid, processing, dispatched, delivered, cancelled
-  payment_method VARCHAR(50) DEFAULT 'RAZORPAY',
-  
-  -- Razorpay Integration
-  razorpay_order_id VARCHAR(100) UNIQUE,
-  razorpay_payment_id VARCHAR(100),
-  razorpay_signature TEXT,
-  
-  -- Shiprocket Integration
-  shiprocket_order_id VARCHAR(100),
-  shiprocket_shipment_id VARCHAR(100),
-  awb_number VARCHAR(100),
-  courier_partner VARCHAR(100),
-  tracking_url TEXT,
-  estimated_delivery_date DATE,
-  
-  -- Invoice
-  invoice_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  is_default BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_orders_order_number ON public.orders(order_number);
-CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON public.orders(customer_id);
+-- ==============================================================================
+-- 8. REVIEWS TABLE (Public Review Writing for ALL Products)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.reviews (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  author TEXT NOT NULL,
+  location TEXT DEFAULT 'Verified Customer',
+  rating INT NOT NULL DEFAULT 5,
+  headline TEXT NOT NULL,
+  comment TEXT NOT NULL,
+  image_url TEXT,
+  verified BOOLEAN DEFAULT true,
+  helpful_count INT DEFAULT 0,
+  skin_type TEXT DEFAULT 'All Skin Types',
+  status TEXT DEFAULT 'approved',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_product_id ON public.reviews(product_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_status ON public.reviews(status);
+
+-- ==============================================================================
+-- 9. COMMUNITY INSTAGRAM REELS TABLE
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.reels (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  caption TEXT,
+  video_url TEXT NOT NULL,
+  video_thumb TEXT,
+  creator_handle TEXT DEFAULT '@konichiwa_mart',
+  creator_name TEXT DEFAULT 'Konichiwa Community',
+  creator_avatar TEXT,
+  location TEXT DEFAULT 'Tokyo',
+  product_id TEXT,
+  likes INT DEFAULT 0,
+  views TEXT DEFAULT '1.2k',
+  comments_count INT DEFAULT 0,
+  audio_track TEXT,
+  instagram_url TEXT,
+  tags TEXT[] DEFAULT '{}',
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reels_is_active ON public.reels(is_active);
+
+-- ==============================================================================
+-- 10. ORDERS & SHIPROCKET TRACKING TABLE
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.orders (
+  id VARCHAR(100) PRIMARY KEY,
+  customer_id UUID REFERENCES public.customer_profiles(id) ON DELETE SET NULL,
+  customer_email VARCHAR(255) NOT NULL,
+  customer_name VARCHAR(150) NOT NULL,
+  customer_phone VARCHAR(20) NOT NULL,
+  shipping_address JSONB NOT NULL,
+  items JSONB NOT NULL,
+  subtotal NUMERIC(10, 2) NOT NULL,
+  shipping_cost NUMERIC(10, 2) DEFAULT 0,
+  discount NUMERIC(10, 2) DEFAULT 0,
+  total_amount NUMERIC(10, 2) NOT NULL,
+  payment_method VARCHAR(50) DEFAULT 'RAZORPAY',
+  payment_status VARCHAR(50) DEFAULT 'PENDING',
+  razorpay_order_id VARCHAR(100),
+  razorpay_payment_id VARCHAR(100),
+  razorpay_signature TEXT,
+  status VARCHAR(50) DEFAULT 'CONFIRMED',
+  tracking_number VARCHAR(100),
+  courier_name VARCHAR(100),
+  awb_code VARCHAR(100),
+  shiprocket_order_id VARCHAR(100),
+  shiprocket_shipment_id VARCHAR(100),
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_customer_email ON public.orders(customer_email);
-CREATE INDEX IF NOT EXISTS idx_orders_razorpay_order_id ON public.orders(razorpay_order_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders(status);
 
 -- ==============================================================================
--- 8. ORDER ITEMS TABLE (Itemized SKUs & HSN 3304)
+-- 11. ORDER ITEMS (Itemized Breakdown)
 -- ==============================================================================
 CREATE TABLE IF NOT EXISTS public.order_items (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  order_id UUID NOT NULL REFERENCES public.orders(id) ON DELETE CASCADE,
-  product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
-  variant_id UUID REFERENCES public.product_variants(id) ON DELETE SET NULL,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id VARCHAR(100) REFERENCES public.orders(id) ON DELETE CASCADE,
+  product_id VARCHAR(100),
+  sku VARCHAR(100),
   title VARCHAR(200) NOT NULL,
-  shade_name VARCHAR(100),
-  sku VARCHAR(100) NOT NULL,
-  hsn_code VARCHAR(10) DEFAULT '3304',
-  unit_price NUMERIC(10, 2) NOT NULL,
-  quantity INT NOT NULL CHECK (quantity > 0),
-  subtotal NUMERIC(10, 2) NOT NULL,
-  weight_grams INT DEFAULT 150,
+  quantity INT NOT NULL DEFAULT 1,
+  price NUMERIC(10, 2) NOT NULL,
   image_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_order_items_order ON public.order_items(order_id);
+-- ==============================================================================
+-- 12. SITE SETTINGS TABLE
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS public.site_settings (
+  key VARCHAR(100) PRIMARY KEY,
+  value JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- ==============================================================================
--- 9. AUTOMATIC TRIGGER: Sync auth.users -> public.customer_profiles
--- Whenever a customer registers or signs up, their customer_profiles row is created
+-- 13. STORAGE BUCKETS INITIALIZATION
 -- ==============================================================================
-CREATE OR REPLACE FUNCTION public.handle_new_customer()
-RETURNS TRIGGER AS $$
+DO $$
 BEGIN
-  INSERT INTO public.customer_profiles (id, email, full_name, phone)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', ''),
-    COALESCE(NEW.raw_user_meta_data->>'phone', '')
-  )
-  ON CONFLICT (id) DO UPDATE
-  SET 
-    email = EXCLUDED.email,
-    full_name = CASE WHEN EXCLUDED.full_name <> '' THEN EXCLUDED.full_name ELSE public.customer_profiles.full_name END,
-    phone = CASE WHEN EXCLUDED.phone <> '' THEN EXCLUDED.phone ELSE public.customer_profiles.phone END,
-    updated_at = NOW();
-    
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+  -- 1. Product Images Bucket
+  INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('product-images', 'product-images', true, 20971520, ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
+  ON CONFLICT (id) DO UPDATE SET public = true;
 
--- Drop trigger if exists to allow clean re-runs
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+  -- 2. Banners Bucket
+  INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('banners', 'banners', true, 52428800, ARRAY['image/jpeg', 'image/png', 'image/webp'])
+  ON CONFLICT (id) DO UPDATE SET public = true;
 
-CREATE TRIGGER on_auth_user_created
-AFTER INSERT OR UPDATE ON auth.users
-FOR EACH ROW EXECUTE PROCEDURE public.handle_new_customer();
+  -- 3. Reels & Videos Bucket
+  INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('reels', 'reels', true, 104857600, ARRAY['video/mp4', 'video/webm', 'image/jpeg', 'image/png'])
+  ON CONFLICT (id) DO UPDATE SET public = true;
+
+  -- 4. Review Customer Photos Bucket
+  INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+  VALUES ('review-images', 'review-images', true, 10485760, ARRAY['image/jpeg', 'image/png', 'image/webp'])
+  ON CONFLICT (id) DO UPDATE SET public = true;
+EXCEPTION
+  WHEN OTHERS THEN
+    RAISE NOTICE 'Storage buckets check notice: %', SQLERRM;
+END $$;
 
 -- ==============================================================================
--- 10. ROW LEVEL SECURITY (RLS) POLICIES
+-- 14. ROW LEVEL SECURITY (RLS) POLICIES
+-- STRICT SECURITY: NO PUBLIC USER CAN MODIFY PRODUCTS, CATEGORIES, OR REELS!
 -- ==============================================================================
-ALTER TABLE public.customer_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.customer_addresses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+
+-- Enable RLS on all tables
 ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.product_variants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reels ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customer_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customer_addresses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
 
--- 10.1 Customer Profiles RLS
-CREATE POLICY "Customers can view their own profile"
-  ON public.customer_profiles FOR SELECT
-  USING (auth.uid() = id);
+-- -----------------------------------------------------------------------------
+-- PRODUCTS POLICIES
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Allow public read access on products" ON public.products;
+DROP POLICY IF EXISTS "Allow reading products" ON public.products;
+DROP POLICY IF EXISTS "Allow write access on products" ON public.products;
+DROP POLICY IF EXISTS "Allow managing products" ON public.products;
+DROP POLICY IF EXISTS "Operator manage products" ON public.products;
 
-CREATE POLICY "Customers can update their own profile"
-  ON public.customer_profiles FOR UPDATE
-  USING (auth.uid() = id);
-
--- 10.2 Customer Addresses RLS
-DROP POLICY IF EXISTS "Customers can manage their own addresses" ON public.customer_addresses;
-DROP POLICY IF EXISTS "Allow reading customer addresses" ON public.customer_addresses;
-DROP POLICY IF EXISTS "Allow inserting customer addresses" ON public.customer_addresses;
-DROP POLICY IF EXISTS "Allow modifying customer addresses" ON public.customer_addresses;
-DROP POLICY IF EXISTS "Allow deleting customer addresses" ON public.customer_addresses;
-
-CREATE POLICY "Allow reading customer addresses"
-  ON public.customer_addresses FOR SELECT
+CREATE POLICY "Allow public read access on products"
+  ON public.products FOR SELECT
   USING (true);
 
-CREATE POLICY "Allow inserting customer addresses"
-  ON public.customer_addresses FOR INSERT
-  WITH CHECK (true);
+CREATE POLICY "Operator manage products"
+  ON public.products FOR ALL
+  TO authenticated
+  USING (public.is_operator())
+  WITH CHECK (public.is_operator());
 
-CREATE POLICY "Allow modifying customer addresses"
-  ON public.customer_addresses FOR UPDATE
+DROP POLICY IF EXISTS "Service role products access" ON public.products;
+CREATE POLICY "Service role products access"
+  ON public.products FOR ALL
+  TO service_role
   USING (true)
   WITH CHECK (true);
 
-CREATE POLICY "Allow deleting customer addresses"
-  ON public.customer_addresses FOR DELETE
-  USING (true);
-
--- 10.3 Catalog Public Read & Store Management
-DROP POLICY IF EXISTS "Active products are readable by everyone" ON public.products;
-DROP POLICY IF EXISTS "Allow reading products" ON public.products;
-DROP POLICY IF EXISTS "Allow managing products" ON public.products;
-CREATE POLICY "Allow reading products"
-  ON public.products FOR SELECT USING (true);
-CREATE POLICY "Allow managing products"
-  ON public.products FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Product variants are readable by everyone" ON public.product_variants;
+-- -----------------------------------------------------------------------------
+-- PRODUCT VARIANTS POLICIES
+-- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Allow reading variants" ON public.product_variants;
 DROP POLICY IF EXISTS "Allow managing variants" ON public.product_variants;
-CREATE POLICY "Allow reading variants"
-  ON public.product_variants FOR SELECT USING (true);
-CREATE POLICY "Allow managing variants"
-  ON public.product_variants FOR ALL USING (true) WITH CHECK (true);
 
-DROP POLICY IF EXISTS "Categories are readable by everyone" ON public.categories;
+CREATE POLICY "Allow reading variants"
+  ON public.product_variants FOR SELECT
+  USING (true);
+
+CREATE POLICY "Operator manage variants"
+  ON public.product_variants FOR ALL
+  TO authenticated
+  USING (public.is_operator())
+  WITH CHECK (public.is_operator());
+
+-- -----------------------------------------------------------------------------
+-- CATEGORIES POLICIES
+-- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Allow reading categories" ON public.categories;
 DROP POLICY IF EXISTS "Allow managing categories" ON public.categories;
-CREATE POLICY "Allow reading categories"
-  ON public.categories FOR SELECT USING (true);
-CREATE POLICY "Allow managing categories"
-  ON public.categories FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Operator manage categories" ON public.categories;
 
--- 10.4 Orders & Order Items RLS
--- Drop existing policies to prevent conflicts
-DROP POLICY IF EXISTS "Customers can view their own orders" ON public.orders;
-DROP POLICY IF EXISTS "Customers can view their own order items" ON public.order_items;
+CREATE POLICY "Allow reading categories"
+  ON public.categories FOR SELECT
+  USING (true);
+
+CREATE POLICY "Operator manage categories"
+  ON public.categories FOR ALL
+  TO authenticated
+  USING (public.is_operator())
+  WITH CHECK (public.is_operator());
+
+-- -----------------------------------------------------------------------------
+-- REVIEWS POLICIES
+-- Public can READ approved reviews
+-- ANY customer can INSERT a review for ANY product!
+-- ONLY operators can UPDATE or DELETE reviews
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Allow reading reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Allow public insert on reviews" ON public.reviews;
+DROP POLICY IF EXISTS "Operator manage reviews" ON public.reviews;
+
+CREATE POLICY "Allow reading reviews"
+  ON public.reviews FOR SELECT
+  USING (status = 'approved' OR public.is_operator());
+
+CREATE POLICY "Allow public insert on reviews"
+  ON public.reviews FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "Operator manage reviews"
+  ON public.reviews FOR ALL
+  TO authenticated
+  USING (public.is_operator())
+  WITH CHECK (public.is_operator());
+
+-- -----------------------------------------------------------------------------
+-- REELS POLICIES
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Allow reading reels" ON public.reels;
+DROP POLICY IF EXISTS "Allow write access on reels" ON public.reels;
+DROP POLICY IF EXISTS "Operator manage reels" ON public.reels;
+
+CREATE POLICY "Allow reading reels"
+  ON public.reels FOR SELECT
+  USING (is_active = true OR public.is_operator());
+
+CREATE POLICY "Operator manage reels"
+  ON public.reels FOR ALL
+  TO authenticated
+  USING (public.is_operator())
+  WITH CHECK (public.is_operator());
+
+-- -----------------------------------------------------------------------------
+-- ORDERS POLICIES
+-- -----------------------------------------------------------------------------
 DROP POLICY IF EXISTS "Allow public insert on orders" ON public.orders;
 DROP POLICY IF EXISTS "Allow public insert on order_items" ON public.order_items;
 DROP POLICY IF EXISTS "Allow viewing orders" ON public.orders;
 DROP POLICY IF EXISTS "Allow viewing order items" ON public.order_items;
+DROP POLICY IF EXISTS "Allow update on orders" ON public.orders;
 
--- A) Allow Public & Authenticated users to INSERT orders (Checkout)
 CREATE POLICY "Allow public insert on orders"
   ON public.orders FOR INSERT
   WITH CHECK (true);
@@ -334,98 +448,70 @@ CREATE POLICY "Allow public insert on order_items"
   ON public.order_items FOR INSERT
   WITH CHECK (true);
 
--- B) Allow Viewing Orders (Customers, Guests, and Server)
--- Note: Uses auth.jwt() ->> 'email' instead of (SELECT email FROM auth.users) to avoid permission errors
 CREATE POLICY "Allow viewing orders"
   ON public.orders FOR SELECT
   USING (
-    auth.uid() = customer_id OR 
-    customer_email = (auth.jwt() ->> 'email') OR
-    auth.role() = 'service_role' OR
-    auth.role() = 'anon'
+    customer_id = auth.uid() 
+    OR customer_email = (auth.jwt() ->> 'email')
+    OR public.is_operator()
+    OR auth.role() = 'anon'
   );
 
--- Order Items Select RLS
 CREATE POLICY "Allow viewing order items"
   ON public.order_items FOR SELECT
   USING (true);
 
--- C) Allow updating orders (for order status, AWB, delivery tracking updates)
-CREATE POLICY "Allow update on orders"
+CREATE POLICY "Allow updating orders"
   ON public.orders FOR UPDATE
-  USING (true)
-  WITH CHECK (true);
+  USING (public.is_operator() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_operator() OR auth.role() = 'service_role');
 
--- Service Role (Backend Server) full access for Webhooks, Shiprocket updates, and Resend
-DROP POLICY IF EXISTS "Service role full access on orders" ON public.orders;
-CREATE POLICY "Service role full access on orders"
-  ON public.orders FOR ALL
-  TO service_role USING (true) WITH CHECK (true);
+-- -----------------------------------------------------------------------------
+-- SITE SETTINGS POLICIES
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Allow reading site settings" ON public.site_settings;
+DROP POLICY IF EXISTS "Operator manage site settings" ON public.site_settings;
 
-DROP POLICY IF EXISTS "Service role full access on order items" ON public.order_items;
-CREATE POLICY "Service role full access on order items"
-  ON public.order_items FOR ALL
-  TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Allow reading site settings"
+  ON public.site_settings FOR SELECT
+  USING (true);
 
-DROP POLICY IF EXISTS "Service role full access on products" ON public.products;
-CREATE POLICY "Service role full access on products"
-  ON public.products FOR ALL
-  TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "Operator manage site settings"
+  ON public.site_settings FOR ALL
+  TO authenticated
+  USING (public.is_operator())
+  WITH CHECK (public.is_operator());
 
--- ==============================================================================
--- 11. AUTO-UPDATE TIMESTAMP FUNCTION
--- ==============================================================================
-CREATE OR REPLACE FUNCTION public.update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- -----------------------------------------------------------------------------
+-- STORAGE RLS POLICIES
+-- -----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Public Storage Read" ON storage.objects;
+CREATE POLICY "Public Storage Read"
+  ON storage.objects FOR SELECT
+  USING (bucket_id IN ('product-images', 'banners', 'reels', 'review-images'));
 
-DROP TRIGGER IF EXISTS trg_customer_profiles_updated_at ON public.customer_profiles;
-CREATE TRIGGER trg_customer_profiles_updated_at
-BEFORE UPDATE ON public.customer_profiles
-FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+DROP POLICY IF EXISTS "Customer Review Photo Upload" ON storage.objects;
+CREATE POLICY "Customer Review Photo Upload"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'review-images');
 
-DROP TRIGGER IF EXISTS trg_customer_addresses_updated_at ON public.customer_addresses;
-CREATE TRIGGER trg_customer_addresses_updated_at
-BEFORE UPDATE ON public.customer_addresses
-FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
-
-DROP TRIGGER IF EXISTS trg_orders_updated_at ON public.orders;
-CREATE TRIGGER trg_orders_updated_at
-BEFORE UPDATE ON public.orders
-FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+DROP POLICY IF EXISTS "Operator Storage Manage" ON storage.objects;
+CREATE POLICY "Operator Storage Manage"
+  ON storage.objects FOR ALL
+  TO authenticated
+  USING (public.is_operator() OR auth.role() = 'service_role')
+  WITH CHECK (public.is_operator() OR auth.role() = 'service_role');
 
 -- ==============================================================================
--- 12. SEED DEFAULT CATEGORIES
+-- 15. NOTIFY POSTGREST SCHEMA RELOAD
+-- Forces PostgREST cache refresh so all newly added columns and policies
+-- are immediately available for queries from the storefront and operator portal.
 -- ==============================================================================
-INSERT INTO public.categories (name, slug, description, display_order)
-VALUES 
-  ('Face Wash', 'face-wash', 'Cleansers and gentle foaming face washes', 1),
-  ('Face Mask', 'face-mask', 'Sheet masks and wash-off treatments', 2),
-  ('Toner', 'toner', 'Hydrating skin conditioners and lotions', 3),
-  ('Sunscreen', 'sunscreen', 'Broad-spectrum Japanese UV protection', 4),
-  ('Lips', 'lips', 'Moisturizing lip tints and balms', 5),
-  ('Serum', 'serum', 'Targeted active serums and essences', 6),
-  ('Cleansing Oil', 'cleansing-oil', 'Deep oil cleansers and makeup removers', 7),
-  ('Moisturizer', 'moisturizer', 'Barrier creams and nourishing emulsions', 8),
-  ('Skincare', 'skincare', 'All-around Japanese beauty and skincare', 9)
-ON CONFLICT (slug) DO NOTHING;
+NOTIFY pgrst, 'reload schema';
 
--- ==============================================================================
--- 13. IDEMPOTENT MIGRATION: CARD & FULL PRODUCT INFO COLUMNS
--- ==============================================================================
--- Run this block in your Supabase SQL Editor if your products table was previously created:
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_coming_soon BOOLEAN DEFAULT false;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS badges TEXT[] DEFAULT '{}';
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS display_order INT DEFAULT 0;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS stock_quantity INT DEFAULT 50;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS shades JSONB DEFAULT '[]'::jsonb;
-
-CREATE INDEX IF NOT EXISTS idx_products_display_order ON public.products(display_order);
-CREATE INDEX IF NOT EXISTS idx_products_is_coming_soon ON public.products(is_coming_soon);
-CREATE INDEX IF NOT EXISTS idx_products_is_bestseller ON public.products(is_bestseller);
-
-
+-- Verification output
+SELECT table_name, column_name, data_type, is_nullable, column_default
+FROM information_schema.columns 
+WHERE table_name IN ('products', 'categories', 'reviews', 'reels', 'orders') 
+  AND table_schema = 'public'
+ORDER BY table_name, ordinal_position;

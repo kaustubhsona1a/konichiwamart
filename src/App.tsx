@@ -109,6 +109,21 @@ import {
 } from './lib/supabase';
 import { FallingPetalsBackground } from './components/FallingPetalsBackground';
 import { formatINR } from './data/pincodes';
+import {
+  trackPageView,
+  trackViewItem,
+  trackAddToCart,
+  trackRemoveFromCart,
+  trackViewCart,
+  trackBeginCheckout,
+  trackPurchase,
+  trackSearch,
+  trackViewItemList,
+  trackSelectItem,
+  trackAddToWishlist,
+  trackSelectContent,
+  setGAUser
+} from './lib/analytics';
 
 // Clean initial customer profile with zero dummy data
 const EMPTY_PROFILE: UserProfile = {
@@ -161,7 +176,18 @@ export default function App() {
             return applyProductOrderClient(cleaned);
           }
         }
-      } else if (deletedIds.size > 0) {
+      }
+      const cachedCatalog = localStorage.getItem('km_catalog_cache');
+      if (cachedCatalog) {
+        const parsedCatalog: Product[] = JSON.parse(cachedCatalog);
+        if (Array.isArray(parsedCatalog) && parsedCatalog.length > 0) {
+          const cleanedCatalog = parsedCatalog.filter((p) => !deletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
+          if (cleanedCatalog.length > 0) {
+            return applyProductOrderClient(cleanedCatalog);
+          }
+        }
+      }
+      if (deletedIds.size > 0) {
         return applyProductOrderClient(PRODUCTS.filter((p) => !deletedIds.has(p.id)));
       }
     } catch {}
@@ -273,33 +299,7 @@ export default function App() {
   });
 
   // Keep cart in localStorage
-  
-  useEffect(() => {
-    // Check if URL has a Supabase password reset hash
-    const hashParams = new URLSearchParams(window.location.hash.replace('#', '?'));
-    if (hashParams.get('type') === 'recovery' && hashParams.get('access_token')) {
-      window.location.hash = ''; // Clear hash
-      const newPassword = prompt('Password Recovery: Please enter your new password.');
-      if (newPassword && newPassword.length >= 6) {
-        // We will call the backend or supabase directly to update it.
-        const client = getSupabaseClient();
-        if (client) {
-          client.auth.updateUser({ password: newPassword })
-            .then(({ error }) => {
-              if (error) {
-                alert('Failed to update password: ' + error.message);
-              } else {
-                alert('Password updated successfully! You can now sign in.');
-                setIsCustomerAuthOpen(true);
-                setCustomerAuthTab('signin');
-              }
-            });
-        }
-      } else if (newPassword) {
-        alert('Password must be at least 6 characters.');
-      }
-    }
-  }, []);
+
 
   useEffect(() => {
     try {
@@ -389,6 +389,7 @@ export default function App() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [writeReviewProductId, setWriteReviewProductId] = useState<string | null>(null);
 
   // Dynamic categories synced from Supabase and Server
   const [dbCategories, setDbCategories] = useState<Array<{ id: string; name: string; slug: string; display_order?: number }>>([]);
@@ -570,6 +571,10 @@ export default function App() {
   // Synchronize customer profile & Supabase orders when customer session exists
   useEffect(() => {
     if (customerSession) {
+      setGAUser(customerSession.id, {
+        email: customerSession.email,
+        name: customerSession.name,
+      });
       const email = customerSession.email.toLowerCase();
       let localAddrs: UserAddress[] = [];
       let localOrds: Order[] = [];
@@ -639,6 +644,7 @@ export default function App() {
         console.warn('Customer data sync note:', err);
       });
     } else {
+      setGAUser(null);
       setUserProfile(EMPTY_PROFILE);
     }
   }, [customerSession]);
@@ -750,6 +756,7 @@ export default function App() {
   const syncRouteFromUrl = (pathname: string, prods: Product[] = productsList) => {
     if (typeof window === 'undefined') return;
     const cleanPath = pathname.split('?')[0].replace(/\/+$/, '') || '/';
+    trackPageView(undefined, cleanPath);
 
     // 1. /products/:slug
     if (cleanPath.startsWith('/products/')) {
@@ -943,7 +950,46 @@ export default function App() {
     }
   }, [productsList]);
 
+  // GA4 Product View Item
+  useEffect(() => {
+    if (inspectProduct) {
+      trackViewItem(inspectProduct);
+    }
+  }, [inspectProduct?.id]);
+
+  // GA4 View Cart
+  useEffect(() => {
+    if (isCartOpen && cart.length > 0) {
+      const subtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
+      trackViewCart(cart, subtotal);
+    }
+  }, [isCartOpen]);
+
+  // GA4 Search Tracking (debounced)
+  useEffect(() => {
+    if (!searchQuery || searchQuery.trim().length < 2) return;
+    const timer = setTimeout(() => {
+      trackSearch(searchQuery.trim());
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // GA4 View Item List Impressions for Storefront & Collections
+  useEffect(() => {
+    if (filteredProducts.length > 0 && currentPage === 'store') {
+      const listName = activeBrandSlug 
+        ? `Brand: ${SEO_BRANDS[activeBrandSlug]?.name || activeBrandSlug}`
+        : activeCategorySlug 
+          ? `Collection: ${SEO_CATEGORIES[activeCategorySlug]?.name || activeCategorySlug}`
+          : selectedCategory !== 'All' 
+            ? `Category: ${selectedCategory}` 
+            : 'Storefront Catalog';
+      trackViewItemList(filteredProducts, listName);
+    }
+  }, [selectedCategory, activeBrandSlug, activeCategorySlug, currentPage]);
+
   const handleSelectProduct = (product: Product) => {
+    trackSelectItem(product);
     setInspectProduct(product);
     const slug = getProductCanonicalSlug(product);
     try {
@@ -1788,6 +1834,9 @@ export default function App() {
       quantity = 1;
     }
 
+    // GA4 Add to Cart
+    trackAddToCart(product, quantity, shade?.name);
+
     setCart((prev) => {
       const existingIdx = prev.findIndex(
         (item) => item.product.id === product.id && item.selectedShade?.id === shade?.id
@@ -1825,6 +1874,10 @@ export default function App() {
   };
 
   const handleRemoveItem = (productId: string, shadeId?: string) => {
+    const targetItem = cart.find(i => i.product.id === productId && i.selectedShade?.id === shadeId);
+    if (targetItem) {
+      trackRemoveFromCart(targetItem.product, targetItem.quantity, targetItem.selectedShade?.name);
+    }
     setCart((prev) => prev.filter(i => !(i.product.id === productId && i.selectedShade?.id === shadeId)));
   };
 
@@ -1832,6 +1885,12 @@ export default function App() {
   const handleToggleWishlist = (productId: string) => {
     setUserProfile((prev) => {
       const exists = prev.wishlistIds.includes(productId);
+      if (!exists) {
+        const prod = productsList.find(p => p.id === productId || p.dbId === productId);
+        if (prod) {
+          trackAddToWishlist(prod);
+        }
+      }
       return {
         ...prev,
         wishlistIds: exists
@@ -1851,11 +1910,14 @@ export default function App() {
     });
     setIsCartOpen(false);
     setIsRazorpayOpen(true);
+    const subtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
+    trackBeginCheckout(cart, Math.max(0, subtotal - discountAmount));
   };
 
   // On Razorpay Payment Success
   const handlePaymentSuccess = async (newOrder: Order) => {
     setIsRazorpayOpen(false);
+    trackPurchase(newOrder);
 
     // 1. Record in store orders (for admin portal)
     setStoreOrders(prev => {
@@ -2232,8 +2294,8 @@ export default function App() {
           onBackToStore={handleNavigateHome}
           onNavigateCategory={handleNavigateCategory}
           onNavigateGuide={handleNavigateGuide}
-          onEdit={handleStartEditProduct}
-          isOperator={Boolean(operatorSession)}
+          onEdit={isOperator ? handleStartEditProduct : undefined}
+          isOperator={isOperator}
         />
       ) : activeGuideSlug && SEO_GUIDES[activeGuideSlug] ? (
         <GuideArticlePage
@@ -2246,8 +2308,8 @@ export default function App() {
           onBackToStore={handleNavigateHome}
           onNavigateCategory={handleNavigateCategory}
           onNavigateGuide={handleNavigateGuide}
-          onEdit={handleStartEditProduct}
-          isOperator={Boolean(operatorSession)}
+          onEdit={isOperator ? handleStartEditProduct : undefined}
+          isOperator={isOperator}
         />
       ) : (
         <>
@@ -2384,8 +2446,8 @@ export default function App() {
                     onAddToCart={handleAddToCart}
                     onToggleWishlist={handleToggleWishlist}
                     isWishlisted={isWishlisted(product.id)}
-                    onEdit={handleStartEditProduct}
-                    isOperator={Boolean(operatorSession)}
+                    onEdit={isOperator ? handleStartEditProduct : undefined}
+                    isOperator={isOperator}
                   />
                 ))}
               </div>
@@ -2400,6 +2462,8 @@ export default function App() {
               products={productsList}
               reviews={appReviews}
               onAddReview={(newRev) => setAppReviews(prev => [newRev, ...prev])}
+              initialWriteProductId={writeReviewProductId}
+              onClearInitialWriteProduct={() => setWriteReviewProductId(null)}
             />
           </div>
 
@@ -2438,12 +2502,15 @@ export default function App() {
           onToggleWishlist={handleToggleWishlist}
           isWishlisted={isWishlisted(inspectProduct.id)}
           reviews={appReviews}
-          onEditProduct={handleStartEditProduct}
-          isOperator={Boolean(operatorSession)}
+          onEditProduct={isOperator ? handleStartEditProduct : undefined}
+          isOperator={isOperator}
           onOpenWriteReview={(prodId) => {
             setInspectProduct(null);
-            const el = document.getElementById('customer-reviews');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
+            setWriteReviewProductId(prodId);
+            setTimeout(() => {
+              const el = document.getElementById('customer-reviews');
+              if (el) el.scrollIntoView({ behavior: 'smooth' });
+            }, 80);
           }}
         />
       )}
@@ -2501,6 +2568,10 @@ export default function App() {
         onClose={() => setIsCustomerAuthOpen(false)}
         initialTab={customerAuthTab}
         onSuccess={handleCustomerLoginSuccess}
+        onOpenResetPassword={(email) => {
+          setIsCustomerAuthOpen(false);
+          setIsResetPasswordOpen(true);
+        }}
       />
 
       {/* 7. Operator Login Gate (Supabase Auth / Secret Operator Gateway) */}
@@ -2516,7 +2587,7 @@ export default function App() {
 
       {/* 8. Store Owner Operations & Admin Portal */}
       <AdminPortal
-        isOpen={isAdminOpen}
+        isOpen={Boolean(isAdminOpen && isOperator)}
         onClose={() => {
           setIsAdminOpen(false);
           setAdminEditingProduct(null);

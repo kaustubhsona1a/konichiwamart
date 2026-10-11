@@ -46,6 +46,7 @@ import {
   fetchCustomerAddressesFromSupabase,
   getActiveCustomerSession
 } from '../lib/supabase';
+import { trackBeginCheckout, trackAddShippingInfo, trackAddPaymentInfo } from '../lib/analytics';
 
 export type CheckoutStep = 'CONTACT_VERIFICATION' | 'ADDRESS_CONFIRMATION' | 'PAYMENT' | 'SUCCESS';
 
@@ -134,6 +135,18 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
   const amountInPaise = Math.round(grandTotal * 100);
   const cgst = Math.round(taxableAmount * 0.09);
   const sgst = Math.round(taxableAmount * 0.09);
+
+  // GA4 Checkout Funnel Tracking (begin_checkout, add_shipping_info, add_payment_info)
+  useEffect(() => {
+    if (!isOpen || items.length === 0) return;
+    if (currentStep === 'CONTACT_VERIFICATION') {
+      trackBeginCheckout(items, grandTotal, discountCode);
+    } else if (currentStep === 'ADDRESS_CONFIRMATION') {
+      trackAddShippingInfo(items, grandTotal, 'All-India Express', discountCode);
+    } else if (currentStep === 'PAYMENT') {
+      trackAddPaymentInfo(items, grandTotal, 'Razorpay_Online', discountCode);
+    }
+  }, [isOpen, currentStep]);
 
   // Generate dynamic UPI QR Code whenever grandTotal changes
   useEffect(() => {

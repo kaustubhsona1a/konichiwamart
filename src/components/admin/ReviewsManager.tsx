@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { Review, Product } from '../../types';
 import { formatReviewTime } from '../../data/reviews';
+import { getOperatorAuthHeaders } from '../../lib/supabase';
 
 interface ReviewsManagerProps {
   products: Product[];
@@ -264,7 +265,7 @@ export const ReviewsManager: React.FC<ReviewsManagerProps> = ({
 
       const res = await fetch('/api/reviews/bulk', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
         body: JSON.stringify({ reviews: parsedReviews })
       });
 
@@ -289,7 +290,8 @@ export const ReviewsManager: React.FC<ReviewsManagerProps> = ({
     if (!reviewToDelete) return;
     try {
       const res = await fetch(`/api/reviews/${encodeURIComponent(reviewToDelete.id)}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        headers: { ...getOperatorAuthHeaders() }
       });
       if (res.ok) {
         onReviewsChange(reviews.filter(r => r.id !== reviewToDelete.id));

@@ -15,19 +15,22 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { customerSignIn, customerSignUp, customerForgotPassword } from '../lib/supabase';
+import { trackLogin, trackSignUp, setGAUser } from '../lib/analytics';
 
 interface CustomerAuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (customer: { id: string; email: string; name: string; phone?: string }) => void;
   initialTab?: 'signin' | 'register';
+  onOpenResetPassword?: (email?: string) => void;
 }
 
 export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
-  initialTab = 'signin'
+  initialTab = 'signin',
+  onOpenResetPassword
 }) => {
   const [activeTab, setActiveTab] = useState<'signin' | 'register' | 'forgot'>(initialTab);
 
@@ -85,6 +88,8 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     try {
       const res = await customerSignIn(cleanEmail, cleanPass);
       if (res.success && res.user) {
+        trackLogin('email_password');
+        setGAUser(res.user.id, { email: res.user.email });
         setSuccessMessage('Welcome back! Loading your profile and orders...');
         setTimeout(() => {
           onSuccess({
@@ -132,6 +137,8 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
     try {
       const res = await customerSignUp(cleanEmail, cleanPass, cleanName, cleanPhone);
       if (res.success && res.user) {
+        trackSignUp('email_password');
+        setGAUser(res.user.id, { email: res.user.email, name: cleanName });
         setSuccessMessage('Account created successfully! Welcome to Konichiwa Mart.');
         setTimeout(() => {
           onSuccess({
@@ -374,60 +381,104 @@ export const CustomerAuthModal: React.FC<CustomerAuthModalProps> = ({
             </div>
           </form>
         ) : activeTab === 'forgot' ? (
-          <form onSubmit={handleForgotPassword} className="space-y-4">
-            <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300">
-              <KeyRound className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
-              <p className="leading-relaxed">
-                Enter your registered account email. We will send a secure password reset link connected to Supabase Auth so you can set a new password.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                Account Email Address
-              </label>
-              <div className="relative">
-                <input
-                  type="email"
-                  required
-                  value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 transition-all"
-                />
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+          successMessage ? (
+            <div className="space-y-4 py-2">
+              <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-xs space-y-2">
+                <div className="flex items-center gap-2 font-bold text-sm text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                  <span>Reset Email & Security Code Dispatched!</span>
+                </div>
+                <p className="leading-relaxed text-slate-700 dark:text-slate-300">
+                  {successMessage}
+                </p>
+                <div className="p-2.5 rounded-xl bg-white/80 dark:bg-black/40 border border-emerald-200/60 dark:border-emerald-800/40 text-[11px] text-slate-600 dark:text-slate-400">
+                  ✉️ Check your inbox (or spam folder) for the email sent from <strong>info@konichiwamart.com</strong>. You can click the link inside or enter the 8-digit code right now.
+                </div>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 active:scale-[0.99] text-white font-semibold text-sm shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Sending Reset Link...</span>
-                </>
-              ) : (
-                <span>Send Password Reset Link</span>
-              )}
-            </button>
-
-            <div className="text-center pt-1">
               <button
                 type="button"
                 onClick={() => {
-                  setActiveTab('signin');
-                  setErrorMessage(null);
-                  setSuccessMessage(null);
+                  if (onOpenResetPassword) {
+                    onOpenResetPassword(forgotEmail.trim().toLowerCase());
+                  }
+                  onClose();
                 }}
-                className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 text-white font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                Remembered your password? Sign in
+                <span>Enter Security Code & Set New Password &rarr;</span>
               </button>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('signin');
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                >
+                  Back to Sign In
+                </button>
+              </div>
             </div>
-          </form>
+          ) : (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300">
+                <KeyRound className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+                <p className="leading-relaxed">
+                  Enter your registered account email. A secure recovery link and 8-digit verification code will be sent to your email from <strong>info@konichiwamart.com</strong>.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Account Email Address
+                </label>
+                <div className="relative">
+                  <input
+                    type="email"
+                    required
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-stone-700 bg-white dark:bg-stone-800 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 transition-all"
+                  />
+                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-700 hover:to-pink-700 active:scale-[0.99] text-white font-semibold text-sm shadow-md transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Sending Reset Link...</span>
+                  </>
+                ) : (
+                  <span>Send Password Reset Link</span>
+                )}
+              </button>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('signin');
+                    setErrorMessage(null);
+                    setSuccessMessage(null);
+                  }}
+                  className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                >
+                  Remembered your password? Sign in
+                </button>
+              </div>
+            </form>
+          )
         ) : (
           <form onSubmit={handleRegister} className="space-y-3">
             <div>

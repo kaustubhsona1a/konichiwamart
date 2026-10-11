@@ -1,5 +1,22 @@
 [
   {
+    "id": "rev-1791567780058-xosu7",
+    "author": "Aarav K.",
+    "location": "Verified Buyer",
+    "rating": 5,
+    "date": "Just now",
+    "createdAt": "2026-10-09T17:43:00.058Z",
+    "timestamp": 1791567780058,
+    "verified": true,
+    "productId": "senka-perfect-whip",
+    "productName": "Japanese Skincare Essential",
+    "skinType": "All Skin Types",
+    "headline": "Flawless Japanese quality",
+    "comment": "Deeply hydrated my skin without irritation. 100% genuine import.",
+    "helpfulCount": 0,
+    "status": "approved"
+  },
+  {
     "id": "rev-1",
     "author": "Priya Sharma",
     "location": "Mumbai, Maharashtra",

@@ -13,12 +13,15 @@ import {
 import { Review, Product } from '../types';
 import { INITIAL_REVIEWS, formatReviewTime } from '../data/reviews';
 import { PRODUCTS } from '../data/products';
+import { trackReviewSubmission } from '../lib/analytics';
 
 interface ReviewsSectionProps {
   onSelectProduct?: (product: Product) => void;
   products?: Product[];
   reviews?: Review[];
   onAddReview?: (review: Review) => void;
+  initialWriteProductId?: string | null;
+  onClearInitialWriteProduct?: () => void;
 }
 
 const STORAGE_KEY = 'konichiwa_customer_reviews_v5';
@@ -27,7 +30,9 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({
   onSelectProduct, 
   products,
   reviews: externalReviews,
-  onAddReview
+  onAddReview,
+  initialWriteProductId,
+  onClearInitialWriteProduct
 }) => {
   const activeProducts = products && products.length > 0 ? products : PRODUCTS;
 
@@ -57,6 +62,17 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({
   const [location, setLocation] = useState('');
   const [skinType, setSkinType] = useState('');
   const [selectedProductId, setSelectedProductId] = useState(activeProducts[0]?.id || PRODUCTS[0].id);
+
+  // Respond to initialWriteProductId to immediately open the review modal for that product
+  useEffect(() => {
+    if (initialWriteProductId) {
+      setSelectedProductId(initialWriteProductId);
+      setIsWriteModalOpen(true);
+      if (onClearInitialWriteProduct) {
+        onClearInitialWriteProduct();
+      }
+    }
+  }, [initialWriteProductId, onClearInitialWriteProduct]);
   const [rating, setRating] = useState(5);
   const [hoverRating, setHoverRating] = useState(0);
   const [headline, setHeadline] = useState('');
@@ -212,6 +228,7 @@ export const ReviewsSection: React.FC<ReviewsSectionProps> = ({
     // Optimistic local update
     setReviews(prev => [newReview, ...prev]);
     setIsWriteModalOpen(false);
+    trackReviewSubmission(selectedProductId, rating);
 
     // Persist to server API & Supabase
     try {

@@ -9,6 +9,7 @@ import {
   CheckCircle2, 
   Sparkles 
 } from 'lucide-react';
+import { trackContactFormSubmission } from '../lib/analytics';
 
 interface ContactUsModalProps {
   isOpen: boolean;
@@ -54,6 +55,7 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
     if (!formData.name.trim() || !formData.contact.trim() || !formData.message.trim()) return;
 
     setIsSubmitting(true);
+    trackContactFormSubmission(formData.topic || 'general_inquiry');
     setTimeout(() => {
       setIsSubmitting(false);
       setIsSubmitted(true);

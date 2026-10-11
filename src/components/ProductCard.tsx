@@ -171,11 +171,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             )}
           </div>
 
-          {isComingSoon ? (
-            <span className="text-[10px] sm:text-[11px] font-bold px-1.5 py-0.5 rounded text-amber-700 bg-amber-50 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200/60">
-              Coming Soon
-            </span>
-          ) : (
+          {!isComingSoon && (
             <span className={`text-[10px] sm:text-[11px] font-semibold px-1.5 py-0.5 rounded ${isInStock ? 'text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-300' : 'text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300'}`}>
               {isInStock ? 'In Stock' : 'Sold Out'}
             </span>
@@ -194,7 +190,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
             title="Coming Soon - View Details"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Coming Soon • Details</span>
+            <span>View Details</span>
           </button>
         ) : (
           <button

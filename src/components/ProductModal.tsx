@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Home,
   Edit3,
-  BookOpen
+  BookOpen,
+  MessageSquarePlus
 } from 'lucide-react';
 import { Product, ProductShade, Review } from '../types';
 import { formatINR } from '../data/pincodes';
@@ -284,29 +285,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   {product.subtitle}
                 </p>
 
-                {/* Direct brand & category discovery anchors */}
+                {/* Direct brand discovery anchor */}
                 {(() => {
                   const brand = inferBrandFromProduct(product);
                   const categorySlug = getCategoryCollectionSlug(product.category);
-                  const categoryInfo = SEO_CATEGORIES[categorySlug];
+                  if (!brand || !brand.name) return null;
                   return (
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
                       <a
-                        href={`/collections/${categorySlug}`}
+                        href={brand.slug ? `/brands/${brand.slug}` : `/collections/${categorySlug}`}
                         onClick={onClose}
-                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 font-medium hover:text-pink-600 transition-colors"
+                        className="inline-flex items-center px-2 py-0.5 rounded-md bg-pink-50 dark:bg-pink-950/50 border border-pink-100 dark:border-pink-900/50 text-pink-700 dark:text-pink-300 font-medium hover:bg-pink-100 transition-colors"
                       >
-                        {categoryInfo ? categoryInfo.name : product.category}
+                        Brand: {brand.name}
                       </a>
-                      {brand && brand.name && (
-                        <a
-                          href={brand.slug ? `/brands/${brand.slug}` : `/collections/${categorySlug}`}
-                          onClick={onClose}
-                          className="inline-flex items-center px-2 py-0.5 rounded-md bg-pink-50 dark:bg-pink-950/50 border border-pink-100 dark:border-pink-900/50 text-pink-700 dark:text-pink-300 font-medium hover:bg-pink-100 transition-colors"
-                        >
-                          Brand: {brand.name}
-                        </a>
-                      )}
                     </div>
                   );
                 })()}
@@ -460,7 +452,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                   )}
 
                   {activeTab === 'reviews' && (
-                    <div className="space-y-2.5">
+                    <div className="space-y-3">
                       {(() => {
                         const productReviews = (reviews || []).filter(r => 
                           r.productId === product.id || 
@@ -468,11 +460,20 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                           (r.productName && r.productName.toLowerCase().includes(product.title.toLowerCase().slice(0, 8)))
                         );
 
-                        if (productReviews.length === 0) {
-                          return (
-                            <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 text-center space-y-2">
-                              <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200">No reviews yet for this product</p>
-                              <p className="text-[11px] text-slate-500 dark:text-zinc-400">Be the first to share your experience with this Japan skincare essential!</p>
+                        return (
+                          <>
+                            {/* Reviews Summary Header with Write Review action */}
+                            <div className="p-3 rounded-xl bg-pink-50/60 dark:bg-pink-950/30 border border-pink-100 dark:border-pink-900/40 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <div className="flex items-center text-amber-500">
+                                  <Star className="w-3.5 h-3.5 fill-current" />
+                                  <span className="font-bold text-xs text-slate-900 dark:text-white ml-1">{product.rating || '4.9'}</span>
+                                </div>
+                                <span className="text-slate-400 dark:text-zinc-500 text-xs">·</span>
+                                <span className="text-[11px] font-medium text-slate-600 dark:text-zinc-300">
+                                  {productReviews.length} {productReviews.length === 1 ? 'Verified Review' : 'Verified Reviews'}
+                                </span>
+                              </div>
                               {onOpenWriteReview && (
                                 <button
                                   type="button"
@@ -480,58 +481,79 @@ export const ProductModal: React.FC<ProductModalProps> = ({
                                     onClose();
                                     onOpenWriteReview(product.id);
                                   }}
-                                  className="mt-1 px-3 py-1 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-[11px] font-semibold cursor-pointer"
+                                  className="px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-[11px] font-bold shadow-xs hover:shadow-md transition-all cursor-pointer flex items-center gap-1.5 active:scale-95"
+                                  title={`Write a review for ${product.title}`}
                                 >
-                                  Write the First Review
+                                  <MessageSquarePlus className="w-3.5 h-3.5" />
+                                  <span>Write a Review</span>
                                 </button>
                               )}
                             </div>
-                          );
-                        }
 
-                        return productReviews.map((rev) => (
-                          <div key={rev.id} className="p-3 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 space-y-1 text-left">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-semibold text-slate-900 dark:text-white">{rev.author} {rev.location ? `• ${rev.location}` : ''}</span>
-                              <div className="flex items-center gap-1.5">
-                                {rev.verified && (
-                                  <span className="text-[9.5px] text-emerald-700 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded">
-                                    ✓ Verified Buyer
-                                  </span>
+                            {productReviews.length === 0 ? (
+                              <div className="p-4 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 text-center space-y-2">
+                                <p className="text-xs font-semibold text-slate-700 dark:text-zinc-200">No reviews yet for this product</p>
+                                <p className="text-[11px] text-slate-500 dark:text-zinc-400">Be the first to share your experience with this Japan skincare essential!</p>
+                                {onOpenWriteReview && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      onClose();
+                                      onOpenWriteReview(product.id);
+                                    }}
+                                    className="mt-1 px-3 py-1 rounded-lg bg-pink-600 hover:bg-pink-500 text-white text-[11px] font-semibold cursor-pointer"
+                                  >
+                                    Write the First Review
+                                  </button>
                                 )}
-                                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
-                                  {formatReviewTime(rev)}
-                                </span>
                               </div>
-                            </div>
-                            <div className="flex items-center gap-1 text-amber-500 text-xs">
-                              {[...Array(5)].map((_, idx) => (
-                                <Star
-                                  key={idx}
-                                  className={`w-3 h-3 ${idx < rev.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'}`}
-                                />
-                              ))}
-                              {rev.headline && (
-                                <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 ml-1">
-                                  &ldquo;{rev.headline}&rdquo;
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                              {rev.comment}
-                            </p>
-                            {rev.imageUrl && (
-                              <div className="pt-1.5">
-                                <img
-                                  src={rev.imageUrl}
-                                  alt="Customer photo"
-                                  className="w-full max-h-40 object-cover rounded-lg border border-slate-200 dark:border-slate-800"
-                                  referrerPolicy="no-referrer"
-                                />
-                              </div>
+                            ) : (
+                              productReviews.map((rev) => (
+                                <div key={rev.id} className="p-3 rounded-xl bg-slate-50 dark:bg-[#111524] border border-slate-200 dark:border-slate-800 space-y-1 text-left">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="font-semibold text-slate-900 dark:text-white">{rev.author} {rev.location ? `• ${rev.location}` : ''}</span>
+                                    <div className="flex items-center gap-1.5">
+                                      {rev.verified && (
+                                        <span className="text-[9.5px] text-emerald-700 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.5 rounded">
+                                          ✓ Verified Buyer
+                                        </span>
+                                      )}
+                                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                                        {formatReviewTime(rev)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-1 text-amber-500 text-xs">
+                                    {[...Array(5)].map((_, idx) => (
+                                      <Star
+                                        key={idx}
+                                        className={`w-3 h-3 ${idx < rev.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-300 dark:text-slate-700'}`}
+                                      />
+                                    ))}
+                                    {rev.headline && (
+                                      <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 ml-1">
+                                        &ldquo;{rev.headline}&rdquo;
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                                    {rev.comment}
+                                  </p>
+                                  {rev.imageUrl && (
+                                    <div className="pt-1.5">
+                                      <img
+                                        src={rev.imageUrl}
+                                        alt="Customer photo"
+                                        className="w-full max-h-40 object-cover rounded-lg border border-slate-200 dark:border-slate-800"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              ))
                             )}
-                          </div>
-                        ));
+                          </>
+                        );
                       })()}
                     </div>
                   )}

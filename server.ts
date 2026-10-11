@@ -38,6 +38,79 @@ function getSupabaseServerClient(): SupabaseClient | null {
   return createClient(url, key);
 }
 
+// In-memory active session store for local dev fallback (prevents unauthorized token forging)
+interface ActiveDevOperatorSession {
+  email: string;
+  issuedAt: number;
+  expiresAt: number;
+}
+const activeDevOperatorSessions = new Map<string, ActiveDevOperatorSession>();
+
+/**
+ * Middleware: verifyOperatorAccess
+ * Strictly requires verified Supabase operator or admin credentials.
+ * Secures catalog mutations, inventory modifications, banner uploads, and administrative actions.
+ */
+async function verifyOperatorAccess(req: Request, res: Response, next: () => void) {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : ((req.headers['x-operator-token'] as string) || '').trim();
+
+    // Reject immediately if no token provided
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized: Supabase operator access token is required to perform this action.'
+      });
+    }
+
+    const supabase = getSupabaseServerClient();
+
+    // When Supabase is configured: strictly verify the token with Supabase Auth
+    if (supabase) {
+      const { data: { user }, error } = await supabase.auth.getUser(token);
+      if (error || !user) {
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized: Invalid or expired Supabase operator session.'
+        });
+      }
+
+      const role = (user.user_metadata?.role as string) || (user.app_metadata?.role as string) || 'operator';
+      if (role !== 'operator' && role !== 'admin') {
+        return res.status(403).json({
+          success: false,
+          error: 'Forbidden: User is not authorized as a store operator.'
+        });
+      }
+
+      (req as any).operatorUser = user;
+      return next();
+    }
+
+    // In local development / offline mode (when Supabase environment keys are not configured):
+    // Require a valid, unexpired token that was explicitly issued by /api/operator/login
+    const devSession = activeDevOperatorSessions.get(token);
+    if (devSession && devSession.expiresAt > Date.now()) {
+      (req as any).operatorUser = { email: devSession.email, role: 'operator' };
+      return next();
+    }
+
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Invalid or expired operator session token.'
+    });
+  } catch (err: any) {
+    console.error('[Operator Auth Error]:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Internal authentication error: ' + (err?.message || 'Failed to verify operator session')
+    });
+  }
+}
+
 // Middleware for parsing JSON with raw body retention for HMAC verification and high-res banner uploads
 app.use(express.json({
   limit: '100mb',
@@ -549,7 +622,7 @@ app.post('/api/send-invoice-email', async (req: Request, res: Response) => {
  * POST /api/send-test-email
  * Allows testing the Resend configuration with any email address
  */
-app.post('/api/send-test-email', async (req: Request, res: Response) => {
+app.post('/api/send-test-email', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
     const targetEmail = email || process.env.STORE_OWNER_EMAIL || 'info@konichiwamart.com';
@@ -581,7 +654,7 @@ app.post('/api/send-test-email', async (req: Request, res: Response) => {
  * Direct Hero Banner Upload Endpoint
  * Writes uploaded base64 image data to public/hero-banner.png so it is directly served by Vite & Express
  */
-app.post('/api/upload-banner', (req: Request, res: Response) => {
+app.post('/api/upload-banner', verifyOperatorAccess, (req: Request, res: Response) => {
   try {
     const { imageBase64, target } = req.body;
     if (!imageBase64) {
@@ -633,7 +706,7 @@ app.post('/api/upload-banner', (req: Request, res: Response) => {
  * Uploads product photos to Supabase Storage ('product-images' bucket)
  * with robust local static disk fallback so image uploading never fails.
  */
-app.post('/api/upload-product-image', async (req: Request, res: Response) => {
+app.post('/api/upload-product-image', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { imageBase64, fileName: requestedName } = req.body;
     if (!imageBase64) {
@@ -707,7 +780,7 @@ app.post('/api/upload-product-image', async (req: Request, res: Response) => {
  * Writes uploaded base64 video data (.mp4 / .webm) to public/videos/
  * so it is directly served by Vite in development and Express in production.
  */
-app.post('/api/upload-hero-video', (req: Request, res: Response) => {
+app.post('/api/upload-hero-video', verifyOperatorAccess, (req: Request, res: Response) => {
   try {
     const { videoBase64, target = 'desktop' } = req.body;
     if (!videoBase64) {
@@ -920,7 +993,7 @@ app.get('/videos/:filename', (req: Request, res: Response) => {
  * POST /api/fetch-github-banner
  * Direct helper to download the image from GitHub into public/products/
  */
-app.post('/api/fetch-github-banner', async (req: Request, res: Response) => {
+app.post('/api/fetch-github-banner', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { rawUrl, token, type } = req.body;
     const isMobile = type === 'mobile';
@@ -1007,7 +1080,14 @@ app.post('/api/operator/login', async (req: Request, res: Response) => {
 
     const supabase = getSupabaseServerClient();
     if (!supabase) {
-      console.log('[Server] Supabase not configured in env, granting authenticated operator session for:', cleanEmail);
+      console.log('[Server] Local development operator session granted for:', cleanEmail);
+      const devToken = 'op_' + crypto.randomBytes(24).toString('hex');
+      activeDevOperatorSessions.set(devToken, {
+        email: cleanEmail,
+        issuedAt: Date.now(),
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+      });
+
       return res.status(200).json({
         success: true,
         session: {
@@ -1015,7 +1095,7 @@ app.post('/api/operator/login', async (req: Request, res: Response) => {
           role: 'operator',
           authenticatedAt: new Date().toISOString(),
           source: 'local_dev',
-          accessToken: 'dev_operator_token_' + Date.now(),
+          accessToken: devToken,
           userId: 'dev_operator_' + cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')
         }
       });
@@ -1294,30 +1374,26 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
 
     const cleanEmail = email.trim().toLowerCase();
     
-    // Dynamically resolve site domain, strictly rejecting localhost/127.0.0.1
+    // Resolve base site URL: prioritize environment configuration or incoming origin
     let siteDomain = 'https://www.konichiwamart.com';
-    const origin = req.get('origin') || req.get('referer');
-    if (origin) {
-      try {
-        const parsed = new URL(origin);
-        const host = parsed.hostname.toLowerCase();
-        if (
-          host !== 'localhost' && 
-          host !== '127.0.0.1' && 
-          host !== '0.0.0.0' && 
-          !host.endsWith('.local') &&
-          !host.includes('run.app')
-        ) {
-          siteDomain = `${parsed.protocol}//${parsed.host}`;
-        }
-      } catch {}
-    }
     if (process.env.PUBLIC_SITE_URL && !process.env.PUBLIC_SITE_URL.includes('localhost')) {
       siteDomain = process.env.PUBLIC_SITE_URL;
     } else if (process.env.SITE_URL && !process.env.SITE_URL.includes('localhost')) {
       siteDomain = process.env.SITE_URL;
+    } else {
+      const origin = req.get('origin') || req.get('referer');
+      if (origin) {
+        try {
+          const parsed = new URL(origin);
+          const host = parsed.hostname.toLowerCase();
+          if (host !== '0.0.0.0') {
+            siteDomain = `${parsed.protocol}//${parsed.host}`;
+          }
+        } catch {}
+      }
     }
 
+    const baseSite = siteDomain.replace(/\/$/, '');
     const client = getSupabaseServerClient();
     let tokenHash = '';
     let emailOtp = '';
@@ -1326,7 +1402,10 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
       try {
         let { data: linkData, error: linkErr } = await client.auth.admin.generateLink({
           type: 'recovery',
-          email: cleanEmail
+          email: cleanEmail,
+          options: {
+            redirectTo: `${baseSite}/?action=reset-password`
+          }
         });
 
         // If user was not found in auth.users, provision their auth user account so password recovery works cleanly
@@ -1340,7 +1419,10 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
           if (!createErr) {
             const retryLink = await client.auth.admin.generateLink({
               type: 'recovery',
-              email: cleanEmail
+              email: cleanEmail,
+              options: {
+                redirectTo: `${baseSite}/?action=reset-password`
+              }
             });
             linkData = retryLink.data;
             linkErr = retryLink.error;
@@ -1358,13 +1440,17 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
       }
     }
 
-    // Build direct recovery link pointing to our application (prevents Supabase localhost:3000 redirect issues)
-    const baseSite = siteDomain.replace(/\/$/, '');
-    const resetUrl = tokenHash 
-      ? `${baseSite}/?action=reset-password&token_hash=${tokenHash}&email=${encodeURIComponent(cleanEmail)}`
-      : `${baseSite}/?action=reset-password&email=${encodeURIComponent(cleanEmail)}`;
+    // Build direct recovery link pointing to our application with token, email, and otp
+    const queryParts = [
+      'action=reset-password',
+      `email=${encodeURIComponent(cleanEmail)}`
+    ];
+    if (tokenHash) queryParts.push(`token_hash=${tokenHash}`);
+    if (emailOtp) queryParts.push(`otp=${encodeURIComponent(emailOtp)}`);
 
-    // Direct Resend email dispatch if RESEND_API_KEY is active
+    const resetUrl = `${baseSite}/?${queryParts.join('&')}`;
+
+    // Direct Resend email dispatch from info@konichiwamart.com
     if (process.env.RESEND_API_KEY) {
       const dispatchResult = await sendPasswordResetEmail(cleanEmail, resetUrl, emailOtp);
       if (!dispatchResult.success) {
@@ -1376,7 +1462,7 @@ app.post('/api/customer/forgot-password', async (req: Request, res: Response) =>
 
     return res.status(200).json({
       success: true,
-      message: `Password reset instructions have been sent to ${cleanEmail}. Please check your inbox or spam folder.`
+      message: `Password reset instructions and security code have been sent to ${cleanEmail}. Please check your inbox or spam folder.`
     });
   } catch (error: any) {
     console.error('[Server] Customer forgot-password error:', error);
@@ -1398,11 +1484,11 @@ app.get('/api/config', (_req: Request, res: Response) => {
 });
 
 /**
- * Secure Customer Password Update Handler (server-side proxy for password recovery)
+ * Secure Customer Password Update Handler (authoritative server-side handler for password recovery)
  */
 app.post('/api/customer/update-password', async (req: Request, res: Response) => {
   try {
-    const { password, token_hash, tokenHash, otp, email, accessToken, refreshToken } = req.body;
+    const { password, token_hash, tokenHash, otp, email, accessToken } = req.body || {};
     if (!password || typeof password !== 'string' || password.length < 6) {
       return res.status(400).json({ success: false, error: 'Password must be at least 6 characters long.' });
     }
@@ -1412,12 +1498,38 @@ app.post('/api/customer/update-password', async (req: Request, res: Response) =>
       return res.status(500).json({ success: false, error: 'Database service is currently unavailable.' });
     }
 
-    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
-    const targetHash = token_hash || tokenHash;
+    const supabaseUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/['"\s]/g, '').trim();
+    const supabaseAnonKey = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '').replace(/['"\s]/g, '').trim();
+    const targetHash = token_hash || tokenHash || '';
+    const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+    const cleanOtp = otp ? String(otp).trim() : '';
 
-    // Option 1: Verify token_hash directly via Supabase Auth verifyOtp
-    if (targetHash && supabaseUrl && supabaseAnonKey) {
+    // Extract Bearer token from header or request body
+    let targetToken = accessToken || '';
+    const authHeader = req.headers.authorization;
+    if (!targetToken && authHeader && authHeader.startsWith('Bearer ')) {
+      targetToken = authHeader.substring(7);
+    }
+
+    let verifiedUserId: string | null = null;
+    let verifiedEmail: string = cleanEmail;
+    let authSession: any = null;
+
+    // Strategy 1: Verify via active access token
+    if (targetToken) {
+      try {
+        const { data: userData, error: userErr } = await client.auth.getUser(targetToken);
+        if (!userErr && userData?.user) {
+          verifiedUserId = userData.user.id;
+          verifiedEmail = userData.user.email || verifiedEmail;
+        }
+      } catch (tokenErr) {
+        console.warn('[Server] Access token verification notice:', tokenErr);
+      }
+    }
+
+    // Strategy 2: Verify via token_hash directly via Supabase Auth verifyOtp
+    if (!verifiedUserId && targetHash && supabaseUrl && supabaseAnonKey) {
       try {
         const anonClient = createClient(supabaseUrl, supabaseAnonKey);
         const { data: verifyData, error: verifyErr } = await anonClient.auth.verifyOtp({
@@ -1426,94 +1538,68 @@ app.post('/api/customer/update-password', async (req: Request, res: Response) =>
         });
 
         if (!verifyErr && verifyData?.user) {
-          const { error: updateErr } = await client.auth.admin.updateUserById(verifyData.user.id, { password });
-          if (!updateErr) {
-            return res.json({
-              success: true,
-              message: 'Password updated successfully!',
-              user: {
-                id: verifyData.user.id,
-                email: verifyData.user.email,
-                name: verifyData.user.user_metadata?.full_name || ''
-              },
-              session: verifyData.session
-            });
-          }
+          verifiedUserId = verifyData.user.id;
+          verifiedEmail = verifyData.user.email || verifiedEmail;
+          authSession = verifyData.session;
         }
       } catch (hashErr) {
-        console.warn('[Server] token_hash verify exception:', hashErr);
+        console.warn('[Server] token_hash verify notice:', hashErr);
       }
     }
 
-    // Option 2: Verify email + OTP code directly via Supabase Auth
-    if (email && otp && supabaseUrl && supabaseAnonKey) {
+    // Strategy 3: Verify via email + 8-digit OTP code directly via Supabase Auth
+    if (!verifiedUserId && cleanEmail && cleanOtp && supabaseUrl && supabaseAnonKey) {
       try {
         const anonClient = createClient(supabaseUrl, supabaseAnonKey);
         const { data: verifyData, error: verifyErr } = await anonClient.auth.verifyOtp({
-          email: email.trim().toLowerCase(),
-          token: otp.trim(),
+          email: cleanEmail,
+          token: cleanOtp,
           type: 'recovery'
         });
 
         if (!verifyErr && verifyData?.user) {
-          const { error: updateErr } = await client.auth.admin.updateUserById(verifyData.user.id, { password });
-          if (!updateErr) {
-            return res.json({
-              success: true,
-              message: 'Password updated successfully!',
-              user: {
-                id: verifyData.user.id,
-                email: verifyData.user.email,
-                name: verifyData.user.user_metadata?.full_name || ''
-              },
-              session: verifyData.session
-            });
-          }
+          verifiedUserId = verifyData.user.id;
+          verifiedEmail = verifyData.user.email || verifiedEmail;
+          authSession = verifyData.session;
         }
       } catch (otpErr) {
-        console.warn('[Server] email+otp verify exception:', otpErr);
+        console.warn('[Server] email+otp verify notice:', otpErr);
       }
     }
 
-    // Option 3: Handle token pair provided in request body
-    if (accessToken) {
-      const { data: sessionData, error: sessionErr } = await client.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken || ''
+    if (!verifiedUserId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password reset link or verification code is invalid or has expired. Please request a new password reset email.'
       });
-
-      if (!sessionErr && sessionData?.user) {
-        const { error: updateErr } = await client.auth.admin.updateUserById(sessionData.user.id, { password });
-        if (!updateErr) {
-          return res.json({
-            success: true,
-            message: 'Password updated successfully!',
-            user: { email: sessionData.user.email, id: sessionData.user.id }
-          });
-        }
-      }
     }
 
-    // Option 4: Check Authorization Bearer header
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      const { data: userData, error: userErr } = await client.auth.getUser(token);
-      if (!userErr && userData?.user) {
-        const { error: updateErr } = await client.auth.admin.updateUserById(userData.user.id, { password });
-        if (!updateErr) {
-          return res.json({
-            success: true,
-            message: 'Password updated successfully!',
-            user: { email: userData.user.email, id: userData.user.id }
-          });
-        }
-      }
+    // Authoritatively update password in auth.users using admin service role
+    const { data: updateData, error: updateErr } = await client.auth.admin.updateUserById(verifiedUserId, {
+      password
+    });
+
+    if (updateErr) {
+      console.error('[Server] Failed to update user password:', updateErr);
+      return res.status(500).json({ success: false, error: updateErr.message || 'Failed to update password.' });
     }
 
-    return res.status(400).json({
-      success: false,
-      error: 'Password reset link has expired or is invalid. Please request a new password reset email.'
+    // Update updated_at on customer_profiles
+    try {
+      await client.from('customer_profiles').update({ updated_at: new Date().toISOString() }).eq('id', verifiedUserId);
+    } catch {}
+
+    const resolvedUser = {
+      id: verifiedUserId,
+      email: verifiedEmail || updateData?.user?.email || '',
+      name: updateData?.user?.user_metadata?.full_name || verifiedEmail.split('@')[0]
+    };
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password updated successfully! You can now sign in with your new password.',
+      user: resolvedUser,
+      session: authSession
     });
   } catch (error: any) {
     console.error('[Server] Update password error:', error);
@@ -2451,7 +2537,7 @@ app.get('/api/admin/orders', async (_req: Request, res: Response) => {
  * POST /api/admin/update-order-status
  * Updates status of an order in Supabase
  */
-app.post('/api/admin/update-order-status', async (req: Request, res: Response) => {
+app.post('/api/admin/update-order-status', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { orderId, status } = req.body || {};
     if (!orderId || !status) {
@@ -2482,7 +2568,7 @@ app.post('/api/admin/update-order-status', async (req: Request, res: Response) =
  * DELETE /api/admin/orders/:orderId
  * Deletes an order from Supabase
  */
-app.delete('/api/admin/orders/:orderId', async (req: Request, res: Response) => {
+app.delete('/api/admin/orders/:orderId', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
     if (!orderId) {
@@ -2507,7 +2593,7 @@ app.delete('/api/admin/orders/:orderId', async (req: Request, res: Response) => 
  * PATCH /api/admin/orders/:orderId
  * Modifies an order in Supabase
  */
-app.patch('/api/admin/orders/:orderId', async (req: Request, res: Response) => {
+app.patch('/api/admin/orders/:orderId', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
     const updates = req.body || {};
@@ -2545,7 +2631,7 @@ app.patch('/api/admin/orders/:orderId', async (req: Request, res: Response) => {
  * Tests live connection with Shiprocket API, validates credentials, checks wallet balance,
  * and lists registered pickup addresses.
  */
-app.post('/api/admin/test-shiprocket', async (req: Request, res: Response) => {
+app.post('/api/admin/test-shiprocket', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const email = (req.body?.email || process.env.SHIPROCKET_EMAIL || '').trim();
     const password = (req.body?.password || process.env.SHIPROCKET_PASSWORD || '').trim();
@@ -2636,7 +2722,7 @@ app.post('/api/admin/test-shiprocket', async (req: Request, res: Response) => {
  * Shiprocket charges wallet balance ONLY when an AWB/courier is assigned, so creating an order
  * is 100% free (₹0 balance needed).
  */
-app.post('/api/admin/test-shiprocket-order', async (_req: Request, res: Response) => {
+app.post('/api/admin/test-shiprocket-order', verifyOperatorAccess, async (_req: Request, res: Response) => {
   try {
     const token = await getShiprocketToken();
     if (!token) {
@@ -2905,7 +2991,7 @@ app.get('/api/webhooks/shiprocket', (_req: Request, res: Response) => {
  * POST /api/admin/sync-shiprocket-tracking
  * Batch queries Shiprocket tracking API for all active in-progress orders and syncs their status.
  */
-app.post('/api/admin/sync-shiprocket-tracking', async (_req: Request, res: Response) => {
+app.post('/api/admin/sync-shiprocket-tracking', verifyOperatorAccess, async (_req: Request, res: Response) => {
   try {
     const supabase = getSupabaseServerClient();
     if (!supabase) {
@@ -3018,7 +3104,7 @@ app.get('/api/categories', async (_req: Request, res: Response) => {
  * POST /api/categories
  * Adds and persists a new category in Supabase and local storage
  */
-app.post('/api/categories', async (req: Request, res: Response) => {
+app.post('/api/categories', verifyOperatorAccess, async (req: Request, res: Response) => {
   const { name, description } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'Category name is required.' });
@@ -3070,7 +3156,7 @@ app.post('/api/categories', async (req: Request, res: Response) => {
  * PUT /api/categories/:idOrSlug
  * Updates a category in Supabase and locally.
  */
-app.put('/api/categories/:idOrSlug', async (req: Request, res: Response) => {
+app.put('/api/categories/:idOrSlug', verifyOperatorAccess, async (req: Request, res: Response) => {
   const { idOrSlug } = req.params;
   const { name, description, slug: newSlug } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -3116,7 +3202,7 @@ app.put('/api/categories/:idOrSlug', async (req: Request, res: Response) => {
 /**
  * DELETE /api/categories/:idOrSlug
  */
-app.delete('/api/categories/:idOrSlug', async (req: Request, res: Response) => {
+app.delete('/api/categories/:idOrSlug', verifyOperatorAccess, async (req: Request, res: Response) => {
   const { idOrSlug } = req.params;
   if (!idOrSlug) return res.status(400).json({ success: false, error: 'Category identifier required' });
 
@@ -3768,7 +3854,7 @@ Sitemap: https://www.konichiwamart.com/sitemap.xml
  * POST /api/products/reorder
  * Sets the exact sequence / display order of products across the website.
  */
-app.post('/api/products/reorder', async (req: Request, res: Response) => {
+app.post('/api/products/reorder', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { orderIds } = req.body;
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
@@ -3813,7 +3899,7 @@ app.post('/api/products/reorder', async (req: Request, res: Response) => {
  * POST /api/products/sync-supabase
  * Forces full synchronization of all catalog products to Supabase.
  */
-app.post('/api/products/sync-supabase', async (_req: Request, res: Response) => {
+app.post('/api/products/sync-supabase', verifyOperatorAccess, async (_req: Request, res: Response) => {
   const supabase = getSupabaseServerClient();
   if (!supabase) {
     return res.status(400).json({ success: false, error: 'Supabase is not configured on server.' });
@@ -3840,7 +3926,7 @@ app.post('/api/products/sync-supabase', async (_req: Request, res: Response) => 
  * DELETE /api/products/:id
  * Permanently removes a product from Supabase and server storage so it never reappears on any device.
  */
-app.delete('/api/products/:id', async (req: Request, res: Response) => {
+app.delete('/api/products/:id', verifyOperatorAccess, async (req: Request, res: Response) => {
   const { id } = req.params;
   const dbId = (req.query.dbId as string) || (req.body?.dbId as string) || '';
   if (!id) return res.status(400).json({ success: false, error: 'Product ID required' });
@@ -3926,7 +4012,7 @@ app.get('/api/products/deleted', (_req: Request, res: Response) => {
  * PUT /api/products/:id
  * Updates product stock or price in Supabase and server store.
  */
-app.put('/api/products/:id', async (req: Request, res: Response) => {
+app.put('/api/products/:id', verifyOperatorAccess, async (req: Request, res: Response) => {
   const { id } = req.params;
   const updates = req.body;
   if (!id) return res.status(400).json({ success: false, error: 'Product ID required' });
@@ -4028,7 +4114,7 @@ app.put('/api/products/:id', async (req: Request, res: Response) => {
  * POST /api/products
  * Adds a new product to Supabase and server store.
  */
-app.post('/api/products', async (req: Request, res: Response) => {
+app.post('/api/products', verifyOperatorAccess, async (req: Request, res: Response) => {
   const newProduct: Product = req.body;
   if (!newProduct || !newProduct.id || !newProduct.title) {
     return res.status(400).json({ success: false, error: 'Valid product required' });
@@ -4101,7 +4187,7 @@ app.post('/api/products', async (req: Request, res: Response) => {
  * POST /api/products/reset
  * Restores original catalog.
  */
-app.post('/api/products/reset', async (_req: Request, res: Response) => {
+app.post('/api/products/reset', verifyOperatorAccess, async (_req: Request, res: Response) => {
   clearDeletedProductIds();
   saveCustomProducts([]);
 
@@ -4194,6 +4280,31 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
     const updated = [newReview, ...current];
     await saveReviewsServer(updated);
 
+    // Sync to Supabase reviews table if connected
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        await supabase.from('reviews').insert([{
+          id: newReview.id,
+          product_id: newReview.productId,
+          product_name: newReview.productName,
+          author: newReview.author,
+          location: newReview.location,
+          rating: newReview.rating,
+          headline: newReview.headline,
+          comment: newReview.comment,
+          image_url: newReview.imageUrl || null,
+          verified: newReview.verified,
+          helpful_count: newReview.helpfulCount || 0,
+          skin_type: newReview.skinType,
+          status: 'approved',
+          created_at: newReview.createdAt
+        }]);
+      } catch (sbErr) {
+        console.warn('[Server] Supabase review sync notice:', sbErr);
+      }
+    }
+
     console.log(`[Server] New review saved: "${newReview.headline}" by ${newReview.author}`);
     return res.status(201).json({ success: true, review: newReview });
   } catch (err: any) {
@@ -4206,7 +4317,7 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
  * POST /api/reviews/bulk
  * Bulk uploads / imports multiple reviews at once.
  */
-app.post('/api/reviews/bulk', async (req: Request, res: Response) => {
+app.post('/api/reviews/bulk', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { reviews: newReviews } = req.body;
     if (!Array.isArray(newReviews) || newReviews.length === 0) {
@@ -4253,7 +4364,7 @@ app.post('/api/reviews/bulk', async (req: Request, res: Response) => {
  * DELETE /api/reviews/:id
  * Removes a review by ID.
  */
-app.delete('/api/reviews/:id', async (req: Request, res: Response) => {
+app.delete('/api/reviews/:id', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const current = getReviewsServer();
@@ -4332,7 +4443,7 @@ app.get('/api/reels', async (_req: Request, res: Response) => {
  * POST /api/reels
  * Persists reels collection across all sessions, visitors, and devices.
  */
-app.post('/api/reels', async (req: Request, res: Response) => {
+app.post('/api/reels', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { reels } = req.body;
     if (!Array.isArray(reels)) {
@@ -4399,7 +4510,7 @@ app.get('/api/site-settings', async (_req: Request, res: Response) => {
  * POST /api/site-settings
  * Persists global site settings across all sessions, visitors, and devices in Supabase.
  */
-app.post('/api/site-settings', async (req: Request, res: Response) => {
+app.post('/api/site-settings', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { settings } = req.body;
     if (!settings || typeof settings !== 'object') {

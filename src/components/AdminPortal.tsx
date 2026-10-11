@@ -49,7 +49,7 @@ import { X,
 import { Order, Product, ProductCategory, ProductShade, SiteSettings, ReelItem, Review } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
-import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore, normalizeOrderItem } from '../lib/supabase';
+import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore, normalizeOrderItem, getOperatorAuthHeaders } from '../lib/supabase';
 import { ReelsManager } from './admin/ReelsManager';
 import { ReviewsManager } from './admin/ReviewsManager';
 
@@ -273,7 +273,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     try {
       const res = await fetch('/api/send-test-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
         body: JSON.stringify({ email: testEmailRecipient.trim() })
       });
       const data = await res.json();
@@ -309,7 +309,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     try {
       const res = await fetch('/api/admin/test-shiprocket', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
         body: JSON.stringify({})
       });
       const data = await res.json();
@@ -339,7 +339,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setIsSyncingTracking(true);
     setSyncTrackingResult(null);
     try {
-      const res = await fetch('/api/admin/sync-shiprocket-tracking', { method: 'POST' });
+      const res = await fetch('/api/admin/sync-shiprocket-tracking', {
+        method: 'POST',
+        headers: { ...getOperatorAuthHeaders() }
+      });
       const data = await res.json();
       setSyncTrackingResult(data);
     } catch (err: any) {
@@ -367,7 +370,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setIsSendingTestOrder(true);
     setTestOrderResult(null);
     try {
-      const res = await fetch('/api/admin/test-shiprocket-order', { method: 'POST' });
+      const res = await fetch('/api/admin/test-shiprocket-order', {
+        method: 'POST',
+        headers: { ...getOperatorAuthHeaders() }
+      });
       const data = await res.json();
       setTestOrderResult(data);
     } catch (err: any) {
@@ -717,7 +723,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       // 5. Best-effort server sync for container environments
       fetch('/api/upload-banner', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
         body: JSON.stringify({ imageBase64: optimizedBase64, target: 'desktop' })
       }).catch(() => {});
 
@@ -777,7 +783,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       // 5. Best-effort server sync for container environments
       fetch('/api/upload-banner', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
         body: JSON.stringify({ imageBase64: optimizedBase64, target: 'mobile' })
       }).catch(() => {});
 
@@ -862,7 +868,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         const res = await fetch('/api/upload-hero-video', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
           body: JSON.stringify({ videoBase64: base64, target })
         });
         const data = await res.json();
@@ -951,7 +957,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           try {
             const res = await fetch('/api/upload-product-image', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
               body: JSON.stringify({ imageBase64: base64, fileName })
             });
             if (res.ok) {
@@ -2573,42 +2579,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingOrders ? 'animate-spin' : ''}`} />
                   <span>{isRefreshingOrders ? 'Syncing...' : 'Refresh Orders'}</span>
                 </button>
-              </div>
-
-              {/* STORE OWNER NOTIFICATION CHANNELS CARD */}
-              <div className="bg-gradient-to-r from-stone-900 via-slate-900 to-stone-900 text-white rounded-2xl p-4 sm:p-5 shadow-sm border border-stone-800 space-y-3">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="relative flex h-2.5 w-2.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                      </span>
-                      <h3 className="font-extrabold text-xs sm:text-sm tracking-wide text-white uppercase flex items-center gap-2">
-                        <span>Store Owner Instant Order Notification Channels</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">Active</span>
-                      </h3>
-                    </div>
-                    <p className="text-xs text-stone-300">
-                      The moment a customer completes checkout, the order is automatically delivered to you across all channels:
-                    </p>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-xs text-stone-200">
-                      <Mail className="w-3.5 h-3.5 text-pink-400" />
-                      <span>Email: <strong className="text-white">info@konichiwamart.com</strong></span>
-                    </div>
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-xs text-stone-200">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Live Supabase WebSocket</span>
-                    </div>
-                    <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 border border-white/15 text-xs text-stone-200">
-                      <Truck className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Auto Shiprocket AWB</span>
-                    </div>
-                  </div>
-                </div>
               </div>
 
               {orders.length === 0 ? (
