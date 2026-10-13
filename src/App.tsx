@@ -1157,12 +1157,30 @@ export default function App() {
   // Site Settings (Store background, Logo, Flower drift controls)
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
     const explicitlyTurnedOff = localStorage.getItem('km_flower_drift_user_enabled') === 'false';
+    const isExternalGithub = (url?: string | null) => 
+      Boolean(url && (url.includes('raw.githubusercontent.com') || url.includes('github.com')));
+
     const rawStoredDesktop = localStorage.getItem('km_hero_banner_data');
-    const storedDesktop = (rawStoredDesktop && !rawStoredDesktop.includes('mobile')) ? rawStoredDesktop : '/konichiwalaptopbackground.png';
     const rawStoredMobile = localStorage.getItem('km_hero_mobile_banner_data');
-    const storedMobile = (rawStoredMobile && !rawStoredMobile.includes('laptop')) ? rawStoredMobile : '/konichiwamobilebg.png';
     const rawStoredVideo = localStorage.getItem('km_hero_video_url');
     const rawStoredMobileVideo = localStorage.getItem('km_hero_mobile_video_url');
+
+    // Purge any raw github URLs from cache so private repositories never break images
+    if (isExternalGithub(rawStoredDesktop)) {
+      try { localStorage.removeItem('km_hero_banner_data'); } catch {}
+    }
+    if (isExternalGithub(rawStoredMobile)) {
+      try { localStorage.removeItem('km_hero_mobile_banner_data'); } catch {}
+    }
+    if (isExternalGithub(rawStoredVideo)) {
+      try { localStorage.removeItem('km_hero_video_url'); } catch {}
+    }
+    if (isExternalGithub(rawStoredMobileVideo)) {
+      try { localStorage.removeItem('km_hero_mobile_video_url'); } catch {}
+    }
+
+    const storedDesktop = (rawStoredDesktop && !rawStoredDesktop.includes('mobile') && !isExternalGithub(rawStoredDesktop)) ? rawStoredDesktop : '/konichiwalaptopbackground.png';
+    const storedMobile = (rawStoredMobile && !rawStoredMobile.includes('laptop') && !isExternalGithub(rawStoredMobile)) ? rawStoredMobile : '/konichiwamobilebg.png';
 
     // Purge any dummy flower.mp4 from cache
     if (rawStoredVideo && (rawStoredVideo.includes('flower.mp4') || rawStoredVideo.includes('interactive-examples'))) {
@@ -1181,12 +1199,12 @@ export default function App() {
           : parsed.storeTagline;
 
         const rawHero = parsed.heroBannerUrl;
-        const activeHero = (rawHero && !rawHero.includes('mobile')) 
+        const activeHero = (rawHero && !rawHero.includes('mobile') && !isExternalGithub(rawHero)) 
           ? rawHero 
           : storedDesktop;
 
         const rawMobileHero = parsed.mobileHeroBannerUrl;
-        const activeMobileHero = (rawMobileHero && !rawMobileHero.includes('laptop'))
+        const activeMobileHero = (rawMobileHero && !rawMobileHero.includes('laptop') && !isExternalGithub(rawMobileHero))
           ? rawMobileHero
           : storedMobile;
 
@@ -1281,10 +1299,13 @@ export default function App() {
           s.heroMobileVideoUrl = '';
 
           setSiteSettings(prev => {
+            const isExternalGithub = (url?: string | null) => 
+              Boolean(url && (url.includes('raw.githubusercontent.com') || url.includes('github.com')));
+
             const rawHero = s.heroBannerUrl;
-            const validHero = (rawHero && !rawHero.includes('mobile')) ? rawHero : '/konichiwalaptopbackground.png';
+            const validHero = (rawHero && !rawHero.includes('mobile') && !isExternalGithub(rawHero)) ? rawHero : '/konichiwalaptopbackground.png';
             const rawMobile = s.mobileHeroBannerUrl;
-            const validMobile = (rawMobile && !rawMobile.includes('laptop')) ? rawMobile : '/konichiwamobilebg.png';
+            const validMobile = (rawMobile && !rawMobile.includes('laptop') && !isExternalGithub(rawMobile)) ? rawMobile : '/konichiwamobilebg.png';
 
             const merged = { 
               ...prev, 

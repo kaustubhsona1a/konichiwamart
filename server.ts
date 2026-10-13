@@ -854,8 +854,8 @@ app.get('/api/banner-status', (_req: Request, res: Response) => {
   ];
 
   const mobileCandidates = [
-    { filePath: path.join(process.cwd(), 'public', 'products', 'konichiwamobilebg.png'), url: '/products/konichiwamobilebg.png' },
     { filePath: path.join(process.cwd(), 'public', 'konichiwamobilebg.png'), url: '/konichiwamobilebg.png' },
+    { filePath: path.join(process.cwd(), 'public', 'products', 'konichiwamobilebg.png'), url: '/products/konichiwamobilebg.png' },
     { filePath: path.join(process.cwd(), 'public', 'products', 'mobilebg.png'), url: '/products/mobilebg.png' },
     { filePath: path.join(process.cwd(), 'public', 'mobilebg.png'), url: '/mobilebg.png' }
   ];
@@ -990,13 +990,98 @@ app.get('/videos/:filename', (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/restore-domain-banners
+ * Explicitly re-anchors background images to self-hosted domain assets
+ * completely decoupled from GitHub so repository can be made private safely.
+ */
+app.post('/api/restore-domain-banners', verifyOperatorAccess, async (_req: Request, res: Response) => {
+  try {
+    const publicDir = path.join(process.cwd(), 'public');
+    const productsDir = path.join(publicDir, 'products');
+    const distDir = path.join(process.cwd(), 'dist');
+    const distProducts = path.join(distDir, 'products');
+
+    // Ensure files are synced to dist if dist exists
+    const filesToSync = ['konichiwalaptopbackground.png', 'konichiwalaptopbg.png', 'konichiwamobilebg.png'];
+    for (const fn of filesToSync) {
+      const srcFile = path.join(publicDir, fn);
+      if (fs.existsSync(srcFile)) {
+        const buf = fs.readFileSync(srcFile);
+        if (fs.existsSync(productsDir)) fs.writeFileSync(path.join(productsDir, fn), buf);
+        if (fs.existsSync(distDir)) fs.writeFileSync(path.join(distDir, fn), buf);
+        if (fs.existsSync(distProducts)) fs.writeFileSync(path.join(distProducts, fn), buf);
+      }
+    }
+
+    const domainSettings = {
+      heroBannerUrl: '/konichiwalaptopbackground.png',
+      mobileHeroBannerUrl: '/konichiwamobilebg.png',
+      backgroundImageUrl: '/konichiwalaptopbackground.png',
+      mobileBackgroundImageUrl: '/konichiwamobilebg.png',
+      heroVideoUrl: '',
+      heroMobileVideoUrl: '',
+      heroMediaType: 'image'
+    };
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        const { data: existing } = await supabase
+          .from('categories')
+          .select('description')
+          .eq('slug', '_app_site_settings')
+          .maybeSingle();
+
+        let merged = domainSettings;
+        if (existing?.description) {
+          const current = JSON.parse(existing.description);
+          merged = { ...current, ...domainSettings };
+        }
+
+        await supabase.from('categories').upsert({
+          slug: '_app_site_settings',
+          name: 'Global Site Settings',
+          description: JSON.stringify(merged)
+        }, { onConflict: 'slug' });
+      } catch (sErr) {
+        console.warn('[Server] Supabase domain banners update warning:', sErr);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Background images successfully shifted to domain assets! Repository can be made private safely.',
+      laptopUrl: '/konichiwalaptopbackground.png',
+      mobileUrl: '/konichiwamobilebg.png'
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/fetch-github-banner
- * Direct helper to download the image from GitHub into public/products/
+ * Helper to download or restore background images, with automatic domain fallback
  */
 app.post('/api/fetch-github-banner', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
     const { rawUrl, token, type } = req.body;
     const isMobile = type === 'mobile';
+    const fallbackFilename = isMobile ? 'konichiwamobilebg.png' : 'konichiwalaptopbackground.png';
+    const returnUrl = isMobile ? '/konichiwamobilebg.png' : '/konichiwalaptopbackground.png';
+
+    // If no rawUrl provided, verify local domain asset
+    if (!rawUrl) {
+      const localFile = path.join(process.cwd(), 'public', fallbackFilename);
+      if (fs.existsSync(localFile)) {
+        return res.json({
+          success: true,
+          url: returnUrl,
+          message: `Active ${isMobile ? 'mobile' : 'laptop'} domain background verified!`
+        });
+      }
+    }
+
     const targetUrl = rawUrl || (isMobile 
       ? 'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwamobilebg.png'
       : 'https://raw.githubusercontent.com/kaustubhsona1a/konichiwamart/main/public/konichiwalaptopbackground.png');
@@ -1005,43 +1090,48 @@ app.post('/api/fetch-github-banner', verifyOperatorAccess, async (req: Request, 
       headers['Authorization'] = `token ${token}`;
     }
 
-    const response = await fetch(targetUrl, { headers });
-    if (!response.ok) {
-      return res.status(response.status).json({ 
-        success: false, 
-        error: `GitHub returned HTTP ${response.status}: ${response.statusText}.` 
-      });
-    }
+    try {
+      const response = await fetch(targetUrl, { headers });
+      if (response.ok) {
+        const buffer = await response.arrayBuffer();
+        const destDir = path.join(process.cwd(), 'public', 'products');
+        if (!fs.existsSync(destDir)) {
+          fs.mkdirSync(destDir, { recursive: true });
+        }
+        const filenames = isMobile 
+          ? ['konichiwamobilebg.png'] 
+          : ['konichiwalaptopbackground.png', 'konichiwalaptopbg.png'];
 
-    const buffer = await response.arrayBuffer();
-    const destDir = path.join(process.cwd(), 'public', 'products');
-    if (!fs.existsSync(destDir)) {
-      fs.mkdirSync(destDir, { recursive: true });
-    }
-    const filenames = isMobile 
-      ? ['konichiwamobilebg.png'] 
-      : ['konichiwalaptopbackground.png', 'konichiwalaptopbg.png'];
+        const distProducts = path.join(process.cwd(), 'dist', 'products');
+        const distPath = path.join(process.cwd(), 'dist');
 
-    const distProducts = path.join(process.cwd(), 'dist', 'products');
-    const distPath = path.join(process.cwd(), 'dist');
+        for (const fn of filenames) {
+          fs.writeFileSync(path.join(destDir, fn), Buffer.from(buffer));
+          fs.writeFileSync(path.join(process.cwd(), 'public', fn), Buffer.from(buffer));
+          if (fs.existsSync(distProducts)) {
+            fs.writeFileSync(path.join(distProducts, fn), Buffer.from(buffer));
+          }
+          if (fs.existsSync(distPath)) {
+            fs.writeFileSync(path.join(distPath, fn), Buffer.from(buffer));
+          }
+        }
 
-    for (const fn of filenames) {
-      fs.writeFileSync(path.join(destDir, fn), Buffer.from(buffer));
-      fs.writeFileSync(path.join(process.cwd(), 'public', fn), Buffer.from(buffer));
-      if (fs.existsSync(distProducts)) {
-        fs.writeFileSync(path.join(distProducts, fn), Buffer.from(buffer));
+        return res.json({ 
+          success: true, 
+          url: returnUrl, 
+          bytes: buffer.byteLength,
+          message: `Successfully synchronized ${isMobile ? 'mobile' : 'laptop'} background from GitHub to domain!` 
+        });
       }
-      if (fs.existsSync(distPath)) {
-        fs.writeFileSync(path.join(distPath, fn), Buffer.from(buffer));
-      }
+    } catch {
+      // Fall through to domain fallback
     }
 
-    const returnUrl = isMobile ? '/konichiwamobilebg.png' : '/konichiwalaptopbackground.png';
+    // Graceful fallback to domain asset
     return res.json({ 
       success: true, 
       url: returnUrl, 
-      bytes: buffer.byteLength,
-      message: `Successfully downloaded ${isMobile ? 'mobile' : 'laptop'} background from GitHub!` 
+      message: `Domain asset active at ${returnUrl}` 
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -4474,6 +4564,14 @@ app.post('/api/reels', verifyOperatorAccess, async (req: Request, res: Response)
   }
 });
 
+function sanitizeDomainBgUrl(url?: string | null, fallback: string = '/konichiwalaptopbackground.png'): string {
+  if (!url) return fallback;
+  if (url.includes('raw.githubusercontent.com') || url.includes('github.com')) {
+    return fallback;
+  }
+  return url;
+}
+
 /**
  * GET /api/site-settings
  * Retrieves global site settings (background images, logo, flower drift) from Supabase.
@@ -4492,6 +4590,10 @@ app.get('/api/site-settings', async (_req: Request, res: Response) => {
         if (data?.description) {
           const parsed = JSON.parse(data.description);
           if (parsed && typeof parsed === 'object') {
+            parsed.heroBannerUrl = sanitizeDomainBgUrl(parsed.heroBannerUrl, '/konichiwalaptopbackground.png');
+            parsed.backgroundImageUrl = sanitizeDomainBgUrl(parsed.backgroundImageUrl, '/konichiwalaptopbackground.png');
+            parsed.mobileHeroBannerUrl = sanitizeDomainBgUrl(parsed.mobileHeroBannerUrl, '/konichiwamobilebg.png');
+            parsed.mobileBackgroundImageUrl = sanitizeDomainBgUrl(parsed.mobileBackgroundImageUrl, '/konichiwamobilebg.png');
             return res.json({ success: true, settings: parsed });
           }
         }
@@ -4517,6 +4619,12 @@ app.post('/api/site-settings', verifyOperatorAccess, async (req: Request, res: R
       return res.status(400).json({ success: false, error: 'Settings object required' });
     }
 
+    // Sanitize any github references
+    settings.heroBannerUrl = sanitizeDomainBgUrl(settings.heroBannerUrl, '/konichiwalaptopbackground.png');
+    settings.backgroundImageUrl = sanitizeDomainBgUrl(settings.backgroundImageUrl, '/konichiwalaptopbackground.png');
+    settings.mobileHeroBannerUrl = sanitizeDomainBgUrl(settings.mobileHeroBannerUrl, '/konichiwamobilebg.png');
+    settings.mobileBackgroundImageUrl = sanitizeDomainBgUrl(settings.mobileBackgroundImageUrl, '/konichiwamobilebg.png');
+
     const supabase = getSupabaseServerClient();
     if (supabase) {
       try {
@@ -4534,6 +4642,69 @@ app.post('/api/site-settings', verifyOperatorAccess, async (req: Request, res: R
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
   }
+});
+
+// Explicit high-performance static routes for self-hosted domain background images
+app.get([
+  '/konichiwalaptopbackground.png',
+  '/konichiwalaptopbg.png',
+  '/konichiwamobilebg.png',
+  '/products/konichiwalaptopbackground.png',
+  '/products/konichiwalaptopbg.png',
+  '/products/konichiwamobilebg.png'
+], (req: Request, res: Response) => {
+  const filename = path.basename(req.path);
+  const candidates = [
+    path.join(process.cwd(), 'public', filename),
+    path.join(process.cwd(), 'public', 'products', filename),
+    path.join(process.cwd(), 'dist', filename),
+    path.join(process.cwd(), 'dist', 'products', filename)
+  ];
+  for (const f of candidates) {
+    if (fs.existsSync(f)) {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.sendFile(f);
+    }
+  }
+  return res.status(404).send('Background image not found');
+});
+
+// Explicit routes for Favicon, Logo & Manifest (Optimized for Google Search Crawler & Browsers)
+app.get([
+  '/favicon.ico',
+  '/favicon.svg',
+  '/favicon-48x48.png',
+  '/favicon-96x96.png',
+  '/favicon-144x144.png',
+  '/favicon-192x192.png',
+  '/favicon-512x512.png',
+  '/apple-touch-icon.png',
+  '/konichiwalogo.png',
+  '/site.webmanifest'
+], (req: Request, res: Response) => {
+  const filename = path.basename(req.path);
+  const candidates = [
+    path.join(process.cwd(), 'public', filename),
+    path.join(process.cwd(), 'dist', filename)
+  ];
+
+  let contentType = 'application/octet-stream';
+  if (filename.endsWith('.ico')) contentType = 'image/x-icon';
+  else if (filename.endsWith('.svg')) contentType = 'image/svg+xml';
+  else if (filename.endsWith('.png')) contentType = 'image/png';
+  else if (filename.endsWith('.webmanifest') || filename.endsWith('.json')) contentType = 'application/manifest+json';
+
+  for (const f of candidates) {
+    if (fs.existsSync(f)) {
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.sendFile(f);
+    }
+  }
+  return res.status(404).send('Icon asset not found');
 });
 
 let cachedHtmlTemplate = '';

@@ -42,11 +42,14 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
     } catch {}
   }, []);
 
+  const isExternalGithub = (url?: string | null) =>
+    Boolean(url && (url.includes('raw.githubusercontent.com') || url.includes('github.com')));
+
   // Stored or served banner image
   const [internalBannerUrl, setInternalBannerUrl] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('km_hero_banner_data');
-      if (stored && !stored.includes('mobile')) return stored;
+      if (stored && !stored.includes('mobile') && !isExternalGithub(stored)) return stored;
     } catch {}
     return '/konichiwalaptopbackground.png';
   });
@@ -54,19 +57,19 @@ export const HeroBanner: React.FC<HeroBannerProps> = ({
   const [internalMobileBannerUrl, setInternalMobileBannerUrl] = useState<string>(() => {
     try {
       const stored = localStorage.getItem('km_hero_mobile_banner_data');
-      if (stored && !stored.includes('laptop')) return stored;
+      if (stored && !stored.includes('laptop') && !isExternalGithub(stored)) return stored;
     } catch {}
     return '/konichiwamobilebg.png';
   });
 
-  // Strict separation: laptop banner never falls back to mobile image
-  const bannerUrl = (customBannerUrl && !customBannerUrl.includes('mobile'))
+  // Strict separation: laptop banner never falls back to mobile image, strictly domain assets
+  const bannerUrl = (customBannerUrl && !customBannerUrl.includes('mobile') && !isExternalGithub(customBannerUrl))
     ? customBannerUrl
-    : ((internalBannerUrl && !internalBannerUrl.includes('mobile')) ? internalBannerUrl : '/konichiwalaptopbackground.png');
+    : ((internalBannerUrl && !internalBannerUrl.includes('mobile') && !isExternalGithub(internalBannerUrl)) ? internalBannerUrl : '/konichiwalaptopbackground.png');
 
-  const mobileBannerUrl = (customMobileBannerUrl && !customMobileBannerUrl.includes('laptop'))
+  const mobileBannerUrl = (customMobileBannerUrl && !customMobileBannerUrl.includes('laptop') && !isExternalGithub(customMobileBannerUrl))
     ? customMobileBannerUrl
-    : ((internalMobileBannerUrl && !internalMobileBannerUrl.includes('laptop')) ? internalMobileBannerUrl : '/konichiwamobilebg.png');
+    : ((internalMobileBannerUrl && !internalMobileBannerUrl.includes('laptop') && !isExternalGithub(internalMobileBannerUrl)) ? internalMobileBannerUrl : '/konichiwamobilebg.png');
 
   const setBannerUrl = setInternalBannerUrl;
 

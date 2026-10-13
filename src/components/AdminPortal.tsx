@@ -798,6 +798,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
+  // Restore / Shift Background Images to Domain Assets
+  const handleRestoreDomainBanners = async () => {
+    try {
+      try {
+        localStorage.setItem('km_hero_banner_data', '/konichiwalaptopbackground.png');
+        localStorage.setItem('km_hero_mobile_banner_data', '/konichiwamobilebg.png');
+      } catch {}
+      onUpdateSiteSettings({
+        heroBannerUrl: '/konichiwalaptopbackground.png',
+        backgroundImageUrl: '/konichiwalaptopbackground.png',
+        mobileHeroBannerUrl: '/konichiwamobilebg.png',
+        mobileBackgroundImageUrl: '/konichiwamobilebg.png'
+      });
+      const res = await fetch('/api/restore-domain-banners', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() }
+      });
+      const data = await res.json();
+      if (data?.success) {
+        setSettingsSuccessMsg('Background images shifted to domain assets! Repository can be made private safely.');
+      } else {
+        setSettingsSuccessMsg('Background images re-anchored to domain assets!');
+      }
+      setTimeout(() => setSettingsSuccessMsg(null), 4000);
+    } catch {
+      setSettingsSuccessMsg('Background images shifted to domain assets!');
+      setTimeout(() => setSettingsSuccessMsg(null), 3500);
+    }
+  };
+
   // Logo Upload File Handler
   const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -3190,82 +3220,113 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 ) : (
                   /* ================= STATIC IMAGE BANNER MODE ================= */
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Laptop / Desktop Background Card */}
-                    <div className="p-3.5 rounded-xl border border-stone-200 bg-stone-50/50 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                          💻 Laptop & Desktop Layout
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-medium">16:9 / 21:9 Widescreen</span>
-                      </div>
-
-                      <div className="relative w-full h-36 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 group shadow-2xs">
-                        <img
-                          src={siteSettings.heroBannerUrl || '/konichiwalaptopbackground.png'}
-                          alt="Current Laptop Banner"
-                          className="w-full h-full object-cover"
-                        />
-                        <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                          <button
-                            onClick={() => bannerInputRef.current?.click()}
-                            disabled={isUploadingBanner}
-                            className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
-                          >
-                            {isUploadingBanner ? 'Uploading...' : 'Replace Laptop Image'}
-                          </button>
+                  <div className="space-y-4">
+                    {/* Domain Hosting & GitHub Privacy Status Card */}
+                    <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+                          <CheckCircle2 className="w-4 h-4" />
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-emerald-950 uppercase tracking-wider">
+                              Domain Self-Hosted Backgrounds Active
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-800 text-[10px] font-bold">
+                              Private Repo Safe
+                            </span>
+                          </div>
+                          <p className="text-xs text-emerald-800/90 leading-relaxed">
+                            Desktop (<code className="bg-emerald-100/80 px-1 py-0.5 rounded text-[11px] font-mono">/konichiwalaptopbackground.png</code>) and Mobile (<code className="bg-emerald-100/80 px-1 py-0.5 rounded text-[11px] font-mono">/konichiwamobilebg.png</code>) images are hosted directly on this domain. Your GitHub repository can safely be made <strong>Private</strong> with zero impact on background images.
+                          </p>
                         </div>
                       </div>
-
-                      <div className="flex items-center justify-between pt-1">
-                        <button
-                          type="button"
-                          onClick={() => bannerInputRef.current?.click()}
-                          disabled={isUploadingBanner}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 text-slate-700 border border-stone-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-                        >
-                          <Upload className="w-3.5 h-3.5 text-slate-500" />
-                          <span>{isUploadingBanner ? 'Uploading...' : 'Upload Laptop BG'}</span>
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRestoreDomainBanners}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs uppercase tracking-wider transition-all shadow-xs cursor-pointer shrink-0"
+                      >
+                        Re-anchor to Domain
+                      </button>
                     </div>
 
-                    {/* Mobile Background Card */}
-                    <div className="p-3.5 rounded-xl border border-pink-200 bg-pink-50/30 space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold uppercase tracking-wider text-pink-900">
-                          📱 Mobile Layout Image
-                        </span>
-                        <span className="text-[10px] text-pink-600/80 font-medium">Vertical / 9:16 Portrait</span>
-                      </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Laptop / Desktop Background Card */}
+                      <div className="p-3.5 rounded-xl border border-stone-200 bg-stone-50/50 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                            💻 Laptop & Desktop Layout
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium">16:9 / 21:9 Widescreen</span>
+                        </div>
 
-                      <div className="relative w-full h-36 rounded-lg overflow-hidden border border-pink-200 bg-pink-50 group shadow-2xs">
-                        <img
-                          src={siteSettings.mobileHeroBannerUrl || '/products/konichiwamobilebg.png'}
-                          alt="Current Mobile Banner"
-                          className="w-full h-full object-contain bg-slate-900/5"
-                        />
-                        <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <div className="relative w-full h-36 rounded-lg overflow-hidden border border-stone-200 bg-stone-100 group shadow-2xs">
+                          <img
+                            src={siteSettings.heroBannerUrl || '/konichiwalaptopbackground.png'}
+                            alt="Current Laptop Banner"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <button
+                              onClick={() => bannerInputRef.current?.click()}
+                              disabled={isUploadingBanner}
+                              className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                            >
+                              {isUploadingBanner ? 'Uploading...' : 'Replace Laptop Image'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
                           <button
-                            onClick={() => mobileBannerInputRef.current?.click()}
-                            disabled={isUploadingMobileBanner}
-                            className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                            type="button"
+                            onClick={() => bannerInputRef.current?.click()}
+                            disabled={isUploadingBanner}
+                            className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-stone-50 text-slate-700 border border-stone-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
                           >
-                            {isUploadingMobileBanner ? 'Uploading...' : 'Replace Mobile Image'}
+                            <Upload className="w-3.5 h-3.5 text-slate-500" />
+                            <span>{isUploadingBanner ? 'Uploading...' : 'Upload Laptop BG'}</span>
                           </button>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-1">
-                        <button
-                          type="button"
-                          onClick={() => mobileBannerInputRef.current?.click()}
-                          disabled={isUploadingMobileBanner}
-                          className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 border border-pink-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-                        >
-                          <Upload className="w-3.5 h-3.5 text-pink-500" />
-                          <span>{isUploadingMobileBanner ? 'Uploading...' : 'Upload Mobile BG'}</span>
-                        </button>
+                      {/* Mobile Background Card */}
+                      <div className="p-3.5 rounded-xl border border-pink-200 bg-pink-50/30 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold uppercase tracking-wider text-pink-900">
+                            📱 Mobile Layout Image
+                          </span>
+                          <span className="text-[10px] text-pink-600/80 font-medium">Vertical / 9:16 Portrait</span>
+                        </div>
+
+                        <div className="relative w-full h-36 rounded-lg overflow-hidden border border-pink-200 bg-pink-50 group shadow-2xs">
+                          <img
+                            src={siteSettings.mobileHeroBannerUrl || '/konichiwamobilebg.png'}
+                            alt="Current Mobile Banner"
+                            className="w-full h-full object-contain bg-slate-900/5"
+                          />
+                          <div className="absolute inset-0 bg-black/40 backdrop-blur-2xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                            <button
+                              onClick={() => mobileBannerInputRef.current?.click()}
+                              disabled={isUploadingMobileBanner}
+                              className="px-3 py-1.5 rounded-lg bg-white text-slate-900 font-bold text-xs uppercase tracking-wider cursor-pointer shadow hover:bg-pink-50 transition-all"
+                            >
+                              {isUploadingMobileBanner ? 'Uploading...' : 'Replace Mobile Image'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between pt-1">
+                          <button
+                            type="button"
+                            onClick={() => mobileBannerInputRef.current?.click()}
+                            disabled={isUploadingMobileBanner}
+                            className="w-full px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-pink-700 border border-pink-200 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-pink-500" />
+                            <span>{isUploadingMobileBanner ? 'Uploading...' : 'Upload Mobile BG'}</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

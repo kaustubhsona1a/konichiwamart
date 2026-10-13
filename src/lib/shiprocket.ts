@@ -119,7 +119,7 @@ export async function createShiprocketOrder(payload: CreateShipmentPayload): Pro
   try {
     const totalGrams = payload.totalWeightGrams || 350;
     const weightInKg = Math.max(0.1, Number((totalGrams / 1000).toFixed(2)));
-    const pickupLocation = process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse';
+    const pickupLocation = (process.env.SHIPROCKET_PICKUP_LOCATION || 'home').trim();
 
     const nameParts = payload.customerName.trim().split(' ');
     const firstName = nameParts[0] || 'Customer';
