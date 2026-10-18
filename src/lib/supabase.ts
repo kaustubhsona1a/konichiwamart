@@ -816,6 +816,8 @@ export function mapSupabaseRowToOrder(row: any): Order {
     },
     awbNumber: row.awb_number || '',
     courierPartner: row.courier_partner || 'Pending Dispatch',
+    shiprocketOrderId: row.shiprocket_order_id ? String(row.shiprocket_order_id) : undefined,
+    shiprocketShipmentId: row.shiprocket_shipment_id ? String(row.shiprocket_shipment_id) : undefined,
     estimatedDeliveryDate: row.estimated_delivery_date || '3-5 business days',
     trackingHistory: [
       {
@@ -1157,6 +1159,7 @@ export const saveOrderToSupabase = async (order: any, customerId?: string): Prom
       const result = await res.json();
       if (result.success) {
         console.log('[Order Sync] Successfully persisted order to Supabase via server API:', order.orderNumber);
+        return true;
       }
     }
   } catch (apiErr) {

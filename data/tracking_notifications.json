@@ -1,0 +1,19 @@
+{
+  "KM-ORD-26237818": {
+    "orderNumber": "KM-ORD-26237818",
+    "customerEmail": "satkarkhare13@gmail.com",
+    "lastNotifiedStatus": "DISPATCHED",
+    "lastNotifiedAwb": "14112363377330",
+    "notifiedAt": "2026-10-18T15:29:03.926Z",
+    "history": [
+      {
+        "status": "DISPATCHED",
+        "awb": "14112363377330",
+        "scan": "Data Received (BOM/RVP, Mumbai, MAHARASHTRA)",
+        "sentAt": "2026-10-18T15:29:03.926Z",
+        "messageId": "01a14fa1-751f-73ca-8b5e-d99c1ce00935"
+      }
+    ],
+    "lastNotifiedScan": "Data Received (BOM/RVP, Mumbai, MAHARASHTRA)"
+  }
+}

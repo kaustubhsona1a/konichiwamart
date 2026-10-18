@@ -3,8 +3,15 @@ import {
   getShiprocketToken,
   checkShiprocketServiceability, 
   trackShiprocketAwb, 
-  normalizeShiprocketStatus 
+  normalizeShiprocketStatus,
+  fetchShiprocketOrderDetails,
+  searchShiprocketOrderByNumber
 } from './src/lib/shiprocketServer';
+import {
+  shouldNotifyCustomer,
+  recordCustomerNotification,
+  getTrackingNotificationHistory
+} from './src/lib/trackingNotificationService';
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
 
@@ -17,7 +24,14 @@ import Razorpay from 'razorpay';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createValidatedOrder, orderStore } from './src/lib/orderService';
 import { processRazorpayWebhook } from './src/lib/webhookHandler';
-import { sendOrderInvoiceEmail, sendNewOrderOwnerNotification, sendTestEmail, sendPasswordResetEmail, sendCustomerWelcomeEmail } from './src/lib/email';
+import { 
+  sendOrderInvoiceEmail, 
+  sendNewOrderOwnerNotification, 
+  sendTestEmail, 
+  sendPasswordResetEmail, 
+  sendCustomerWelcomeEmail,
+  sendTrackingUpdateEmail
+} from './src/lib/email';
 import { InvoiceData } from './src/lib/invoice';
 import { PRODUCTS } from './src/data/products';
 import { Product, Review } from './src/types';
@@ -1882,14 +1896,14 @@ app.post('/api/save-order', async (req: Request, res: Response) => {
     }
 
     // 3. Prepare Shiprocket logistics details
-    let awbNumber = order.awbNumber || `SR${Math.floor(100000 + Math.random() * 900000)}IN`;
-    let courierPartner = order.courierPartner || 'Blue Dart Air Express';
-    let shiprocketOrderId = order.shiprocketOrderId || `SR-ORD-${Math.floor(100000 + Math.random() * 900000)}`;
-    let shiprocketShipmentId = order.shiprocketShipmentId || `SR-SHP-${Math.floor(100000 + Math.random() * 900000)}`;
+    let awbNumber = order.awbNumber || null;
+    let courierPartner = order.courierPartner || 'Pending Dispatch';
+    let shiprocketOrderId = order.shiprocketOrderId || null;
+    let shiprocketShipmentId = order.shiprocketShipmentId || null;
 
     try {
       const srResult = await createShiprocketOrder(order);
-      if (srResult) {
+      if (srResult && srResult.order_id) {
         shiprocketOrderId = String(srResult.order_id);
         if (srResult.shipment_id) shiprocketShipmentId = String(srResult.shipment_id);
         if (srResult.awb_code) awbNumber = srResult.awb_code;
@@ -2901,6 +2915,181 @@ app.post('/api/admin/test-shiprocket-order', verifyOperatorAccess, async (_req: 
 });
 
 /**
+ * POST /api/admin/push-order-to-shiprocket
+ * Allows an admin/operator to push any specific order to Shiprocket with 1 click.
+ */
+app.post('/api/admin/push-order-to-shiprocket', verifyOperatorAccess, async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.body;
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'Order ID or order number is required' });
+    }
+
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(500).json({ success: false, error: 'Database client not connected' });
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .or(`id.eq.${orderId},order_number.eq.${orderId}`)
+      .maybeSingle();
+
+    if (error || !order) {
+      return res.status(404).json({ success: false, error: 'Order not found in database' });
+    }
+
+    const srResult = await createShiprocketOrder({
+      ...order,
+      orderNumber: order.order_number,
+      customerEmail: order.customer_email,
+      customerPhone: order.customer_phone,
+      subtotal: order.subtotal,
+      totalAmount: order.total_amount,
+      shippingFee: order.shipping_fee,
+      discountAmount: order.discount_amount,
+      paymentMethod: order.payment_method,
+      shippingAddress: {
+        fullName: order.customer_name,
+        addressLine1: order.shipping_address_line1,
+        addressLine2: order.shipping_address_line2,
+        city: order.city,
+        state: order.state,
+        pincode: order.pincode,
+        phone: order.customer_phone
+      },
+      items: (order.order_items || []).map((it: any) => ({
+        title: it.title,
+        sku: it.sku || 'SKU-KM',
+        quantity: it.quantity,
+        price: it.unit_price || order.subtotal,
+        hsn: it.hsn_code || '3304'
+      }))
+    });
+
+    if (srResult && srResult.order_id) {
+      const patch: any = {
+        shiprocket_order_id: String(srResult.order_id),
+        shiprocket_shipment_id: String(srResult.shipment_id)
+      };
+      if (srResult.awb_code) patch.awb_number = srResult.awb_code;
+      if (srResult.courier_name) patch.courier_partner = srResult.courier_name;
+
+      await supabase.from('orders').update(patch).eq('id', order.id);
+
+      return res.json({
+        success: true,
+        message: `Order ${order.order_number} successfully pushed to Shiprocket! Order ID: ${srResult.order_id}`,
+        shiprocketOrderId: srResult.order_id,
+        shiprocketShipmentId: srResult.shipment_id,
+        dashboardUrl: `https://app.shiprocket.in/orders`
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: 'Shiprocket rejected the order. Please check Shiprocket API logs, pickup location, or wallet balance.'
+      });
+    }
+  } catch (err: any) {
+    console.error('[Push Order to Shiprocket Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Server error pushing order to Shiprocket' });
+  }
+});
+
+/**
+ * POST /api/admin/sync-all-unsynced-shiprocket
+ * Finds all confirmed/paid orders without a Shiprocket Order ID and pushes them to Shiprocket.
+ */
+app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async (_req: Request, res: Response) => {
+  try {
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(500).json({ success: false, error: 'Database client not connected' });
+    }
+
+    const { data: unsyncedOrders, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .is('shiprocket_order_id', null)
+      .neq('status', 'cancelled')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      return res.status(400).json({ success: false, error: error.message });
+    }
+
+    if (!unsyncedOrders || unsyncedOrders.length === 0) {
+      return res.json({
+        success: true,
+        message: 'All confirmed orders are already synced with Shiprocket!',
+        syncedCount: 0
+      });
+    }
+
+    let successCount = 0;
+    const errors: string[] = [];
+
+    for (const ord of unsyncedOrders) {
+      try {
+        const srResult = await createShiprocketOrder({
+          ...ord,
+          orderNumber: ord.order_number,
+          customerEmail: ord.customer_email,
+          customerPhone: ord.customer_phone,
+          subtotal: ord.subtotal,
+          totalAmount: ord.total_amount,
+          shippingFee: ord.shipping_fee,
+          discountAmount: ord.discount_amount,
+          paymentMethod: ord.payment_method,
+          shippingAddress: {
+            fullName: ord.customer_name,
+            addressLine1: ord.shipping_address_line1,
+            addressLine2: ord.shipping_address_line2,
+            city: ord.city,
+            state: ord.state,
+            pincode: ord.pincode,
+            phone: ord.customer_phone
+          },
+          items: (ord.order_items || []).map((it: any) => ({
+            title: it.title,
+            sku: it.sku || 'SKU-KM',
+            quantity: it.quantity,
+            price: it.unit_price || ord.subtotal,
+            hsn: it.hsn_code || '3304'
+          }))
+        });
+
+        if (srResult && srResult.order_id) {
+          const patch: any = {
+            shiprocket_order_id: String(srResult.order_id),
+            shiprocket_shipment_id: String(srResult.shipment_id)
+          };
+          if (srResult.awb_code) patch.awb_number = srResult.awb_code;
+          if (srResult.courier_name) patch.courier_partner = srResult.courier_name;
+
+          await supabase.from('orders').update(patch).eq('id', ord.id);
+          successCount++;
+        }
+      } catch (err: any) {
+        errors.push(`Order ${ord.order_number}: ${err.message}`);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Synced ${successCount} of ${unsyncedOrders.length} orders to Shiprocket.`,
+      syncedCount: successCount,
+      errors: errors.length > 0 ? errors : undefined
+    });
+  } catch (err: any) {
+    console.error('[Sync All Unsynced Shiprocket Error]:', err);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /api/shiprocket/serviceability
  * Checks courier serviceability, fastest courier, rates, and delivery timeline estimation
  * for any 6-digit Indian postal pincode.
@@ -2974,29 +3163,272 @@ app.get('/api/shiprocket/track/:awb', async (req: Request, res: Response) => {
 });
 
 /**
+ * Core engine to synchronize an order with Shiprocket's latest logistics data,
+ * update Supabase, and automatically send real-time tracking emails to the customer.
+ */
+async function syncOrderShiprocketStatusAndNotify(
+  order: any, 
+  options: { forceEmail?: boolean; webhookPayload?: any } = {}
+): Promise<{
+  success: boolean;
+  orderNumber: string;
+  awbNumber?: string;
+  courierPartner?: string;
+  status: string;
+  emailSent: boolean;
+  emailError?: string;
+  notificationReason?: string;
+}> {
+  const supabase = getSupabaseServerClient();
+  if (!supabase) {
+    return { success: false, orderNumber: order.order_number, status: order.status, emailSent: false, emailError: 'Database unavailable' };
+  }
+
+  let awb = order.awb_number || '';
+  let courier = order.courier_partner || 'Pending Dispatch';
+  let etd = order.estimated_delivery_date || '';
+  let trackingUrl = order.tracking_url || '';
+  let currentStatus = (order.status || 'confirmed').toLowerCase();
+  let mappedStatus = normalizeShiprocketStatus(order.status || 'CONFIRMED');
+  let activityNote: string | undefined = undefined;
+
+  // 0. Auto-discovery: If order lacks a shiprocket_order_id, search Shiprocket API by order number
+  if (!order.shiprocket_order_id && order.order_number) {
+    try {
+      const foundSr = await searchShiprocketOrderByNumber(order.order_number);
+      if (foundSr && (foundSr.id || foundSr.order_id)) {
+        const foundId = String(foundSr.id || foundSr.order_id);
+        order.shiprocket_order_id = foundId;
+        console.log(`[Shiprocket Sync] Auto-discovered & linked order #${order.order_number} to Shiprocket ID ${foundId}`);
+        await supabase.from('orders').update({
+          shiprocket_order_id: foundId,
+          shiprocket_shipment_id: foundSr.shipment_id ? String(foundSr.shipment_id) : undefined
+        }).eq('id', order.id);
+      }
+    } catch (searchErr) {
+      console.warn('[Sync Shiprocket Auto-discovery Notice]:', searchErr);
+    }
+  }
+
+  // 1. If we have a Shiprocket Order ID, fetch authoritative live order details from Shiprocket
+  if (order.shiprocket_order_id) {
+    try {
+      const srDetails = await fetchShiprocketOrderDetails(order.shiprocket_order_id);
+      if (srDetails.success) {
+        if (srDetails.awbNumber) awb = srDetails.awbNumber;
+        if (srDetails.courierPartner) courier = srDetails.courierPartner;
+        if (srDetails.estimatedDeliveryDate) etd = srDetails.estimatedDeliveryDate;
+        if (srDetails.trackingUrl) trackingUrl = srDetails.trackingUrl;
+        if (srDetails.mappedStatus) mappedStatus = srDetails.mappedStatus;
+      }
+    } catch (srErr) {
+      console.warn('[Sync Shiprocket Details Warning]:', srErr);
+    }
+  }
+
+  // 2. If we have an AWB, query live courier carrier network for real-time tracking activities
+  if (awb && !awb.startsWith('SR-EXP') && awb !== 'PENDING') {
+    try {
+      const trackRes = await trackShiprocketAwb(awb);
+      if (trackRes.success) {
+        if (trackRes.mappedStatus) mappedStatus = trackRes.mappedStatus;
+        if (trackRes.courierPartner) courier = trackRes.courierPartner;
+        if (trackRes.estimatedDeliveryDate) etd = trackRes.estimatedDeliveryDate;
+        if (trackRes.trackingUrl) trackingUrl = trackRes.trackingUrl;
+        if (trackRes.scans && trackRes.scans.length > 0) {
+          const latestScan = trackRes.scans[trackRes.scans.length - 1];
+          activityNote = `${latestScan.activity} (${latestScan.location})`;
+        }
+      }
+    } catch (trackErr) {
+      console.warn('[Sync Shiprocket Scan Warning]:', trackErr);
+    }
+  }
+
+  // If webhook payload was provided, use any direct overrides
+  if (options.webhookPayload) {
+    const wp = options.webhookPayload;
+    if (wp.awb || wp.awb_code) awb = String(wp.awb || wp.awb_code).trim();
+    if (wp.courier_name || wp.courier_partner) courier = String(wp.courier_name || wp.courier_partner).trim();
+    if (wp.etd || wp.edd) etd = String(wp.etd || wp.edd).trim();
+    const rawStatus = wp.current_status || wp.shipment_status || wp.status;
+    if (rawStatus) mappedStatus = normalizeShiprocketStatus(rawStatus);
+  }
+
+  if (awb && !trackingUrl) {
+    trackingUrl = `https://shiprocket.co/tracking/${awb}`;
+  }
+
+  // Format estimated delivery date nicely if valid date string
+  if (etd) {
+    try {
+      // Handles '2026-10-24 01:25:22' or '24-10-2026' or ISO
+      let cleanDate = etd;
+      if (/^\d{2}-\d{2}-\d{4}/.test(etd)) {
+        const parts = etd.split(' ')[0].split('-');
+        cleanDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+      const d = new Date(cleanDate);
+      if (!isNaN(d.getTime())) {
+        etd = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+    } catch {
+      // keep original string
+    }
+  }
+
+  const newStatus = mappedStatus.toLowerCase();
+
+  // 3. Update Supabase with fresh tracking & logistics data
+  const patch: Record<string, any> = {
+    status: newStatus,
+    updated_at: new Date().toISOString()
+  };
+  if (awb) patch.awb_number = awb;
+  if (courier && courier !== 'Pending Dispatch') patch.courier_partner = courier;
+  if (etd) patch.estimated_delivery_date = etd;
+  if (trackingUrl) patch.tracking_url = trackingUrl;
+
+  try {
+    await supabase.from('orders').update(patch).eq('id', order.id);
+  } catch (updErr) {
+    console.warn('[Sync Order DB Patch Error]:', updErr);
+  }
+
+  // 4. Intelligent customer notification check
+  const customerEmail = (order.customer_email || '').trim();
+  let emailSent = false;
+  let emailError: string | undefined = undefined;
+
+  const notifyCheck = shouldNotifyCustomer(
+    order.order_number,
+    mappedStatus,
+    awb,
+    activityNote,
+    Boolean(options.forceEmail)
+  );
+
+  if (customerEmail && notifyCheck.shouldNotify && awb && awb !== 'PENDING') {
+    try {
+      // Fetch full order items if missing
+      let items = order.order_items || [];
+      if (!items || items.length === 0) {
+        const { data: dbItems } = await supabase.from('order_items').select('*').eq('order_id', order.id);
+        if (dbItems && dbItems.length > 0) items = dbItems;
+      }
+
+      console.log(`[Tracking Notification] Dispatching email to ${customerEmail} for order #${order.order_number}. Reason: ${notifyCheck.reason}`);
+
+      const emailResult = await sendTrackingUpdateEmail({
+        customerEmail,
+        customerName: order.customer_name || 'Valued Customer',
+        orderNumber: order.order_number,
+        status: mappedStatus as any,
+        courierPartner: courier,
+        awbNumber: awb,
+        trackingUrl,
+        estimatedDeliveryDate: etd,
+        shippingAddress: {
+          addressLine1: order.shipping_address_line1 || '',
+          addressLine2: order.shipping_address_line2 || '',
+          city: order.city || '',
+          state: order.state || '',
+          pincode: order.pincode || ''
+        },
+        items: (items || []).map((it: any) => ({
+          name: it.title || 'Japanese Skincare Product',
+          quantity: it.quantity || 1,
+          price: it.unit_price || 0
+        })),
+        activityNote
+      });
+
+      emailSent = emailResult.success;
+      if (!emailResult.success) {
+        emailError = emailResult.error;
+        console.warn(`[Tracking Email Warning] Could not dispatch email to ${customerEmail}:`, emailResult.error);
+      } else {
+        await recordCustomerNotification(
+          order.order_number,
+          customerEmail,
+          mappedStatus,
+          awb,
+          activityNote,
+          emailResult.messageId
+        );
+        console.log(`[Tracking Email SUCCESS] Live tracking email dispatched to ${customerEmail} (AWB: ${awb}, Status: ${mappedStatus})`);
+      }
+    } catch (emErr: any) {
+      emailError = emErr.message || 'Failed to dispatch tracking email';
+      console.error('[Tracking Email Dispatch Exception]:', emErr);
+    }
+  }
+
+  return {
+    success: true,
+    orderNumber: order.order_number,
+    awbNumber: awb || undefined,
+    courierPartner: courier || undefined,
+    status: mappedStatus,
+    emailSent,
+    emailError,
+    notificationReason: notifyCheck.reason
+  };
+}
+
+/**
+ * POST /api/admin/fetch-and-email-tracking
+ * Fetches authoritative live order details & AWB from Shiprocket for a specific order,
+ * syncs the Supabase database, and immediately emails the customer with full tracking details.
+ */
+app.post('/api/admin/fetch-and-email-tracking', verifyOperatorAccess, async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.body;
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'Order ID or order number is required' });
+    }
+
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(500).json({ success: false, error: 'Database client not connected' });
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .or(`id.eq.${orderId},order_number.eq.${orderId}`)
+      .maybeSingle();
+
+    if (error || !order) {
+      return res.status(404).json({ success: false, error: 'Order not found in database' });
+    }
+
+    const syncResult = await syncOrderShiprocketStatusAndNotify(order, { forceEmail: true });
+
+    return res.status(200).json({
+      success: true,
+      message: `Order #${order.order_number} synchronized! Status: ${syncResult.status}, AWB: ${syncResult.awbNumber || 'Generating...'}, Courier: ${syncResult.courierPartner || 'Assigned'}, Email Dispatched: ${syncResult.emailSent ? 'Yes' : 'No'}`,
+      details: syncResult
+    });
+  } catch (err: any) {
+    console.error('[Fetch & Email Tracking Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Server error' });
+  }
+});
+
+/**
  * POST /api/shiprocket/webhook and POST /api/webhooks/shiprocket
  * Real-time event listener for Shiprocket automated tracking status updates.
- * Triggered automatically by Shiprocket when:
- * - AWB is assigned
- * - Order is picked up / dispatched
- * - Shipment arrives at intermediate transit hub
- * - Out for delivery
- * - Successfully delivered to customer
- * - RTO / cancelled
+ * Automatically updates Supabase and emails customer whenever an AWB is generated or status updates.
  */
 const handleShiprocketWebhook = async (req: Request, res: Response) => {
   try {
     const payload = req.body || {};
     console.log('[Shiprocket Webhook Received]:', JSON.stringify(payload).slice(0, 300));
 
-    const rawStatus = payload.current_status || payload.shipment_status || payload.current_status_id || payload.status;
-    const mappedStatus = normalizeShiprocketStatus(rawStatus);
-
     const awb = String(payload.awb || payload.awb_code || '').trim();
     const orderNumber = String(payload.order_id || payload.order_number || '').trim();
     const srOrderId = payload.sr_order_id ? String(payload.sr_order_id) : undefined;
-    const courierName = payload.courier_name || payload.courier_partner;
-    const etd = payload.etd || payload.edd;
 
     const supabase = getSupabaseServerClient();
     if (!supabase) {
@@ -3007,42 +3439,28 @@ const handleShiprocketWebhook = async (req: Request, res: Response) => {
     let targetOrder: any = null;
 
     if (orderNumber) {
-      const { data } = await supabase.from('orders').select('*').eq('order_number', orderNumber).maybeSingle();
+      const { data } = await supabase.from('orders').select('*, order_items(*)').eq('order_number', orderNumber).maybeSingle();
       if (data) targetOrder = data;
     }
     if (!targetOrder && awb) {
-      const { data } = await supabase.from('orders').select('*').eq('awb_number', awb).maybeSingle();
+      const { data } = await supabase.from('orders').select('*, order_items(*)').eq('awb_number', awb).maybeSingle();
       if (data) targetOrder = data;
     }
     if (!targetOrder && srOrderId) {
-      const { data } = await supabase.from('orders').select('*').eq('shiprocket_order_id', srOrderId).maybeSingle();
+      const { data } = await supabase.from('orders').select('*, order_items(*)').eq('shiprocket_order_id', srOrderId).maybeSingle();
       if (data) targetOrder = data;
     }
 
     if (targetOrder) {
-      const patch: Record<string, any> = {
-        status: mappedStatus.toLowerCase()
-      };
-      if (awb && !targetOrder.awb_number) patch.awb_number = awb;
-      if (courierName) patch.courier_partner = courierName;
-      if (etd) patch.estimated_delivery_date = etd;
-
-      const { error } = await supabase
-        .from('orders')
-        .update(patch)
-        .eq('id', targetOrder.id);
-
-      if (error) {
-        console.error('[Shiprocket Webhook Update Error]:', error.message);
-      } else {
-        console.log(`[Shiprocket Webhook SUCCESS] Order #${targetOrder.order_number} status automatically updated to ${mappedStatus} (AWB: ${awb || targetOrder.awb_number})`);
-      }
+      const result = await syncOrderShiprocketStatusAndNotify(targetOrder, {
+        forceEmail: false,
+        webhookPayload: payload
+      });
 
       return res.status(200).json({
         success: true,
-        message: `Order #${targetOrder.order_number} updated to ${mappedStatus}`,
-        orderNumber: targetOrder.order_number,
-        status: mappedStatus
+        message: `Order #${targetOrder.order_number} synchronized via webhook`,
+        result
       });
     }
 
@@ -3079,7 +3497,8 @@ app.get('/api/webhooks/shiprocket', (_req: Request, res: Response) => {
 
 /**
  * POST /api/admin/sync-shiprocket-tracking
- * Batch queries Shiprocket tracking API for all active in-progress orders and syncs their status.
+ * Batch queries Shiprocket tracking API for all active in-progress orders,
+ * syncs their status, and automatically emails customers when their parcel reaches a new milestone.
  */
 app.post('/api/admin/sync-shiprocket-tracking', verifyOperatorAccess, async (_req: Request, res: Response) => {
   try {
@@ -3088,11 +3507,10 @@ app.post('/api/admin/sync-shiprocket-tracking', verifyOperatorAccess, async (_re
       return res.status(500).json({ success: false, error: 'Database client not connected' });
     }
 
-    // Fetch orders that are not yet marked as DELIVERED or CANCELLED and have an AWB
+    // Fetch active orders that are not yet marked as DELIVERED or CANCELLED
     const { data: activeOrders, error } = await supabase
       .from('orders')
-      .select('id, order_number, awb_number, status, courier_partner')
-      .not('awb_number', 'is', null)
+      .select('*, order_items(*)')
       .neq('status', 'delivered')
       .neq('status', 'cancelled')
       .limit(50);
@@ -3101,34 +3519,18 @@ app.post('/api/admin/sync-shiprocket-tracking', verifyOperatorAccess, async (_re
       return res.status(500).json({ success: false, error: error.message });
     }
 
+    const forceEmailAll = Boolean(_req.body && _req.body.forceEmailAll);
     let updatedCount = 0;
+    let emailedCount = 0;
     const syncResults: any[] = [];
 
     for (const ord of (activeOrders || [])) {
-      if (!ord.awb_number || ord.awb_number.startsWith('SR-EXP') || ord.awb_number === 'PENDING') {
-        continue;
-      }
-
       try {
-        const trackRes = await trackShiprocketAwb(ord.awb_number);
-        if (trackRes.success && trackRes.mappedStatus) {
-          const newStatus = trackRes.mappedStatus.toLowerCase();
-          if (newStatus !== ord.status?.toLowerCase()) {
-            await supabase
-              .from('orders')
-              .update({
-                status: newStatus,
-                courier_partner: trackRes.courierPartner || ord.courier_partner
-              })
-              .eq('id', ord.id);
-            updatedCount++;
-            syncResults.push({
-              orderNumber: ord.order_number,
-              awb: ord.awb_number,
-              previousStatus: ord.status,
-              newStatus: trackRes.mappedStatus
-            });
-          }
+        const syncResult = await syncOrderShiprocketStatusAndNotify(ord, { forceEmail: forceEmailAll });
+        if (syncResult.success) {
+          updatedCount++;
+          if (syncResult.emailSent) emailedCount++;
+          syncResults.push(syncResult);
         }
       } catch (ordErr) {
         console.warn(`[Sync Error for ${ord.order_number}]:`, ordErr);
@@ -3139,6 +3541,7 @@ app.post('/api/admin/sync-shiprocket-tracking', verifyOperatorAccess, async (_re
       success: true,
       totalChecked: (activeOrders || []).length,
       updatedCount,
+      emailedCount,
       updates: syncResults
     });
   } catch (err: any) {
@@ -3146,6 +3549,64 @@ app.post('/api/admin/sync-shiprocket-tracking', verifyOperatorAccess, async (_re
     return res.status(500).json({ success: false, error: err.message });
   }
 });
+
+/**
+ * GET /api/admin/order-tracking-history/:orderNumber
+ * Returns the tracking notification history and last emailed details for an order.
+ */
+app.get('/api/admin/order-tracking-history/:orderNumber', verifyOperatorAccess, (req: Request, res: Response) => {
+  const { orderNumber } = req.params;
+  const history = getTrackingNotificationHistory(orderNumber);
+  return res.json({ success: true, history: history || null });
+});
+
+/**
+ * Recurring background worker: queries Shiprocket every 10 minutes,
+ * synchronizes all in-progress orders, and automatically emails customers
+ * whenever an AWB is generated or parcel reaches a new milestone.
+ */
+let shiprocketPollerInterval: NodeJS.Timeout | null = null;
+
+async function runScheduledShiprocketTrackingSync() {
+  try {
+    const supabase = getSupabaseServerClient();
+    if (!supabase) return;
+
+    // Active orders not delivered or cancelled from last 30 days
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: activeOrders, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .neq('status', 'delivered')
+      .neq('status', 'cancelled')
+      .gte('created_at', thirtyDaysAgo)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error || !activeOrders || activeOrders.length === 0) return;
+
+    console.log(`[Shiprocket Poller] Checking ${activeOrders.length} active orders for tracking updates...`);
+
+    for (const ord of activeOrders) {
+      try {
+        await syncOrderShiprocketStatusAndNotify(ord, { forceEmail: false });
+      } catch (e: any) {
+        console.warn(`[Shiprocket Poller] Error syncing ${ord.order_number}:`, e?.message || e);
+      }
+    }
+  } catch (err: any) {
+    console.error('[Shiprocket Poller Worker Exception]:', err?.message || err);
+  }
+}
+
+// Start recurring poller: run after 15 seconds on startup, then every 10 minutes
+setTimeout(() => {
+  runScheduledShiprocketTrackingSync();
+}, 15000);
+
+if (!shiprocketPollerInterval) {
+  shiprocketPollerInterval = setInterval(runScheduledShiprocketTrackingSync, 10 * 60 * 1000);
+}
 
 /**
  * GET /api/categories

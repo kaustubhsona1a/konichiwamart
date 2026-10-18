@@ -485,6 +485,117 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [orderActionMsg, setOrderActionMsg] = useState<string | null>(null);
 
+  // Shiprocket direct order push state
+  const [pushingOrderId, setPushingOrderId] = useState<string | null>(null);
+  const [isSyncingAllShiprocket, setIsSyncingAllShiprocket] = useState(false);
+  const [shiprocketActionMsg, setShiprocketActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handlePushOrderToShiprocket = async (orderId: string) => {
+    setPushingOrderId(orderId);
+    setShiprocketActionMsg(null);
+    try {
+      const res = await fetch('/api/admin/push-order-to-shiprocket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
+        body: JSON.stringify({ orderId })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShiprocketActionMsg({ type: 'success', text: data.message });
+        if (onRefreshOrders) await onRefreshOrders();
+      } else {
+        setShiprocketActionMsg({ type: 'error', text: data.error || 'Failed to push order to Shiprocket' });
+      }
+    } catch (err: any) {
+      setShiprocketActionMsg({ type: 'error', text: err.message || 'Network error pushing to Shiprocket' });
+    } finally {
+      setPushingOrderId(null);
+    }
+  };
+
+  const handleSyncAllUnsyncedShiprocket = async () => {
+    setIsSyncingAllShiprocket(true);
+    setShiprocketActionMsg(null);
+    try {
+      const res = await fetch('/api/admin/sync-all-unsynced-shiprocket', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShiprocketActionMsg({ type: 'success', text: data.message });
+        if (onRefreshOrders) await onRefreshOrders();
+      } else {
+        setShiprocketActionMsg({ type: 'error', text: data.error || 'Sync failed' });
+      }
+    } catch (err: any) {
+      setShiprocketActionMsg({ type: 'error', text: err.message || 'Network error syncing Shiprocket' });
+    } finally {
+      setIsSyncingAllShiprocket(false);
+    }
+  };
+
+  const [isFetchingAndEmailing, setIsFetchingAndEmailing] = useState(false);
+  const [fetchingOrderId, setFetchingOrderId] = useState<string | null>(null);
+
+  const handleFetchAndEmailSingleOrder = async (orderId: string) => {
+    setFetchingOrderId(orderId);
+    setShiprocketActionMsg(null);
+    try {
+      const res = await fetch('/api/admin/fetch-and-email-tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
+        body: JSON.stringify({ orderId, forceEmail: true })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShiprocketActionMsg({ 
+          type: 'success', 
+          text: data.message || `Order synchronized and customer notified by email!` 
+        });
+        if (onRefreshOrders) await onRefreshOrders();
+      } else {
+        setShiprocketActionMsg({ 
+          type: 'error', 
+          text: data.error || 'Failed to fetch tracking details from Shiprocket' 
+        });
+      }
+    } catch (err: any) {
+      setShiprocketActionMsg({ 
+        type: 'error', 
+        text: err.message || 'Network error fetching tracking and sending email' 
+      });
+    } finally {
+      setFetchingOrderId(null);
+    }
+  };
+
+  const handleFetchAndEmailAllTracking = async () => {
+    setIsFetchingAndEmailing(true);
+    setShiprocketActionMsg(null);
+    try {
+      const res = await fetch('/api/admin/sync-shiprocket-tracking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
+        body: JSON.stringify({ forceEmailAll: false })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShiprocketActionMsg({
+          type: 'success',
+          text: `Checked ${data.totalChecked || 0} active orders: updated ${data.updatedCount || 0}, dispatched ${data.emailedCount || 0} customer emails!`
+        });
+        if (onRefreshOrders) await onRefreshOrders();
+      } else {
+        setShiprocketActionMsg({ type: 'error', text: data.error || 'Sync failed' });
+      }
+    } catch (err: any) {
+      setShiprocketActionMsg({ type: 'error', text: err.message || 'Network error running tracking sync' });
+    } finally {
+      setIsFetchingAndEmailing(false);
+    }
+  };
+
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
   const [isDeletingOrder, setIsDeletingOrder] = useState(false);
 
@@ -2601,15 +2712,51 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     Live verification of customer transactions, payment logs, and courier dispatch receipts.
                   </p>
                 </div>
-                <button
-                  onClick={handleRefresh}
-                  disabled={isRefreshingOrders}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer w-fit"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingOrders ? 'animate-spin' : ''}`} />
-                  <span>{isRefreshingOrders ? 'Syncing...' : 'Refresh Orders'}</span>
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={handleFetchAndEmailAllTracking}
+                    disabled={isFetchingAndEmailing}
+                    className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer w-fit"
+                    title="Fetches live AWB & tracking updates from Shiprocket and automatically emails customers"
+                  >
+                    <Mail className={`w-3.5 h-3.5 ${isFetchingAndEmailing ? 'animate-bounce' : ''}`} />
+                    <span>{isFetchingAndEmailing ? 'Syncing Tracking...' : 'Fetch Status & Email Customers'}</span>
+                  </button>
+                  <button
+                    onClick={handleSyncAllUnsyncedShiprocket}
+                    disabled={isSyncingAllShiprocket}
+                    className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer w-fit"
+                    title="Pushes any orders that are missing Shiprocket IDs directly to Shiprocket"
+                  >
+                    <Truck className={`w-3.5 h-3.5 ${isSyncingAllShiprocket ? 'animate-bounce' : ''}`} />
+                    <span>{isSyncingAllShiprocket ? 'Pushing to Shiprocket...' : 'Sync with Shiprocket'}</span>
+                  </button>
+                  <button
+                    onClick={handleRefresh}
+                    disabled={isRefreshingOrders}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer w-fit"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingOrders ? 'animate-spin' : ''}`} />
+                    <span>{isRefreshingOrders ? 'Syncing...' : 'Refresh Orders'}</span>
+                  </button>
+                </div>
               </div>
+
+              {shiprocketActionMsg && (
+                <div className={`p-3.5 rounded-xl border text-xs font-medium flex items-center justify-between ${
+                  shiprocketActionMsg.type === 'success' 
+                    ? 'bg-purple-50 text-purple-900 border-purple-200' 
+                    : 'bg-rose-50 text-rose-800 border-rose-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-purple-600 flex-shrink-0" />
+                    <span>{shiprocketActionMsg.text}</span>
+                  </div>
+                  <button onClick={() => setShiprocketActionMsg(null)} className="text-stone-400 hover:text-stone-600 cursor-pointer">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
 
               {orders.length === 0 ? (
                 <div className="text-center py-16 bg-white rounded-2xl border border-pink-100 shadow-xs space-y-3">
@@ -2724,6 +2871,74 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </div>
                         </div>
 
+                        {/* Shiprocket Logistics Integration */}
+                        <div className="bg-purple-50/70 p-2.5 rounded-xl border border-purple-100 flex flex-col gap-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <Truck className="w-3.5 h-3.5 text-purple-700" />
+                              <span className="text-[11px] font-bold text-purple-900">Shiprocket</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {o.shiprocketOrderId || (o as any).shiprocket_order_id ? (
+                                <a
+                                  href="https://app.shiprocket.in/orders"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-white text-purple-700 border border-purple-200 shadow-2xs hover:bg-purple-50 transition-colors"
+                                >
+                                  <span>SR #{o.shiprocketOrderId || (o as any).shiprocket_order_id}</span>
+                                  <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                                </a>
+                              ) : (
+                                <button
+                                  onClick={() => handlePushOrderToShiprocket(o.id || o.orderNumber)}
+                                  disabled={pushingOrderId === (o.id || o.orderNumber)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs cursor-pointer disabled:opacity-50 transition-all"
+                                >
+                                  {pushingOrderId === (o.id || o.orderNumber) ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <Truck className="w-3 h-3" />
+                                  )}
+                                  <span>{pushingOrderId === (o.id || o.orderNumber) ? 'Pushing...' : 'Push to SR'}</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-purple-100/80">
+                            <div>
+                              {o.awbNumber ? (
+                                <a
+                                  href={`https://shiprocket.co/tracking/${o.awbNumber}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-indigo-700 hover:underline"
+                                  title="Track Live on Shiprocket"
+                                >
+                                  <span>AWB: {o.awbNumber}</span>
+                                  <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              ) : (
+                                <span className="text-[10px] text-slate-500 italic">No AWB yet</span>
+                              )}
+                            </div>
+                            <button
+                              onClick={() => handleFetchAndEmailSingleOrder(o.id || o.orderNumber)}
+                              disabled={fetchingOrderId === (o.id || o.orderNumber)}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs cursor-pointer disabled:opacity-50 transition-all"
+                              title="Fetch live tracking and email customer"
+                            >
+                              {fetchingOrderId === (o.id || o.orderNumber) ? (
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              ) : (
+                                <Mail className="w-2.5 h-2.5" />
+                              )}
+                              <span>{fetchingOrderId === (o.id || o.orderNumber) ? 'Emailing...' : 'Sync & Email AWB'}</span>
+                            </button>
+                          </div>
+                        </div>
+
                         {/* Order Management Actions (Edit, Delete, Invoice) */}
                         <div className="flex items-center gap-2 pt-2 border-t border-stone-100">
                           <button
@@ -2769,6 +2984,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <th className="p-3.5">Amount</th>
                             <th className="p-3.5">Payment</th>
                             <th className="p-3.5">Delivery</th>
+                            <th className="p-3.5">Shiprocket</th>
                             <th className="p-3.5 text-right">Actions</th>
                           </tr>
                         </thead>
@@ -2834,6 +3050,66 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                   <option value="DELIVERED">DELIVERED</option>
                                   <option value="CANCELLED">CANCELLED</option>
                                 </select>
+                              </td>
+                              <td className="p-3.5">
+                                <div className="flex flex-col gap-1.5 items-start">
+                                  {o.shiprocketOrderId || (o as any).shiprocket_order_id ? (
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <a
+                                        href="https://app.shiprocket.in/orders"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 shadow-2xs transition-colors"
+                                        title="View in Shiprocket Dashboard"
+                                      >
+                                        <Truck className="w-2.5 h-2.5 text-purple-600" />
+                                        <span>SR #{o.shiprocketOrderId || (o as any).shiprocket_order_id}</span>
+                                        <ExternalLink className="w-2 h-2 opacity-60" />
+                                      </a>
+
+                                      {o.awbNumber ? (
+                                        <a
+                                          href={`https://shiprocket.co/tracking/${o.awbNumber}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-indigo-700 hover:underline bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200"
+                                          title="Track on Shiprocket"
+                                        >
+                                          <span>AWB: {o.awbNumber}</span>
+                                          <ExternalLink className="w-2 h-2" />
+                                        </a>
+                                      ) : null}
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => handlePushOrderToShiprocket(o.id || o.orderNumber)}
+                                      disabled={pushingOrderId === (o.id || o.orderNumber)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+                                      title="Push this order to Shiprocket"
+                                    >
+                                      {pushingOrderId === (o.id || o.orderNumber) ? (
+                                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                      ) : (
+                                        <Truck className="w-2.5 h-2.5" />
+                                      )}
+                                      <span>{pushingOrderId === (o.id || o.orderNumber) ? 'Pushing...' : 'Push to SR'}</span>
+                                    </button>
+                                  )}
+
+                                  <button
+                                    onClick={() => handleFetchAndEmailSingleOrder(o.id || o.orderNumber)}
+                                    disabled={fetchingOrderId === (o.id || o.orderNumber)}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+                                    title="Fetch latest Shiprocket tracking and email customer"
+                                  >
+                                    {fetchingOrderId === (o.id || o.orderNumber) ? (
+                                      <Loader2 className="w-2.5 h-2.5 animate-spin text-indigo-600" />
+                                    ) : (
+                                      <Mail className="w-2.5 h-2.5 text-indigo-600" />
+                                    )}
+                                    <span>{fetchingOrderId === (o.id || o.orderNumber) ? 'Emailing...' : 'Fetch & Email AWB'}</span>
+                                  </button>
+                                </div>
                               </td>
                               <td className="p-3.5 text-right">
                                 <div className="flex items-center justify-end gap-1.5">

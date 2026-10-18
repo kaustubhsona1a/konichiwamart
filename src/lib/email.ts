@@ -497,3 +497,203 @@ export async function sendCustomerWelcomeEmail(toEmail: string, fullName: string
     return { success: false, error: err.message || 'Failed to send welcome email.' };
   }
 }
+
+export interface TrackingEmailData {
+  customerEmail: string;
+  customerName: string;
+  orderNumber: string;
+  status: 'CONFIRMED' | 'DISPATCHED' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED';
+  courierPartner: string;
+  awbNumber: string;
+  trackingUrl?: string;
+  estimatedDeliveryDate?: string;
+  shippingAddress: {
+    addressLine1: string;
+    addressLine2?: string;
+    city: string;
+    state: string;
+    pincode: string;
+  };
+  items?: Array<{
+    name: string;
+    quantity: number;
+    price?: number;
+  }>;
+  activityNote?: string;
+}
+
+/**
+ * Sends a real-time tracking update email to customer with AWB number, courier partner,
+ * estimated delivery date, and 1-click live tracking link.
+ */
+export async function sendTrackingUpdateEmail(data: TrackingEmailData): Promise<EmailDispatchResult> {
+  const client = getResendClient();
+
+  if (!client) {
+    console.log(`[Resend Email] (Development Mode) Tracking update for #${data.orderNumber} (AWB: ${data.awbNumber}) prepared for ${data.customerEmail}.`);
+    return {
+      success: true,
+      messageId: `sim_track_${Date.now()}`,
+      isSimulated: true
+    };
+  }
+
+  try {
+    const fromAddress = process.env.RESEND_FROM_EMAIL || 'Konichiwa Mart <info@konichiwamart.com>';
+    const trackingUrl = data.trackingUrl || `https://shiprocket.co/tracking/${data.awbNumber}`;
+
+    // Status titles & badges
+    let statusTitle = '📦 Shipment Tracking Update';
+    let statusBadgeColor = '#be123c';
+    let statusBgColor = '#fff1f2';
+    let statusMessage = `Your order <strong>#${data.orderNumber}</strong> has an update on its delivery status.`;
+
+    if (data.status === 'CONFIRMED') {
+      statusTitle = '📦 Order Packed & AWB Assigned!';
+      statusBadgeColor = '#0284c7';
+      statusBgColor = '#f0f9ff';
+      statusMessage = `Great news! Your authentic Japanese beauty order <strong>#${data.orderNumber}</strong> has been packed and AWB tracking <strong>${data.awbNumber}</strong> has been assigned with our logistics partner <strong>${data.courierPartner}</strong>.`;
+    } else if (data.status === 'DISPATCHED') {
+      statusTitle = '📦 Your Order Has Been Dispatched!';
+      statusBadgeColor = '#0284c7';
+      statusBgColor = '#f0f9ff';
+      statusMessage = `Great news! Your authentic Japanese beauty order <strong>#${data.orderNumber}</strong> has been packed and dispatched with our courier partner <strong>${data.courierPartner}</strong>.`;
+    } else if (data.status === 'IN_TRANSIT') {
+      statusTitle = '🚚 Shipment In Transit';
+      statusBadgeColor = '#7c3aed';
+      statusBgColor = '#f5f3ff';
+      statusMessage = `Your package for order <strong>#${data.orderNumber}</strong> is currently in transit and moving safely through the carrier network to your delivery hub.`;
+    } else if (data.status === 'OUT_FOR_DELIVERY') {
+      statusTitle = '🛵 Out For Delivery Today!';
+      statusBadgeColor = '#d97706';
+      statusBgColor = '#fffbeb';
+      statusMessage = `Get ready! Your order <strong>#${data.orderNumber}</strong> is out for delivery today with the courier delivery executive.`;
+    } else if (data.status === 'DELIVERED') {
+      statusTitle = '🎉 Package Delivered!';
+      statusBadgeColor = '#059669';
+      statusBgColor = '#ecfdf5';
+      statusMessage = `Your order <strong>#${data.orderNumber}</strong> has been successfully delivered. We hope you love your authentic Japanese skincare essentials!`;
+    }
+
+    const subject = `${statusTitle} - #${data.orderNumber} (AWB: ${data.awbNumber})`;
+
+    const response = await client.emails.send({
+      from: fromAddress,
+      replyTo: 'info@konichiwamart.com',
+      to: [data.customerEmail],
+      bcc: ['info@konichiwamart.com'],
+      subject,
+      html: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; max-width: 580px; margin: 0 auto; padding: 24px; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);">
+          
+          <!-- Header -->
+          <div style="text-align: center; border-bottom: 1px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 20px;">
+            <div style="display: inline-block; padding: 8px 16px; border-radius: 9999px; background: ${statusBgColor}; color: ${statusBadgeColor}; font-size: 13px; font-weight: 700; margin-bottom: 10px; border: 1px solid ${statusBadgeColor}33;">
+              ${statusTitle}
+            </div>
+            <h2 style="color: #0f172a; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.02em;">
+              Konichiwa Mart Logistics
+            </h2>
+            <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">
+              Order #${data.orderNumber} • 100% Authentic Tokyo Imports
+            </p>
+          </div>
+
+          <p style="font-size: 14px; line-height: 1.6; color: #334155; margin-top: 0;">
+            Konnichiwa, <strong>${data.customerName || 'Valued Customer'}</strong>! 🌸
+          </p>
+          <p style="font-size: 14px; line-height: 1.6; color: #475569;">
+            ${statusMessage}
+          </p>
+
+          ${data.activityNote ? `
+            <div style="background: #f8fafc; border-left: 3px solid ${statusBadgeColor}; padding: 12px 16px; margin: 16px 0; font-size: 13px; color: #334155;">
+              <strong>Latest Update:</strong> ${data.activityNote}
+            </div>
+          ` : ''}
+
+          <!-- Shipment & AWB Box -->
+          <div style="background-color: #faf5ff; border: 1px solid #e9d5ff; border-radius: 12px; padding: 18px; margin: 20px 0;">
+            <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 6px 0; color: #6b21a8; font-weight: 600;">Courier Partner:</td>
+                <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #1e1b4b;">${data.courierPartner}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #6b21a8; font-weight: 600;">Air Waybill (AWB):</td>
+                <td style="padding: 6px 0; text-align: right; font-family: monospace; font-weight: 800; color: #1e1b4b; font-size: 14px;">${data.awbNumber}</td>
+              </tr>
+              ${data.estimatedDeliveryDate ? `
+                <tr>
+                  <td style="padding: 6px 0; color: #6b21a8; font-weight: 600;">Estimated Delivery:</td>
+                  <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #047857;">${data.estimatedDeliveryDate}</td>
+                </tr>
+              ` : ''}
+              <tr>
+                <td style="padding: 6px 0; color: #6b21a8; font-weight: 600;">Shipping To:</td>
+                <td style="padding: 6px 0; text-align: right; color: #475569; font-size: 12px;">
+                  ${data.shippingAddress.addressLine1}${data.shippingAddress.addressLine2 ? ', ' + data.shippingAddress.addressLine2 : ''},<br>
+                  ${data.shippingAddress.city}, ${data.shippingAddress.state} - ${data.shippingAddress.pincode}
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Direct 1-Click Track Button -->
+          <div style="text-align: center; margin: 26px 0;">
+            <a href="${trackingUrl}" target="_blank" style="background-color: #7c3aed; color: #ffffff; padding: 14px 34px; border-radius: 12px; text-decoration: none; font-size: 14px; font-weight: 700; display: inline-block; box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);">
+              🔍 Track Live on Shiprocket →
+            </a>
+            <div style="margin-top: 8px;">
+              <a href="https://www.konichiwamart.com" target="_blank" style="color: #6b7280; font-size: 12px; text-decoration: underline;">
+                Or visit konichiwamart.com
+              </a>
+            </div>
+          </div>
+
+          ${data.items && data.items.length > 0 ? `
+            <div style="margin: 24px 0; border-top: 1px solid #f1f5f9; padding-top: 16px;">
+              <h4 style="font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin: 0 0 10px 0;">
+                Package Contents
+              </h4>
+              <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+                ${data.items.map(it => `
+                  <tr>
+                    <td style="padding: 6px 0; color: #334155; border-bottom: 1px solid #f8fafc;">
+                      ${it.name} <strong>× ${it.quantity}</strong>
+                    </td>
+                    ${it.price ? `<td style="padding: 6px 0; text-align: right; color: #64748b; border-bottom: 1px solid #f8fafc;">₹${(it.price * it.quantity).toFixed(2)}</td>` : ''}
+                  </tr>
+                `).join('')}
+              </table>
+            </div>
+          ` : ''}
+
+          <!-- Footer & Support Contact -->
+          <div style="border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 24px; text-align: center;">
+            <p style="font-size: 12px; color: #64748b; margin: 0 0 8px 0;">
+              Need assistance with your delivery? Contact our customer care:
+            </p>
+            <p style="font-size: 12px; font-weight: 600; color: #334155; margin: 0;">
+              Email: <a href="mailto:info@konichiwamart.com" style="color: #7c3aed; text-decoration: none;">info@konichiwamart.com</a> • WhatsApp / Call: +91 8879258004
+            </p>
+            <p style="font-size: 11px; color: #94a3b8; margin: 16px 0 0 0;">
+              ${SELLER_DETAILS.tradeName} • Direct Importer of Authentic Japanese Skincare & Cosmetics
+            </p>
+          </div>
+        </div>
+      `
+    });
+
+    if (response.error) {
+      console.error('[Resend Tracking Email Error]:', response.error);
+      return { success: false, error: response.error.message };
+    }
+
+    console.log(`[Resend Tracking Email SUCCESS] Dispatched tracking email to ${data.customerEmail} for order #${data.orderNumber} (AWB: ${data.awbNumber}, Msg ID: ${response.data?.id})`);
+    return { success: true, messageId: response.data?.id };
+  } catch (err: any) {
+    console.error('[Resend Tracking Email Exception]:', err);
+    return { success: false, error: err.message || 'Failed to dispatch tracking email' };
+  }
+}

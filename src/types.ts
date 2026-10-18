@@ -111,6 +111,8 @@ export interface Order {
   shippingAddress: UserAddress;
   awbNumber: string;
   courierPartner: string;
+  shiprocketOrderId?: string;
+  shiprocketShipmentId?: string;
   estimatedDeliveryDate: string;
   trackingHistory: {
     time: string;

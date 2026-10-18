@@ -1,30 +1,78 @@
 import { Order } from '../types';
 import { lookupPincode } from '../data/pincodes';
+import { createClient } from '@supabase/supabase-js';
 
 let shiprocketToken = '';
 let tokenExpiry = 0;
 
-export async function getShiprocketToken(): Promise<string | null> {
-  const email = process.env.SHIPROCKET_EMAIL;
-  const password = process.env.SHIPROCKET_PASSWORD;
-  
-  if (!email || !password) return null;
+function getSupabase() {
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
+export async function getShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string } | null> {
+  const envEmail = (process.env.SHIPROCKET_EMAIL || '').trim();
+  const envPassword = (process.env.SHIPROCKET_PASSWORD || '').trim();
+  const envPickup = (process.env.SHIPROCKET_PICKUP_LOCATION || 'home').trim();
+
+  if (envEmail && envPassword) {
+    return { email: envEmail, password: envPassword, pickupLocation: envPickup };
+  }
+
+  // Fallback to Supabase database storage
+  try {
+    const supabase = getSupabase();
+    if (supabase) {
+      const { data } = await supabase
+        .from('categories')
+        .select('description')
+        .eq('slug', '_app_shiprocket_config')
+        .maybeSingle();
+
+      if (data?.description) {
+        const parsed = JSON.parse(data.description);
+        if (parsed.email && parsed.password) {
+          return {
+            email: parsed.email.trim(),
+            password: parsed.password.trim(),
+            pickupLocation: (parsed.pickupLocation || envPickup || 'home').trim()
+          };
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Shiprocket] Credential fallback notice:', err);
+  }
+
+  return null;
+}
+
+export async function getShiprocketToken(): Promise<string | null> {
   if (shiprocketToken && Date.now() < tokenExpiry) {
     return shiprocketToken;
+  }
+
+  const creds = await getShiprocketCredentials();
+  if (!creds) {
+    console.warn('[Shiprocket] Missing credentials in environment and database.');
+    return null;
   }
 
   try {
     const res = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email: creds.email, password: creds.password })
     });
     const data = await res.json();
     if (data && data.token) {
       shiprocketToken = data.token;
       tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000; // Token valid for 10 days, cache for 9
       return shiprocketToken;
+    } else {
+      console.error('[Shiprocket Auth Error Response]:', data);
     }
   } catch (err) {
     console.error('Shiprocket Auth Error:', err);
@@ -46,9 +94,9 @@ export function normalizeShiprocketStatus(statusRaw: string | number | undefined
   const numericMap: Record<string, string> = {
     '1': 'CONFIRMED',      // AWB Not Generated
     '2': 'CONFIRMED',      // AWB Assigned
-    '3': 'CONFIRMED',      // Label Generated
-    '4': 'CONFIRMED',      // Pickup Scheduled
-    '5': 'CONFIRMED',      // Manifest Generated
+    '3': 'DISPATCHED',     // Label Generated
+    '4': 'DISPATCHED',     // Pickup Scheduled
+    '5': 'DISPATCHED',     // Manifest Generated
     '6': 'DISPATCHED',     // Shipped / Picked up
     '7': 'DELIVERED',      // Delivered
     '8': 'IN_TRANSIT',     // In Transit
@@ -62,7 +110,7 @@ export function normalizeShiprocketStatus(statusRaw: string | number | undefined
     '16': 'CANCELLED',     // Cancellation Requested
     '17': 'OUT_FOR_DELIVERY', // Out For Delivery
     '18': 'IN_TRANSIT',    // In Transit Hub
-    '19': 'CONFIRMED',     // Out For Pickup
+    '19': 'DISPATCHED',    // Out For Pickup
     '20': 'CONFIRMED',     // Pickup Exception
     '21': 'IN_TRANSIT',    // Undelivered Attempt
     '22': 'IN_TRANSIT',    // Delayed
@@ -78,13 +126,58 @@ export function normalizeShiprocketStatus(statusRaw: string | number | undefined
   // String matchers
   if (statusStr.includes('DELIVERED')) return 'DELIVERED';
   if (statusStr.includes('OUT FOR DELIVERY') || statusStr.includes('OUT_FOR_DELIVERY')) return 'OUT_FOR_DELIVERY';
-  if (statusStr.includes('TRANSIT') || statusStr.includes('REACHED') || statusStr.includes('HUB')) return 'IN_TRANSIT';
-  if (statusStr.includes('SHIP') || statusStr.includes('PICKED') || statusStr.includes('DISPATCH') || statusStr.includes('HANDOVER')) return 'DISPATCHED';
+  if (statusStr.includes('TRANSIT') || statusStr.includes('REACHED') || statusStr.includes('HUB') || statusStr.includes('DELAY')) return 'IN_TRANSIT';
+  if (
+    statusStr.includes('SHIP') || 
+    statusStr.includes('PICKED') || 
+    statusStr.includes('DISPATCH') || 
+    statusStr.includes('HANDOVER') || 
+    statusStr.includes('PICKUP SCHEDULED') || 
+    statusStr.includes('PICKUP GENERATED') || 
+    statusStr.includes('MANIFEST') || 
+    statusStr.includes('LABEL GENERATED')
+  ) {
+    return 'DISPATCHED';
+  }
   if (statusStr.includes('RTO') || statusStr.includes('CANCEL') || statusStr.includes('LOST') || statusStr.includes('RETURN')) return 'CANCELLED';
   if (statusStr.includes('AWB') || statusStr.includes('PAID') || statusStr.includes('CONFIRM') || statusStr.includes('NEW')) return 'CONFIRMED';
 
   return 'CONFIRMED';
 }
+
+/**
+ * Searches Shiprocket orders by channel_order_id (the store's orderNumber)
+ * to automatically link any order created directly or out-of-band.
+ */
+export async function searchShiprocketOrderByNumber(orderNumber: string): Promise<any | null> {
+  const token = await getShiprocketToken();
+  if (!token) return null;
+
+  try {
+    const cleanNumber = orderNumber.trim();
+    const res = await fetch(`https://apiv2.shiprocket.in/v1/external/orders?search=${encodeURIComponent(cleanNumber)}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const list = data?.data || [];
+      const match = list.find((o: any) => 
+        String(o.channel_order_id || '').trim().toLowerCase() === cleanNumber.toLowerCase() ||
+        String(o.id || '').trim() === cleanNumber
+      );
+      return match || (list.length > 0 ? list[0] : null);
+    }
+  } catch (err) {
+    console.warn('[Shiprocket Search Error]:', err);
+  }
+  return null;
+}
+
 
 export interface CourierServiceabilityInfo {
   serviceable: boolean;
@@ -236,6 +329,7 @@ export async function trackShiprocketAwb(awbNumber: string): Promise<{
   mappedStatus: string;
   courierPartner: string;
   estimatedDeliveryDate?: string;
+  trackingUrl?: string;
   scans: Array<{ time: string; location: string; activity: string }>;
   error?: string;
 }> {
@@ -325,74 +419,196 @@ export async function trackShiprocketAwb(awbNumber: string): Promise<{
   };
 }
 
-export async function createShiprocketOrder(order: Order): Promise<{ order_id: number; shipment_id: number; awb_code: string; courier_name: string } | null> {
+export interface ShiprocketOrderDetailsResult {
+  success: boolean;
+  orderId?: number;
+  shipmentId?: number;
+  channelOrderId?: string;
+  rawStatus?: string;
+  mappedStatus: 'CONFIRMED' | 'DISPATCHED' | 'IN_TRANSIT' | 'OUT_FOR_DELIVERY' | 'DELIVERED' | 'CANCELLED';
+  awbNumber?: string;
+  courierPartner?: string;
+  pickupScheduledDate?: string;
+  estimatedDeliveryDate?: string;
+  invoiceLink?: string;
+  trackingUrl?: string;
+  error?: string;
+}
+
+/**
+ * Fetches current shipment details, assigned courier, live AWB, and status
+ * directly from Shiprocket for a given Shiprocket Order ID.
+ */
+export async function fetchShiprocketOrderDetails(shiprocketOrderId: number | string): Promise<ShiprocketOrderDetailsResult> {
   const token = await getShiprocketToken();
-  if (!token) return null; // Fallback to mock if not configured
+  if (!token) {
+    return { success: false, mappedStatus: 'CONFIRMED', error: 'Shiprocket authentication failed' };
+  }
 
   try {
-    const orderItems = order.items.map(item => ({
-      name: item.title,
-      sku: item.productId,
-      units: item.quantity,
-      selling_price: item.price,
-      hsn: "3304"
+    const res = await fetch(`https://apiv2.shiprocket.in/v1/external/orders/show/${shiprocketOrderId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (!res.ok) {
+      return { success: false, mappedStatus: 'CONFIRMED', error: `Shiprocket API error HTTP ${res.status}` };
+    }
+
+    const json = await res.json();
+    const data = json?.data || json;
+
+    if (!data) {
+      return { success: false, mappedStatus: 'CONFIRMED', error: 'Order not found in Shiprocket' };
+    }
+
+    const shipment = Array.isArray(data.shipments) ? data.shipments[0] : (data.shipments || {});
+    const awbData = data.awb_data || {};
+
+    const awb = String(awbData.awb || shipment.awb || data.awb_code || '').trim();
+    const courier = String(shipment.courier || data.courier_name || data.courier_partner || 'Shiprocket Express').trim();
+    const rawStatus = String(shipment.status || data.status || 'NEW').trim();
+    const mappedStatus = normalizeShiprocketStatus(rawStatus) as any;
+    const pickupScheduledDate = shipment.pickup_scheduled_date || data.pickup_scheduled_date || undefined;
+    const etd = data.etd_date || shipment.etd || undefined;
+    const invoiceLink = shipment.invoice_link || data.invoice_link || undefined;
+
+    return {
+      success: true,
+      orderId: data.id || data.order_id,
+      shipmentId: shipment.id || data.shipment_id,
+      channelOrderId: data.channel_order_id,
+      rawStatus,
+      mappedStatus,
+      awbNumber: awb || undefined,
+      courierPartner: courier || undefined,
+      pickupScheduledDate,
+      estimatedDeliveryDate: etd,
+      invoiceLink,
+      trackingUrl: awb ? `https://shiprocket.co/tracking/${awb}` : undefined
+    };
+  } catch (err: any) {
+    console.error('[Shiprocket Show Order Exception]:', err);
+    return { success: false, mappedStatus: 'CONFIRMED', error: err.message };
+  }
+}
+
+export async function createShiprocketOrder(order: any): Promise<{ order_id: number; shipment_id: number; awb_code: string; courier_name: string } | null> {
+  const token = await getShiprocketToken();
+  if (!token) {
+    console.warn('[Shiprocket] Token unavailable. Skipping live Shiprocket dispatch for order:', order?.orderNumber || order?.order_number);
+    return null;
+  }
+
+  const creds = await getShiprocketCredentials();
+  const pickupLocation = (creds?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || 'home').trim();
+
+  try {
+    const rawItems = order.items || order.order_items || [];
+    let orderItems = rawItems.map((item: any) => ({
+      name: item.title || item.name || 'Japanese Skincare Product',
+      sku: item.sku || item.productId || item.product_id || 'SKU-KM',
+      units: Number(item.quantity || item.units || 1),
+      selling_price: Number(item.price || item.unitPrice || item.selling_price || item.unit_price || 0),
+      hsn: String(item.hsn || item.hsn_code || '3304')
     }));
 
-    const date = new Date(order.date);
-    const orderDateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    if (orderItems.length === 0) {
+      orderItems = [{
+        name: 'Japanese Skincare Item',
+        sku: 'SKU-KM',
+        units: 1,
+        selling_price: Number(order.subtotal || order.totalAmount || order.total_amount || 999),
+        hsn: '3304'
+      }];
+    }
 
-    const pickupLocation = (process.env.SHIPROCKET_PICKUP_LOCATION || 'home').trim();
+    let orderDateStr = '';
+    try {
+      const rawDate = order.date || order.created_at || order.createdAt;
+      const d = rawDate ? new Date(rawDate) : new Date();
+      const validDate = isNaN(d.getTime()) ? new Date() : d;
+      orderDateStr = `${validDate.getFullYear()}-${String(validDate.getMonth() + 1).padStart(2, '0')}-${String(validDate.getDate()).padStart(2, '0')} ${String(validDate.getHours()).padStart(2, '0')}:${String(validDate.getMinutes()).padStart(2, '0')}`;
+    } catch {
+      const now = new Date();
+      orderDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    }
+
+    const shippingAddr = order.shippingAddress || {
+      fullName: order.customer_name || order.customerName,
+      addressLine1: order.shipping_address_line1,
+      addressLine2: order.shipping_address_line2,
+      city: order.city,
+      state: order.state,
+      pincode: order.pincode,
+      phone: order.customer_phone || order.customerPhone
+    };
+
+    const cleanEmail = order.customerEmail || order.customer_email || 'customer@example.com';
+    const cleanPhone = order.customerPhone || order.customer_phone || shippingAddr?.phone || '';
+    const paymentMethodRaw = String(order.paymentMethod || order.payment_method || 'Prepaid').toUpperCase();
+    const paymentMethod = paymentMethodRaw.includes('COD') ? 'COD' : 'Prepaid';
+
+    const subTotal = Number(order.subtotal || order.sub_total || order.totalAmount || order.total_amount || 0);
 
     const payload = {
-      order_id: order.orderNumber,
+      order_id: String(order.orderNumber || order.order_number),
       order_date: orderDateStr,
       pickup_location: pickupLocation,
-      channel_id: "",
-      comment: "Konichiwa Mart Order",
-      billing_customer_name: order.shippingAddress?.fullName || 'Customer',
-      billing_last_name: "",
-      billing_address: order.shippingAddress?.addressLine1 || '',
-      billing_address_2: order.shippingAddress?.addressLine2 || '',
-      billing_city: order.shippingAddress?.city || '',
-      billing_pincode: order.shippingAddress?.pincode || '',
-      billing_state: order.shippingAddress?.state || '',
-      billing_country: "India",
-      billing_email: order.customerEmail || 'customer@example.com',
-      billing_phone: order.shippingAddress?.phone || '',
+      channel_id: '',
+      comment: 'Konichiwa Mart Order',
+      billing_customer_name: shippingAddr?.fullName || order.customer_name || 'Customer',
+      billing_last_name: '',
+      billing_address: shippingAddr?.addressLine1 || '',
+      billing_address_2: shippingAddr?.addressLine2 || '',
+      billing_city: shippingAddr?.city || '',
+      billing_pincode: String(shippingAddr?.pincode || ''),
+      billing_state: shippingAddr?.state || '',
+      billing_country: 'India',
+      billing_email: cleanEmail,
+      billing_phone: cleanPhone,
       shipping_is_billing: true,
       order_items: orderItems,
-      payment_method: order.paymentMethod.includes('Prepaid') || order.paymentMethod.includes('RAZORPAY') ? "Prepaid" : "COD",
-      shipping_charges: 0,
+      payment_method: paymentMethod,
+      shipping_charges: Number(order.shippingFee || order.shipping_fee || 0),
       giftwrap_charges: 0,
       transaction_charges: 0,
-      total_discount: order.discountAmount || 0,
-      sub_total: order.subtotal,
+      total_discount: Number(order.discountAmount || order.discount_amount || 0),
+      sub_total: subTotal,
       length: 15,
       breadth: 15,
       height: 10,
       weight: 0.5
     };
 
+    console.log(`[Shiprocket API] Pushing adhoc order ${payload.order_id} to pickup "${pickupLocation}"...`);
+
     const res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`
       },
       body: JSON.stringify(payload)
     });
     
     const data = await res.json();
     if (data && data.order_id) {
+      console.log(`[Shiprocket Success] Order ${payload.order_id} pushed successfully! Order ID: ${data.order_id}, Shipment ID: ${data.shipment_id}`);
       return {
         order_id: data.order_id,
         shipment_id: data.shipment_id,
         awb_code: data.awb_code || '',
         courier_name: data.courier_name || ''
       };
+    } else {
+      console.error(`[Shiprocket API Error] Order ${payload.order_id} rejected by Shiprocket:`, JSON.stringify(data));
     }
   } catch (err) {
-    console.error('Shiprocket Create Order Error:', err);
+    console.error('Shiprocket Create Order Exception:', err);
   }
   return null;
 }
