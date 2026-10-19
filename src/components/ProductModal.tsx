@@ -11,7 +11,6 @@ import {
   Check,
   ChevronRight,
   Home,
-  Edit3,
   BookOpen,
   MessageSquarePlus
 } from 'lucide-react';
@@ -133,22 +132,6 @@ export const ProductModal: React.FC<ProductModalProps> = ({
         <div className="sm:hidden pt-2.5 pb-1 flex justify-center flex-shrink-0 bg-white dark:bg-zinc-900 border-b border-slate-100 dark:border-zinc-800/50">
           <div className="w-12 h-1.5 rounded-full bg-slate-300 dark:bg-zinc-700" />
         </div>
-
-        {/* Operator Quick Edit Button: strictly restricted to verified Supabase operators */}
-        {isOperator && onEditProduct && (
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onEditProduct(product);
-            }}
-            className="absolute top-3 right-14 sm:top-4 sm:right-16 h-9 sm:h-10 px-3 rounded-full bg-slate-900/90 hover:bg-pink-600 text-white flex items-center gap-1.5 transition-all cursor-pointer z-30 border border-slate-700 shadow-md text-xs font-bold active:scale-95"
-            title={`Operator Quick Edit: "${product.title}"`}
-          >
-            <Edit3 className="w-3.5 h-3.5 text-pink-300" />
-            <span className="hidden sm:inline">Edit Product</span>
-          </button>
-        )}
 
         {/* Close Button - Sticky/Always visible at top-right */}
         <button
@@ -363,7 +346,7 @@ export const ProductModal: React.FC<ProductModalProps> = ({
               {/* Delivery Estimation */}
               <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 flex items-center gap-2.5 text-xs text-slate-700 dark:text-zinc-300">
                 <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
-                <span className="font-medium text-slate-800 dark:text-zinc-200">3-5 day pan India delivery</span>
+                <span className="font-medium text-slate-800 dark:text-zinc-200">5-7 business days pan India delivery</span>
               </div>
 
               {/* Relevant Skincare Guide Tip */}

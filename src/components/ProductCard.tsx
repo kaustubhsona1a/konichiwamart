@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, ShoppingBag, Check, Sparkles, Edit3 } from 'lucide-react';
+import { Heart, ShoppingBag, Check, Sparkles } from 'lucide-react';
 import { Product, ProductShade } from '../types';
 import { formatINR } from '../data/pincodes';
 import { getProductCanonicalSlug } from '../lib/seo';
@@ -89,32 +89,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           }}
         />
 
-        {/* Operator Quick Edit Button: strictly restricted to verified Supabase operators */}
-        {isOperator && onEdit && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onEdit(product);
-            }}
-            className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 z-20 px-2 py-1 rounded-lg bg-slate-900/90 hover:bg-pink-600 text-white shadow-md flex items-center gap-1 transition-all hover:scale-105 backdrop-blur-xs text-[10px] font-bold cursor-pointer"
-            title={`Operator Quick Edit: "${product.title}"`}
-            aria-label={`Edit ${product.title}`}
-          >
-            <Edit3 className="w-3 h-3 text-pink-300" />
-            <span className="hidden sm:inline">Edit</span>
-          </button>
-        )}
-
         {/* Coming Soon or Promotional Tag Badge */}
         {isComingSoon ? (
-          <span className={`absolute ${isOperator && onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shadow-sm z-10 flex items-center gap-1`}>
+          <span className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 px-2 py-0.5 rounded-md bg-amber-500 text-white text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider shadow-sm z-10 flex items-center gap-1">
             <Sparkles className="w-2.5 h-2.5" />
             <span>Coming Soon</span>
           </span>
         ) : promoBadge ? (
-          <span className={`absolute ${isOperator && onEdit ? 'top-8 left-1.5 sm:top-9 sm:left-2' : 'top-1.5 left-1.5'} px-2 py-0.5 rounded-md bg-pink-600 text-white text-[9px] sm:text-[10px] font-bold uppercase tracking-wider shadow-2xs z-10`}>
+          <span className="absolute top-1.5 left-1.5 sm:top-2 sm:left-2 px-2 py-0.5 rounded-md bg-pink-600 text-white text-[9px] sm:text-[10px] font-bold uppercase tracking-wider shadow-2xs z-10">
             {promoBadge}
           </span>
         ) : null}

@@ -170,7 +170,7 @@ export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
             Explore {categoryInfo.name} in India
           </div>
           <p className="text-xs text-slate-600 dark:text-zinc-400">
-            Discover our full range of Tokyo-imported {categoryInfo.name.toLowerCase()} with fast 3-5 day delivery.
+            Discover our full range of Tokyo-imported {categoryInfo.name.toLowerCase()} with standard 5-7 business day delivery.
           </p>
         </div>
         <a

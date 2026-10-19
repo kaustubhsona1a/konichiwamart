@@ -805,12 +805,12 @@ export function mapSupabaseRowToOrder(row: any): Order {
     shippingAddress: {
       id: `addr_${row.id}`,
       fullName: row.customer_name || 'Valued Customer',
-      phone: row.customer_phone || '',
-      addressLine1: row.shipping_address_line1 || 'Address not specified',
-      addressLine2: row.shipping_address_line2 || undefined,
-      city: row.shipping_city || 'City',
-      state: row.shipping_state || 'State',
-      pincode: row.shipping_pincode || '000000',
+      phone: row.customer_phone || row.phone || '',
+      addressLine1: row.shipping_address_line1 || row.address_line1 || row.address || 'Address not specified',
+      addressLine2: row.shipping_address_line2 || row.address_line2 || undefined,
+      city: row.city || row.shipping_city || 'Mumbai',
+      state: row.state || row.shipping_state || 'Maharashtra',
+      pincode: row.pincode || row.shipping_pincode || '400093',
       tag: 'Home',
       isDefault: true
     },
@@ -818,7 +818,7 @@ export function mapSupabaseRowToOrder(row: any): Order {
     courierPartner: row.courier_partner || 'Pending Dispatch',
     shiprocketOrderId: row.shiprocket_order_id ? String(row.shiprocket_order_id) : undefined,
     shiprocketShipmentId: row.shiprocket_shipment_id ? String(row.shiprocket_shipment_id) : undefined,
-    estimatedDeliveryDate: row.estimated_delivery_date || '3-5 business days',
+    estimatedDeliveryDate: row.estimated_delivery_date || '5-7 business days',
     trackingHistory: [
       {
         time: dateStr,
@@ -1042,10 +1042,11 @@ export const modifyOrderInSupabase = async (orderId: string, updates: Partial<Or
     if (updates.customerPhone !== undefined) dbPatch.customer_phone = updates.customerPhone;
     if (updates.status !== undefined) dbPatch.status = updates.status.toLowerCase();
     if (updates.shippingAddress) {
-      dbPatch.shipping_address_line1 = updates.shippingAddress.addressLine1;
-      dbPatch.shipping_city = updates.shippingAddress.city;
-      dbPatch.shipping_state = updates.shippingAddress.state;
-      dbPatch.shipping_pincode = updates.shippingAddress.pincode;
+      if (updates.shippingAddress.addressLine1) dbPatch.shipping_address_line1 = updates.shippingAddress.addressLine1;
+      if (updates.shippingAddress.addressLine2 !== undefined) dbPatch.shipping_address_line2 = updates.shippingAddress.addressLine2;
+      if (updates.shippingAddress.city) dbPatch.city = updates.shippingAddress.city;
+      if (updates.shippingAddress.state) dbPatch.state = updates.shippingAddress.state;
+      if (updates.shippingAddress.pincode) dbPatch.pincode = updates.shippingAddress.pincode;
     }
 
     if (Object.keys(dbPatch).length > 0) {

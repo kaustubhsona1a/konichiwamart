@@ -216,7 +216,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             {items.length > 0 && (
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 flex items-center gap-2.5 text-xs text-slate-700 dark:text-zinc-300">
                 <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
-                <span className="font-medium text-slate-800 dark:text-zinc-200">3-5 day pan India delivery</span>
+                <span className="font-medium text-slate-800 dark:text-zinc-200">5-7 business days pan India delivery</span>
               </div>
             )}
 
@@ -285,7 +285,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 <div className="flex justify-between items-center">
                   <div>
                     <span>Shipping</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-zinc-400">Pan-India shipping within 3-5 days after ordering</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-zinc-400">Pan-India shipping within 5-7 business days</span>
                   </div>
                   <span>{shippingFee === 0 ? <strong className="text-emerald-700 dark:text-emerald-400">FREE</strong> : formatINR(shippingFee)}</span>
                 </div>

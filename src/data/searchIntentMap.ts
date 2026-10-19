@@ -619,7 +619,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'Shiseido Senka face wash India'
     ],
     targetAudience: 'Shoppers seeking the authentic Japanese No. 1 micro-dense whipped foam cleanser with natural silk essence.',
-    searchContext: 'Exact product details, 120g size, verified Tokyo import, ₹1099 INR with fast 3-5 day pan-India shipping.',
+    searchContext: 'Exact product details, 120g size, verified Tokyo import, ₹1099 INR with standard 5-7 business day pan-India shipping.',
     relatedCategorySlug: 'face-wash',
     relatedBrandSlug: 'senka',
     relatedGuideSlugs: [

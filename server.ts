@@ -2501,19 +2501,19 @@ app.get('/api/customer/orders', async (req: Request, res: Response) => {
         status: (row.status || 'CONFIRMED').toUpperCase(),
         shippingAddress: {
           id: `addr_${row.id}`,
-          fullName: row.customer_name,
-          phone: row.customer_phone,
-          addressLine1: row.shipping_address_line1,
-          addressLine2: row.shipping_address_line2 || undefined,
-          city: row.city,
-          state: row.state,
-          pincode: row.pincode,
+          fullName: row.customer_name || 'Valued Customer',
+          phone: row.customer_phone || row.phone || '',
+          addressLine1: row.shipping_address_line1 || row.address_line1 || row.address || 'Address not specified',
+          addressLine2: row.shipping_address_line2 || row.address_line2 || undefined,
+          city: row.city || row.shipping_city || 'Mumbai',
+          state: row.state || row.shipping_state || 'Maharashtra',
+          pincode: row.pincode || row.shipping_pincode || '400093',
           tag: 'Home',
           isDefault: false
         },
         awbNumber: row.awb_number || undefined,
         courierPartner: row.courier_partner || 'Blue Dart Air Express',
-        estimatedDeliveryDate: row.estimated_delivery_date || '2-3 Business Days',
+        estimatedDeliveryDate: row.estimated_delivery_date || '5-7 Business Days',
         trackingHistory: [
           {
             time: dateStr,
@@ -2607,19 +2607,19 @@ app.get('/api/admin/orders', async (_req: Request, res: Response) => {
         status: mappedStatus,
         shippingAddress: {
           id: `addr_${row.id}`,
-          fullName: row.customer_name,
-          phone: row.customer_phone,
-          addressLine1: row.shipping_address_line1,
-          addressLine2: row.shipping_address_line2 || undefined,
-          city: row.city,
-          state: row.state,
-          pincode: row.pincode,
+          fullName: row.customer_name || 'Valued Customer',
+          phone: row.customer_phone || row.phone || '',
+          addressLine1: row.shipping_address_line1 || row.address_line1 || row.address || 'Address not specified',
+          addressLine2: row.shipping_address_line2 || row.address_line2 || undefined,
+          city: row.city || row.shipping_city || 'Mumbai',
+          state: row.state || row.shipping_state || 'Maharashtra',
+          pincode: row.pincode || row.shipping_pincode || '400093',
           tag: 'Home',
           isDefault: false
         },
         awbNumber: row.awb_number || '',
         courierPartner: row.courier_partner || 'Pending Dispatch',
-        estimatedDeliveryDate: row.estimated_delivery_date || '3-5 Business Days',
+        estimatedDeliveryDate: row.estimated_delivery_date || '5-7 Business Days',
         trackingHistory: [
           {
             time: dateStr,
@@ -2713,10 +2713,11 @@ app.patch('/api/admin/orders/:orderId', verifyOperatorAccess, async (req: Reques
       if (updates.customerPhone !== undefined) dbPatch.customer_phone = updates.customerPhone;
       if (updates.status !== undefined) dbPatch.status = String(updates.status).toLowerCase();
       if (updates.shippingAddress !== undefined) {
-        dbPatch.shipping_address_line1 = updates.shippingAddress.addressLine1;
-        dbPatch.shipping_city = updates.shippingAddress.city;
-        dbPatch.shipping_state = updates.shippingAddress.state;
-        dbPatch.shipping_pincode = updates.shippingAddress.pincode;
+        if (updates.shippingAddress.addressLine1) dbPatch.shipping_address_line1 = updates.shippingAddress.addressLine1;
+        if (updates.shippingAddress.addressLine2 !== undefined) dbPatch.shipping_address_line2 = updates.shippingAddress.addressLine2;
+        if (updates.shippingAddress.city) dbPatch.city = updates.shippingAddress.city;
+        if (updates.shippingAddress.state) dbPatch.state = updates.shippingAddress.state;
+        if (updates.shippingAddress.pincode) dbPatch.pincode = updates.shippingAddress.pincode;
       }
 
       if (Object.keys(dbPatch).length > 0) {
@@ -3106,7 +3107,7 @@ app.get('/api/shiprocket/serviceability', async (req: Request, res: Response) =>
 
     const weightKg = parseFloat(String(req.query.weight || '0.5')) || 0.5;
     const isCod = req.query.cod !== 'false';
-    const pickupPin = String(req.query.pickup || process.env.STORE_PICKUP_PINCODE || '400050').trim();
+    const pickupPin = String(req.query.pickup || process.env.STORE_PICKUP_PINCODE || '400093').trim();
 
     const result = await checkShiprocketServiceability(pincode, weightKg, isCod, pickupPin);
     return res.status(200).json({
@@ -3834,7 +3835,7 @@ app.get('/api/invoices/:number', async (req: Request, res: Response) => {
   <div class="header">
     <div>
       <div class="title">KONICHIWA MART</div>
-      <p style="margin: 4px 0; font-size: 12px; color: #475569;">Konichiwa Mart Retail Pvt. Ltd.<br>Lower Parel, Mumbai, Maharashtra - 400013</p>
+      <p style="margin: 4px 0; font-size: 12px; color: #475569;">Konichiwa Mart Retail Pvt. Ltd.<br>Car's Empire, Sardar Vallabhai Patel Rd, opp. Model Town, near Punjab & Maharashtra Bank, MMRDA Colony, Andheri East, Mumbai, Maharashtra - 400093</p>
     </div>
     <div style="text-align: right;">
       <h2 style="margin: 0; color: #0f172a; font-size: 20px;">TAX INVOICE</h2>

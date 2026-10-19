@@ -120,7 +120,7 @@ export const SEO_CATEGORIES: Record<string, SeoCategoryInfo> = {
     slug: 'skincare',
     name: 'All Japanese Skincare',
     title: 'Japanese Skincare in India | 100% Tokyo Imports | Konichiwa Mart',
-    metaDescription: 'Explore authentic Japanese skincare in India at Konichiwa Mart. Curated Tokyo bestsellers, verified batch codes, and express 3-5 day delivery across India.',
+    metaDescription: 'Explore authentic Japanese skincare in India at Konichiwa Mart. Curated Tokyo bestsellers, verified batch codes, and standard 5-7 business day delivery across India.',
     h1: 'Complete Japanese Skincare & Beauty Collection',
     introText: 'Every item in our collection is imported directly from certified Tokyo distributors, featuring authentic packaging, genuine batch seals, and reliable doorstep delivery across India. Discover the proven principles of Japanese skincare: gentle double cleansing, multi-layer watery hydration, and disciplined daily sun protection.',
     badge: '100% Tokyo Imports',

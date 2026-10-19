@@ -618,7 +618,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       shippingAddress: targetAddress,
       awbNumber: '',
       courierPartner: deliveryEstimate?.fastestCourier || "Pending Dispatch",
-      estimatedDeliveryDate: deliveryEstimate?.estimatedDeliveryDate || '3-5 business days for delivery',
+      estimatedDeliveryDate: deliveryEstimate?.estimatedDeliveryDate || '5-7 business days for delivery',
       trackingHistory: [
         {
           time: 'Just Now',
@@ -1196,7 +1196,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
             <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-700 text-slate-700 dark:text-zinc-300 text-xs flex items-center gap-2">
               <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400 shrink-0" />
               <span className="font-semibold text-xs">
-                3-5 business days for delivery
+                5-7 business days for delivery
               </span>
             </div>
 
@@ -1332,7 +1332,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
               <div className="flex justify-between items-center">
                 <div>
                   <span>Delivery details would be sent through email</span>
-                  <span className="block text-[10px] text-slate-500 dark:text-zinc-400">3-5 business days for delivery</span>
+                  <span className="block text-[10px] text-slate-500 dark:text-zinc-400">5-7 business days for delivery</span>
                 </div>
                 <span>{shippingFee === 0 ? <strong className="text-emerald-700 dark:text-emerald-400">FREE</strong> : formatINR(shippingFee)}</span>
               </div>

@@ -369,9 +369,10 @@ export function generateOrganizationJsonLd(): Record<string, any> {
     },
     'address': {
       '@type': 'PostalAddress',
+      'streetAddress': "Car's Empire, Sardar Vallabhai Patel Rd, opp. Model Town, near Punjab & Maharashtra Bank, MMRDA Colony, Andheri East",
       'addressLocality': 'Mumbai',
       'addressRegion': 'Maharashtra',
-      'postalCode': '400059',
+      'postalCode': '400093',
       'addressCountry': 'IN'
     }
   };

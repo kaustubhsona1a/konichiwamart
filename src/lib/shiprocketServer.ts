@@ -207,7 +207,7 @@ export async function checkShiprocketServiceability(
   deliveryPincode: string,
   weightKg: number = 0.5,
   isCod: boolean = true,
-  pickupPincode: string = '400050'
+  pickupPincode: string = '400093'
 ): Promise<CourierServiceabilityInfo> {
   const cleanPin = (deliveryPincode || '').trim().replace(/\D/g, '');
   const localFallback = lookupPincode(cleanPin);

@@ -175,7 +175,7 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
             <div className="flex items-center gap-2">
               <MapPin className="w-4 h-4 text-pink-500 flex-shrink-0" />
               <span>
-                <strong>Dispatch Facility:</strong> Andheri East, Mumbai 400069
+                <strong>Dispatch Facility:</strong> Car's Empire, Sardar Vallabhai Patel Rd, opp. Model Town, near Punjab & Maharashtra Bank, MMRDA Colony, Andheri East, Mumbai, Maharashtra 400093
               </span>
             </div>
           </div>
