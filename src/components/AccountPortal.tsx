@@ -88,6 +88,7 @@ interface AccountPortalProps {
   onAddToCart: (product: Product) => void;
   onRemoveWishlist: (productId: string) => void;
   onSignOut?: () => void;
+  onOpenTrackOrder?: (orderNumber?: string) => void;
 }
 
 export const AccountPortal: React.FC<AccountPortalProps> = ({
@@ -98,7 +99,8 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
   onViewInvoice,
   onAddToCart,
   onRemoveWishlist,
-  onSignOut
+  onSignOut,
+  onOpenTrackOrder
 }) => {
   const [activeTab, setActiveTab] = useState<'orders' | 'addresses' | 'wishlist' | 'profile'>('orders');
   
@@ -421,6 +423,15 @@ export const AccountPortal: React.FC<AccountPortalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2">
+                        {onOpenTrackOrder && (
+                          <button
+                            onClick={() => onOpenTrackOrder(normOrder.orderNumber || normOrder.id)}
+                            className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+                          >
+                            <Truck className="w-3.5 h-3.5 text-pink-400" />
+                            <span>Track Order</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => onViewInvoice(normOrder)}
                           className="px-3.5 py-1.5 rounded-xl bg-pink-50 dark:bg-pink-950/50 hover:bg-pink-100 dark:hover:bg-pink-900/60 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-800 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"

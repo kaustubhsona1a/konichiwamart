@@ -45,11 +45,17 @@ import { X,
   FlaskConical,
   Star,
   Heart,
+  Phone,
+  Printer,
+  MessageCircle,
+  MapPin,
+  User,
   ShoppingBag } from 'lucide-react';
 import { Order, Product, ProductCategory, ProductShade, SiteSettings, ReelItem, Review } from '../types';
 import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
 import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore, normalizeOrderItem, getOperatorAuthHeaders } from '../lib/supabase';
+import { generateGSTInvoiceHtml, InvoiceData, InvoiceItem } from '../lib/invoice';
 import { ReelsManager } from './admin/ReelsManager';
 import { ReviewsManager } from './admin/ReviewsManager';
 
@@ -473,6 +479,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [reorderFeedbackMsg, setReorderFeedbackMsg] = useState<string | null>(null);
 
   // Dedicated interactive modals for orders (replaces browser prompt/confirm)
+  const [inspectingOrder, setInspectingOrder] = useState<Order | null>(null);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [editCustomerName, setEditCustomerName] = useState('');
   const [editCustomerEmail, setEditCustomerEmail] = useState('');
@@ -593,6 +600,61 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setShiprocketActionMsg({ type: 'error', text: err.message || 'Network error running tracking sync' });
     } finally {
       setIsFetchingAndEmailing(false);
+    }
+  };
+
+  const handlePrintOrderInvoice = (order: Order) => {
+    try {
+      const items: InvoiceItem[] = (order.items || []).map((i, idx) => ({
+        name: i.title + (i.shade ? ` (${i.shade})` : ''),
+        sku: (i as any).sku || `SKU-KM-${idx + 1}`,
+        hsn: (i as any).hsn || '3304',
+        quantity: i.quantity || 1,
+        unitPrice: i.price || 0,
+        totalPrice: (i.price || 0) * (i.quantity || 1)
+      }));
+
+      const isLocalState = (order.shippingAddress?.state || '').toLowerCase().includes('maharashtra');
+      const totalTax = Math.round(order.totalAmount * 0.18 / 1.18);
+      const cgst = isLocalState ? Math.round(totalTax / 2) : 0;
+      const sgst = isLocalState ? Math.round(totalTax / 2) : 0;
+      const igst = !isLocalState ? totalTax : 0;
+
+      const invoiceData: InvoiceData = {
+        invoiceNumber: order.invoiceNumber || `INV-${order.orderNumber}`,
+        orderNumber: order.orderNumber,
+        date: new Date(order.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        customerPhone: order.customerPhone,
+        addressLine1: order.shippingAddress?.addressLine1 || 'Address',
+        addressLine2: order.shippingAddress?.addressLine2 || '',
+        city: order.shippingAddress?.city || 'Mumbai',
+        state: order.shippingAddress?.state || 'Maharashtra',
+        pincode: order.shippingAddress?.pincode || '400093',
+        items,
+        subtotal: order.subtotal || order.totalAmount,
+        cgst,
+        sgst,
+        igst,
+        shippingFee: order.shippingFee || 0,
+        discountAmount: order.discountAmount || 0,
+        totalAmount: order.totalAmount,
+        paymentMethod: order.paymentMethod || 'PREPAID',
+        paymentId: (order as any).razorpay_payment_id || (order as any).paymentId || 'PAID',
+        awbNumber: order.awbNumber,
+        courierPartner: order.courierPartner
+      };
+      const html = generateGSTInvoiceHtml(invoiceData);
+      const win = window.open('', '_blank');
+      if (win) {
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+        setTimeout(() => win.print(), 400);
+      }
+    } catch (err: any) {
+      console.error('[Invoice Print Error]:', err);
     }
   };
 
@@ -2777,192 +2839,54 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               ) : (
                 <>
                   {/* ================================================================= */}
-                  {/* MOBILE ORDERS LIST (Optimized touch cards for mobile)            */}
+                  {/* MOBILE ORDERS LIST                                               */}
                   {/* ================================================================= */}
                   <div className="block md:hidden space-y-3">
                     {orders.map((o) => (
-                      <div key={o.id} className="bg-white border border-pink-100 rounded-2xl p-4 shadow-xs space-y-3">
+                      <div
+                        key={o.id}
+                        onClick={() => setInspectingOrder(o)}
+                        className="bg-white border border-pink-100 hover:border-pink-300 rounded-2xl p-4 shadow-2xs hover:shadow-md transition-all cursor-pointer space-y-3 active:scale-[0.99]"
+                      >
                         {/* Header: Order ID & Amount */}
                         <div className="flex items-center justify-between border-b border-stone-100 pb-2.5">
                           <div>
-                            <span className="font-mono font-bold text-slate-900 text-xs">{o.orderNumber}</span>
+                            <span className="font-mono font-extrabold text-slate-900 text-xs">{o.orderNumber}</span>
                             <div className="text-[10px] text-slate-400 mt-0.5">
-                              {new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              {new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="font-extrabold text-slate-900 text-sm">{formatINR(o.totalAmount)}</div>
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 mt-0.5">
-                              PAID ({o.paymentMethod})
+                            <div className="font-black text-slate-900 text-sm">{formatINR(o.totalAmount)}</div>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold border ${
+                              o.status === 'DELIVERED'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : o.status === 'CANCELLED'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-pink-50 text-pink-700 border-pink-200'
+                            }`}>
+                              {o.status || 'CONFIRMED'}
                             </span>
                           </div>
                         </div>
 
-                        {/* Customer & Address Details */}
-                        <div className="text-xs space-y-1">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-800">{o.customerName}</span>
-                            <span className="text-[11px] text-slate-500">{o.customerEmail}</span>
-                            <span className="text-[11px] text-slate-500">{o.customerPhone}</span>
-                          </div>
-                          <p className="text-[11px] text-slate-600 leading-snug">
-                            {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})
-                          </p>
-                        </div>
-
-                        {/* Ordered Items with Photos */}
-                        <div className="pt-2 border-t border-stone-100">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1.5">Ordered Items</span>
-                          <div className="space-y-2">
-                            {(o.items || []).map((rawItem, idx) => {
-                              const item = normalizeOrderItem(rawItem);
-                              return (
-                                <div key={idx} className="flex items-center justify-between gap-2 text-xs">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <div className="w-8 h-8 rounded-lg bg-stone-100 border border-stone-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden">
-                                      <img
-                                        src={item.image}
-                                        alt={item.title}
-                                        className="w-full h-full object-contain"
-                                        referrerPolicy="no-referrer"
-                                        onError={(e) => {
-                                          const el = e.currentTarget;
-                                          if (!el.src.includes('/products/keana-rice-mask.png')) {
-                                            el.src = '/products/keana-rice-mask.png';
-                                          }
-                                        }}
-                                      />
-                                    </div>
-                                    <div className="truncate">
-                                      <span className="text-slate-800 font-medium block truncate" title={item.title}>
-                                        {item.quantity}x {item.title}
-                                      </span>
-                                      {item.shade && <span className="text-[10px] text-slate-500">Shade: {item.shade}</span>}
-                                    </div>
-                                  </div>
-                                  <span className="text-slate-900 font-semibold flex-shrink-0">{formatINR(item.price * item.quantity)}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Order Status & Courier Partner */}
-                        <div className="bg-stone-50 p-2.5 rounded-xl border border-stone-200/80 flex items-center justify-between text-xs">
+                        {/* Customer Info & Action */}
+                        <div className="flex items-center justify-between text-xs">
                           <div>
-                            <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Edit Order Status</span>
-                            <select
-                              value={o.status || 'CONFIRMED'}
-                              onChange={(e) => onUpdateOrderStatus(o.id, e.target.value as Order['status'])}
-                              className="bg-white border border-stone-300 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-800 focus:border-pink-500 focus:outline-none cursor-pointer"
-                            >
-                              <option value="CONFIRMED">CONFIRMED</option>
-                              <option value="DISPATCHED">DISPATCHED</option>
-                              <option value="IN_TRANSIT">IN TRANSIT</option>
-                              <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
-                              <option value="DELIVERED">DELIVERED</option>
-                              <option value="CANCELLED">CANCELLED</option>
-                            </select>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-[10px] uppercase font-bold text-slate-400 block">Courier / AWB</span>
-                            <span className="font-semibold text-slate-800 text-[11px]">{o.courierPartner || 'Pending Dispatch'}</span>
-                            {o.awbNumber && <div className="font-mono font-bold text-slate-600 text-[10px]">{o.awbNumber}</div>}
-                          </div>
-                        </div>
-
-                        {/* Shiprocket Logistics Integration */}
-                        <div className="bg-purple-50/70 p-2.5 rounded-xl border border-purple-100 flex flex-col gap-2 text-xs">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              <Truck className="w-3.5 h-3.5 text-purple-700" />
-                              <span className="text-[11px] font-bold text-purple-900">Shiprocket</span>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              {o.shiprocketOrderId || (o as any).shiprocket_order_id ? (
-                                <a
-                                  href="https://app.shiprocket.in/orders"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-white text-purple-700 border border-purple-200 shadow-2xs hover:bg-purple-50 transition-colors"
-                                >
-                                  <span>SR #{o.shiprocketOrderId || (o as any).shiprocket_order_id}</span>
-                                  <ExternalLink className="w-2.5 h-2.5 opacity-60" />
-                                </a>
-                              ) : (
-                                <button
-                                  onClick={() => handlePushOrderToShiprocket(o.id || o.orderNumber)}
-                                  disabled={pushingOrderId === (o.id || o.orderNumber)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs cursor-pointer disabled:opacity-50 transition-all"
-                                >
-                                  {pushingOrderId === (o.id || o.orderNumber) ? (
-                                    <Loader2 className="w-3 h-3 animate-spin" />
-                                  ) : (
-                                    <Truck className="w-3 h-3" />
-                                  )}
-                                  <span>{pushingOrderId === (o.id || o.orderNumber) ? 'Pushing...' : 'Push to SR'}</span>
-                                </button>
-                              )}
-                            </div>
+                            <div className="font-bold text-slate-800">{o.customerName}</div>
+                            <div className="text-[11px] text-slate-500">{o.customerPhone || o.customerEmail}</div>
                           </div>
 
-                          <div className="flex items-center justify-between pt-1 border-t border-purple-100/80">
-                            <div>
-                              {o.awbNumber ? (
-                                <a
-                                  href={`https://shiprocket.co/tracking/${o.awbNumber}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-indigo-700 hover:underline"
-                                  title="Track Live on Shiprocket"
-                                >
-                                  <span>AWB: {o.awbNumber}</span>
-                                  <ExternalLink className="w-2.5 h-2.5" />
-                                </a>
-                              ) : (
-                                <span className="text-[10px] text-slate-500 italic">No AWB yet</span>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => handleFetchAndEmailSingleOrder(o.id || o.orderNumber)}
-                              disabled={fetchingOrderId === (o.id || o.orderNumber)}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs cursor-pointer disabled:opacity-50 transition-all"
-                              title="Fetch live tracking and email customer"
-                            >
-                              {fetchingOrderId === (o.id || o.orderNumber) ? (
-                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                              ) : (
-                                <Mail className="w-2.5 h-2.5" />
-                              )}
-                              <span>{fetchingOrderId === (o.id || o.orderNumber) ? 'Emailing...' : 'Sync & Email AWB'}</span>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Order Management Actions (Edit, Delete, Invoice) */}
-                        <div className="flex items-center gap-2 pt-2 border-t border-stone-100">
                           <button
-                            onClick={() => handleOpenEditOrder(o)}
-                            className="px-3 py-2 rounded-xl bg-white hover:bg-stone-100 border border-stone-200 text-slate-700 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                            title="Edit Order Details"
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setInspectingOrder(o);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-pink-600 text-white font-bold text-xs shadow-2xs flex items-center gap-1"
                           >
-                            <Edit3 className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            onClick={() => setOrderToDelete(o)}
-                            className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 text-xs font-semibold flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                            title="Delete Order"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            <span>Delete</span>
-                          </button>
-                          <button
-                            onClick={() => onViewInvoice(o)}
-                            className="flex-1 py-2 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-700 border border-pink-200 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors shadow-2xs text-center"
-                          >
-                            <span>View GST Invoice</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Details</span>
                           </button>
                         </div>
                       </div>
@@ -2977,163 +2901,91 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <table className="w-full text-left text-xs">
                         <thead className="bg-stone-50/90 text-slate-600 font-semibold uppercase tracking-wider text-[10px] border-b border-stone-200">
                           <tr>
-                            <th className="p-3.5">Order ID</th>
+                            <th className="p-3.5">Order ID & Date</th>
                             <th className="p-3.5">Customer</th>
                             <th className="p-3.5">Ordered Items</th>
-                            <th className="p-3.5">Shipping Address</th>
                             <th className="p-3.5">Amount</th>
-                            <th className="p-3.5">Payment</th>
-                            <th className="p-3.5">Delivery</th>
-                            <th className="p-3.5">Shiprocket</th>
-                            <th className="p-3.5 text-right">Actions</th>
+                            <th className="p-3.5">Status</th>
+                            <th className="p-3.5">Logistics</th>
+                            <th className="p-3.5 text-right">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-100">
                           {orders.map((o) => (
-                            <tr key={o.id} className="text-slate-700 hover:bg-pink-50/30 transition-colors">
-                              <td className="p-3.5 font-mono font-bold text-slate-900">{o.orderNumber}</td>
+                            <tr
+                              key={o.id}
+                              onClick={() => setInspectingOrder(o)}
+                              className="text-slate-700 hover:bg-pink-50/40 transition-colors cursor-pointer group"
+                            >
                               <td className="p-3.5">
-                                <div className="font-semibold text-slate-900">{o.customerName}</div>
-                                <div className="text-[10px] text-slate-500">{o.customerEmail}</div>
-                                <div className="text-[10px] text-slate-400">{o.customerPhone}</div>
-                              </td>
-                              <td className="p-3.5 text-slate-600 max-w-[240px]">
-                                <div className="space-y-1.5 text-[11px]">
-                                  {(o.items || []).map((rawItem, idx) => {
-                                    const item = normalizeOrderItem(rawItem);
-                                    return (
-                                      <div key={idx} className="flex items-center gap-2">
-                                        <div className="w-7 h-7 rounded-md bg-stone-100 border border-stone-200 p-0.5 flex-shrink-0 flex items-center justify-center overflow-hidden">
-                                          <img
-                                            src={item.image}
-                                            alt={item.title}
-                                            className="w-full h-full object-contain"
-                                            referrerPolicy="no-referrer"
-                                            onError={(e) => {
-                                              const el = e.currentTarget;
-                                              if (!el.src.includes('/products/keana-rice-mask.png')) {
-                                                el.src = '/products/keana-rice-mask.png';
-                                              }
-                                            }}
-                                          />
-                                        </div>
-                                        <div className="truncate min-w-0">
-                                          <span className="font-medium text-slate-800 truncate block" title={item.title}>
-                                            {item.quantity}x {item.title}
-                                          </span>
-                                          {item.shade && <span className="text-[10px] text-slate-400 block">Shade: {item.shade}</span>}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
+                                <div className="font-mono font-bold text-slate-900 group-hover:text-pink-600 transition-colors">
+                                  {o.orderNumber}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  {new Date(o.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                                 </div>
                               </td>
-                              <td className="p-3.5 text-slate-600">
-                                {o.shippingAddress.addressLine1}, {o.shippingAddress.city}, {o.shippingAddress.state} ({o.shippingAddress.pincode})
-                              </td>
-                              <td className="p-3.5 font-bold text-slate-900">{formatINR(o.totalAmount)}</td>
+
                               <td className="p-3.5">
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                  PAID ({o.paymentMethod})
+                                <div className="font-bold text-slate-900">{o.customerName}</div>
+                                <div className="text-[10px] text-slate-500">{o.customerPhone}</div>
+                                <div className="text-[10px] text-slate-400 truncate max-w-[150px]">{o.customerEmail}</div>
+                              </td>
+
+                              <td className="p-3.5 text-slate-600 max-w-[220px]">
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="font-semibold text-slate-800">
+                                    {(o.items || []).length} item(s):
+                                  </span>
+                                  <span className="text-[11px] text-slate-500 truncate">
+                                    {(o.items || []).map(i => i.title).join(', ')}
+                                  </span>
+                                </div>
+                              </td>
+
+                              <td className="p-3.5">
+                                <div className="font-extrabold text-slate-900">{formatINR(o.totalAmount)}</div>
+                                <span className="text-[9px] font-bold text-emerald-700 uppercase">PAID ({o.paymentMethod || 'CARD/UPI'})</span>
+                              </td>
+
+                              <td className="p-3.5">
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                                  o.status === 'DELIVERED'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : o.status === 'CANCELLED'
+                                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                    : 'bg-amber-50 text-amber-800 border-amber-200'
+                                }`}>
+                                  {o.status || 'CONFIRMED'}
                                 </span>
                               </td>
-                              <td className="p-3.5">
-                                <select
-                                  value={o.status || 'CONFIRMED'}
-                                  onChange={(e) => onUpdateOrderStatus(o.id, e.target.value as Order['status'])}
-                                  className="bg-white border border-stone-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 shadow-2xs focus:border-pink-500 focus:outline-none cursor-pointer"
-                                >
-                                  <option value="CONFIRMED">CONFIRMED</option>
-                                  <option value="DISPATCHED">DISPATCHED</option>
-                                  <option value="IN_TRANSIT">IN TRANSIT</option>
-                                  <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
-                                  <option value="DELIVERED">DELIVERED</option>
-                                  <option value="CANCELLED">CANCELLED</option>
-                                </select>
-                              </td>
-                              <td className="p-3.5">
-                                <div className="flex flex-col gap-1.5 items-start">
-                                  {o.shiprocketOrderId || (o as any).shiprocket_order_id ? (
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <a
-                                        href="https://app.shiprocket.in/orders"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 shadow-2xs transition-colors"
-                                        title="View in Shiprocket Dashboard"
-                                      >
-                                        <Truck className="w-2.5 h-2.5 text-purple-600" />
-                                        <span>SR #{o.shiprocketOrderId || (o as any).shiprocket_order_id}</span>
-                                        <ExternalLink className="w-2 h-2 opacity-60" />
-                                      </a>
 
-                                      {o.awbNumber ? (
-                                        <a
-                                          href={`https://shiprocket.co/tracking/${o.awbNumber}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-indigo-700 hover:underline bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200"
-                                          title="Track on Shiprocket"
-                                        >
-                                          <span>AWB: {o.awbNumber}</span>
-                                          <ExternalLink className="w-2 h-2" />
-                                        </a>
-                                      ) : null}
-                                    </div>
-                                  ) : (
-                                    <button
-                                      onClick={() => handlePushOrderToShiprocket(o.id || o.orderNumber)}
-                                      disabled={pushingOrderId === (o.id || o.orderNumber)}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-2xs transition-all cursor-pointer disabled:opacity-50"
-                                      title="Push this order to Shiprocket"
-                                    >
-                                      {pushingOrderId === (o.id || o.orderNumber) ? (
-                                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                                      ) : (
-                                        <Truck className="w-2.5 h-2.5" />
-                                      )}
-                                      <span>{pushingOrderId === (o.id || o.orderNumber) ? 'Pushing...' : 'Push to SR'}</span>
-                                    </button>
-                                  )}
-
-                                  <button
-                                    onClick={() => handleFetchAndEmailSingleOrder(o.id || o.orderNumber)}
-                                    disabled={fetchingOrderId === (o.id || o.orderNumber)}
-                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
-                                    title="Fetch latest Shiprocket tracking and email customer"
-                                  >
-                                    {fetchingOrderId === (o.id || o.orderNumber) ? (
-                                      <Loader2 className="w-2.5 h-2.5 animate-spin text-indigo-600" />
-                                    ) : (
-                                      <Mail className="w-2.5 h-2.5 text-indigo-600" />
-                                    )}
-                                    <span>{fetchingOrderId === (o.id || o.orderNumber) ? 'Emailing...' : 'Fetch & Email AWB'}</span>
-                                  </button>
-                                </div>
+                              <td className="p-3.5">
+                                {o.awbNumber ? (
+                                  <div className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded inline-block">
+                                    AWB: {o.awbNumber}
+                                  </div>
+                                ) : o.shiprocketOrderId || (o as any).shiprocket_order_id ? (
+                                  <div className="text-[10px] font-bold text-purple-700 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded inline-block">
+                                    SR #{o.shiprocketOrderId || (o as any).shiprocket_order_id}
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 italic">Pending Push</span>
+                                )}
                               </td>
+
                               <td className="p-3.5 text-right">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <button
-                                    onClick={() => handleOpenEditOrder(o)}
-                                    className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-pink-50 hover:text-pink-700 border border-stone-200 text-slate-600 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
-                                    title="Edit Order Details"
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => setOrderToDelete(o)}
-                                    className="w-8 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 hover:text-rose-700 border border-rose-200 text-rose-600 flex items-center justify-center transition-colors shadow-2xs cursor-pointer"
-                                    title="Delete Order"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => onViewInvoice(o)}
-                                    className="px-3 py-1.5 rounded-lg bg-white hover:bg-pink-50 text-slate-700 hover:text-pink-700 border border-stone-200 font-semibold text-xs cursor-pointer shadow-2xs transition-colors whitespace-nowrap"
-                                  >
-                                    View GST Invoice
-                                  </button>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInspectingOrder(o);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-600 hover:bg-pink-700 text-white font-bold text-xs shadow-2xs transition-all cursor-pointer active:scale-95"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>View Order</span>
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -4870,7 +4722,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                         {/* Custom Card Badges */}
                         <div>
-                          <div className="text-[11px] font-semibold text-slate-600 mb-1.5">Custom Card Badges (e.g. "Viral Hit", "Direct Tokyo Import", "Trending Tokyo")</div>
+                          <div className="text-[11px] font-semibold text-slate-600 mb-1.5">Custom Card Badges (e.g. "Viral Hit", "Direct Japanese Import", "Trending Japanese")</div>
                           <div className="flex items-center gap-2 mb-2">
                             <input
                               type="text"
@@ -5852,6 +5704,351 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* ORDER INSPECTION & FULL DETAILS MODAL (`inspectingOrder`)                  */}
+      {/* ========================================================================= */}
+      {inspectingOrder && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-3xl w-full border border-pink-100 shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="bg-slate-900 text-white p-4 sm:p-5 flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-pink-600/20 border border-pink-500/30 flex items-center justify-center text-pink-400 font-extrabold flex-shrink-0">
+                  <ShoppingBag className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-mono font-extrabold text-base sm:text-lg tracking-wide text-white">
+                      #{inspectingOrder.orderNumber}
+                    </h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                      inspectingOrder.status === 'DELIVERED'
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : inspectingOrder.status === 'CANCELLED'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                        : inspectingOrder.status === 'IN_TRANSIT' || inspectingOrder.status === 'OUT_FOR_DELIVERY'
+                        ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                    }`}>
+                      {inspectingOrder.status || 'CONFIRMED'}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                    <span>Placed on {new Date(inspectingOrder.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    <span>•</span>
+                    <span className="font-mono text-pink-300 font-semibold">{inspectingOrder.invoiceNumber || `INV-${inspectingOrder.orderNumber}`}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handlePrintOrderInvoice(inspectingOrder)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-700 shadow-2xs"
+                  title="Print official GST Tax Invoice"
+                >
+                  <Printer className="w-3.5 h-3.5 text-pink-400" />
+                  <span>Tax Invoice</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setInspectingOrder(null)}
+                  className="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer transition-colors border border-slate-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body (Scrollable) */}
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-6 text-xs divide-y divide-stone-100">
+              
+              {/* 1. Quick Connect & Support Bar (USER HIGHLIGHT REQUEST) */}
+              <div className="p-4 bg-gradient-to-r from-pink-50 via-rose-50 to-purple-50 rounded-2xl border border-pink-200/80 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2 text-pink-900 font-extrabold text-xs uppercase tracking-wider">
+                    <MessageCircle className="w-4 h-4 text-emerald-600" />
+                    <span>1-Click Customer Outreach & Direct Support</span>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-600 bg-white/90 px-2.5 py-0.5 rounded-full border border-pink-200">
+                    Store Support: <strong className="text-pink-700">+91 8879258004</strong>
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Connect via WhatsApp */}
+                  <a
+                    href={`https://wa.me/91${(inspectingOrder.customerPhone || '8879258004').replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(
+                      `Hi ${inspectingOrder.customerName || 'Valued Customer'}, greeting from Konichiwa Mart! Regarding your Order #${inspectingOrder.orderNumber} (Amount: ${formatINR(inspectingOrder.totalAmount)}) - how can we assist you today?`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Connect on WhatsApp</span>
+                  </a>
+
+                  {/* Connect via Email */}
+                  <a
+                    href={`mailto:${inspectingOrder.customerEmail}?subject=${encodeURIComponent(`Konichiwa Mart Order #${inspectingOrder.orderNumber}`)}&body=${encodeURIComponent(
+                      `Dear ${inspectingOrder.customerName || 'Valued Customer'},\n\nThank you for shopping with Konichiwa Mart!\n\nWe are reaching out regarding your Order #${inspectingOrder.orderNumber}.\n\nOrder Summary:\n- Amount Paid: ${formatINR(inspectingOrder.totalAmount)}\n- Current Status: ${inspectingOrder.status || 'CONFIRMED'}\n${inspectingOrder.awbNumber ? `- Tracking AWB: ${inspectingOrder.awbNumber}\n` : ''}\nIf you have any queries or requests, please reply to this email or call our customer hotline at +91 8879258004.\n\nWarm regards,\nKonichiwa Mart Team`
+                    )}`}
+                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+                  >
+                    <Mail className="w-4 h-4" />
+                    <span>Connect on Email</span>
+                  </a>
+                </div>
+              </div>
+
+              {/* 2. Customer & Delivery Address Grid */}
+              <div className="pt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Customer Details */}
+                <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200/80 space-y-2">
+                  <div className="flex items-center gap-2 text-slate-800 font-bold uppercase tracking-wider text-[11px]">
+                    <User className="w-3.5 h-3.5 text-pink-600" />
+                    <span>Customer Profile</span>
+                  </div>
+                  <div className="space-y-1 text-slate-700">
+                    <div className="font-extrabold text-sm text-slate-900">{inspectingOrder.customerName}</div>
+                    <div className="flex items-center gap-1.5 text-slate-600">
+                      <Phone className="w-3 h-3 text-slate-400" />
+                      <a href={`tel:${inspectingOrder.customerPhone}`} className="hover:text-pink-600 hover:underline font-medium">
+                        {inspectingOrder.customerPhone || 'Not provided'}
+                      </a>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-slate-600 truncate">
+                      <Mail className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                      <a href={`mailto:${inspectingOrder.customerEmail}`} className="hover:text-pink-600 hover:underline truncate">
+                        {inspectingOrder.customerEmail}
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Shipping Address */}
+                <div className="p-3.5 bg-stone-50 rounded-2xl border border-stone-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-slate-800 font-bold uppercase tracking-wider text-[11px]">
+                      <MapPin className="w-3.5 h-3.5 text-pink-600" />
+                      <span>Shipping Destination</span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-slate-500 bg-stone-200/60 px-2 py-0.5 rounded-full">
+                      PIN: {inspectingOrder.shippingAddress?.pincode}
+                    </span>
+                  </div>
+                  <div className="text-slate-700 leading-relaxed space-y-0.5">
+                    <div className="font-semibold text-slate-900">{inspectingOrder.shippingAddress?.fullName || inspectingOrder.customerName}</div>
+                    <div>{inspectingOrder.shippingAddress?.addressLine1}</div>
+                    {inspectingOrder.shippingAddress?.addressLine2 && <div>{inspectingOrder.shippingAddress.addressLine2}</div>}
+                    <div className="font-medium text-slate-900">
+                      {inspectingOrder.shippingAddress?.city}, {inspectingOrder.shippingAddress?.state} - {inspectingOrder.shippingAddress?.pincode}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Ordered Items & Financial Summary */}
+              <div className="pt-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold uppercase tracking-wider text-slate-800 text-xs flex items-center gap-2">
+                    <Package className="w-4 h-4 text-pink-600" />
+                    <span>Ordered Items ({(inspectingOrder.items || []).reduce((s, i) => s + (i.quantity || 1), 0)})</span>
+                  </h4>
+                  <span className="font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full text-[10px]">
+                    PAYMENT: {inspectingOrder.paymentMethod || 'PREPAID'}
+                  </span>
+                </div>
+
+                <div className="bg-stone-50 rounded-2xl border border-stone-200/80 overflow-hidden divide-y divide-stone-200/60">
+                  {(inspectingOrder.items || []).map((item, idx) => (
+                    <div key={idx} className="p-3 flex items-center justify-between gap-3 hover:bg-white transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {item.image ? (
+                          <div className="w-11 h-11 rounded-xl bg-white border border-stone-200 overflow-hidden flex-shrink-0 flex items-center justify-center p-0.5">
+                            <img src={item.image} alt={item.title} className="w-full h-full object-contain" />
+                          </div>
+                        ) : (
+                          <div className="w-11 h-11 rounded-xl bg-pink-100 text-pink-700 font-bold flex items-center justify-center flex-shrink-0 text-xs">
+                            KM
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900 truncate">{item.title}</div>
+                          <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span>Qty: <strong className="text-slate-800">{item.quantity}</strong></span>
+                            {item.shade && <span className="bg-pink-100 text-pink-800 text-[10px] px-1.5 py-0.2 rounded font-semibold">{item.shade}</span>}
+                            {(item as any).sku && <span className="font-mono text-[10px] text-slate-400">SKU: {(item as any).sku}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right flex-shrink-0 font-bold text-slate-900">
+                        {formatINR(item.price * item.quantity)}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Pricing Breakdown */}
+                  <div className="p-3.5 bg-stone-100/70 space-y-1.5 border-t border-stone-200">
+                    <div className="flex justify-between text-slate-600 text-[11px]">
+                      <span>Subtotal:</span>
+                      <span>{formatINR(inspectingOrder.subtotal || inspectingOrder.totalAmount)}</span>
+                    </div>
+                    {Boolean(inspectingOrder.shippingFee) && (
+                      <div className="flex justify-between text-slate-600 text-[11px]">
+                        <span>Shipping Fee:</span>
+                        <span>{formatINR(inspectingOrder.shippingFee)}</span>
+                      </div>
+                    )}
+                    {Boolean(inspectingOrder.discountAmount) && (
+                      <div className="flex justify-between text-rose-600 text-[11px] font-semibold">
+                        <span>Discount Applied:</span>
+                        <span>-{formatINR(inspectingOrder.discountAmount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-slate-900 font-extrabold text-sm pt-1 border-t border-stone-200">
+                      <span>Total Paid:</span>
+                      <span className="text-pink-600">{formatINR(inspectingOrder.totalAmount)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Shiprocket Logistics & Courier Status Section */}
+              <div className="pt-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold uppercase tracking-wider text-slate-800 text-xs flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-purple-600" />
+                    <span>Shiprocket Automated Courier Logistics</span>
+                  </h4>
+                  {inspectingOrder.awbNumber && (
+                    <a
+                      href={`https://shiprocket.co/tracking/${inspectingOrder.awbNumber}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-purple-700 hover:text-purple-900 font-bold text-[11px] inline-flex items-center gap-1 hover:underline"
+                    >
+                      <span>Track AWB Live</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+
+                <div className="p-4 bg-purple-50/60 rounded-2xl border border-purple-200/80 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Shiprocket Order ID</span>
+                      <div className="font-mono font-extrabold text-purple-900 text-xs mt-0.5">
+                        {inspectingOrder.shiprocketOrderId || (inspectingOrder as any).shiprocket_order_id ? (
+                          `#${inspectingOrder.shiprocketOrderId || (inspectingOrder as any).shiprocket_order_id}`
+                        ) : (
+                          <span className="text-amber-700 font-sans italic text-[11px]">Not synced yet</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">AWB Tracking Number</span>
+                      <div className="font-mono font-extrabold text-indigo-900 text-xs mt-0.5">
+                        {inspectingOrder.awbNumber || 'Pending Assignment'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-500 block">Courier Partner</span>
+                      <div className="font-bold text-slate-900 text-xs mt-0.5">
+                        {inspectingOrder.courierPartner || 'Pending Dispatch'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-purple-200/60 flex items-center justify-between flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={pushingOrderId === inspectingOrder.id}
+                      onClick={() => handlePushOrderToShiprocket(inspectingOrder.id)}
+                      className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                    >
+                      <Truck className={`w-3.5 h-3.5 ${pushingOrderId === inspectingOrder.id ? 'animate-bounce' : ''}`} />
+                      <span>{pushingOrderId === inspectingOrder.id ? 'Pushing to Shiprocket...' : inspectingOrder.shiprocketOrderId ? 'Re-Sync with Shiprocket' : 'Push Order to Shiprocket'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={fetchingOrderId === inspectingOrder.id}
+                      onClick={() => handleFetchAndEmailSingleOrder(inspectingOrder.id)}
+                      className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 disabled:opacity-50 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                    >
+                      <Mail className={`w-3.5 h-3.5 ${fetchingOrderId === inspectingOrder.id ? 'animate-bounce' : ''}`} />
+                      <span>{fetchingOrderId === inspectingOrder.id ? 'Syncing...' : 'Fetch Status & Email Customer'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Status Management & Actions Bar */}
+              <div className="pt-5 flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-700 uppercase tracking-wider text-[11px]">Quick Status:</span>
+                  <select
+                    value={inspectingOrder.status || 'CONFIRMED'}
+                    onChange={async (e) => {
+                      const newStatus = e.target.value as Order['status'];
+                      if (onUpdateOrderStatus) {
+                        await onUpdateOrderStatus(inspectingOrder.id, newStatus);
+                        setInspectingOrder({ ...inspectingOrder, status: newStatus });
+                        setOrderActionMsg(`Order #${inspectingOrder.orderNumber} status changed to ${newStatus}`);
+                        setTimeout(() => setOrderActionMsg(null), 3000);
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-stone-100 border border-stone-300 font-bold text-slate-900 text-xs focus:bg-white focus:border-pink-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="CONFIRMED">CONFIRMED (Order Received)</option>
+                    <option value="DISPATCHED">DISPATCHED (Packed)</option>
+                    <option value="IN_TRANSIT">IN TRANSIT (With Courier)</option>
+                    <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY (Last Mile)</option>
+                    <option value="DELIVERED">DELIVERED (Fulfilled)</option>
+                    <option value="CANCELLED">CANCELLED (Void / Refunded)</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = inspectingOrder;
+                      setInspectingOrder(null);
+                      handleOpenEditOrder(target);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-800 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Edit Details</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = inspectingOrder;
+                      setInspectingOrder(null);
+                      setOrderToDelete(target);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </div>
+
+            </div>
           </div>
         </div>
       )}

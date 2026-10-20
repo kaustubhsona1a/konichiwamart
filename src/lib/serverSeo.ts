@@ -47,7 +47,7 @@ export interface SeoMetadataPayload {
 function build404Payload(urlPath: string, entityType: string, slug: string): SeoMetadataPayload {
   const displaySlug = slug ? ` "${slug}"` : '';
   const title = 'Page Not Found (404) | Konichiwa Mart';
-  const description = `The requested Japanese skincare ${entityType.toLowerCase()}${displaySlug} could not be found. Explore our authentic Tokyo-imported collections at Konichiwa Mart.`;
+  const description = `The requested Japanese skincare ${entityType.toLowerCase()}${displaySlug} could not be found. Explore our authentic Japanese-imported collections at Konichiwa Mart.`;
   const h1 = '404 - Page Not Found';
   const crawlerHtml = `
     <main class="seo-crawler-page seo-404-page">
@@ -179,7 +179,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
               ${brand && brand.name ? `<strong>Brand:</strong> ${hasBrandLink ? `<a href="/brands/${brand.slug}">${escapeHtml(brand.name)}</a>` : `<span>${escapeHtml(brand.name)}</span>`} | ` : ''}
               <strong>Category:</strong> <a href="/collections/${categorySlug}">${escapeHtml(product.category || categoryName)}</a>
               ${product.volume ? ` | <strong>Size:</strong> <span>${escapeHtml(product.volume)}</span>` : ''} | 
-              <strong>Origin:</strong> <span>Japan (Direct Tokyo Import)</span>
+              <strong>Origin:</strong> <span>Japan (Direct Japanese Import)</span>
             </p>
           </div>
 
@@ -203,7 +203,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
 
           <section class="product-description" itemprop="description">
             <h2>Product Description</h2>
-            <p>${escapeHtml(product.description || product.subtitle || `${product.title} imported directly from Tokyo, Japan.`)}</p>
+            <p>${escapeHtml(product.description || product.subtitle || `${product.title} imported directly from Japan.`)}</p>
           </section>
 
           ${product.benefits && product.benefits.length > 0 ? `
@@ -275,7 +275,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
 
           <footer class="product-footer-links">
             <p>
-              Explore all <a href="/collections/${categorySlug}">${escapeHtml(categoryName)}</a> and genuine Tokyo imports at <a href="/">Konichiwa Mart</a>.
+              Explore all <a href="/collections/${categorySlug}">${escapeHtml(categoryName)}</a> and genuine Japanese imports at <a href="/">Konichiwa Mart</a>.
               ${hasBrandLink && brand ? ` View more products from <a href="/brands/${brand.slug}">${escapeHtml(brand.name)}</a>.` : ''}
             </p>
           </footer>
@@ -345,7 +345,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
           ${categoryInfo.relatedBrandSlugs && categoryInfo.relatedBrandSlugs.length > 0 ? `
           <section class="category-brands-nav">
             <h2>Featured Japanese Brands in this Collection</h2>
-            <p>Explore authentic Tokyo brands formulating genuine ${escapeHtml(categoryInfo.name)}:</p>
+            <p>Explore authentic Japanese brands formulating genuine ${escapeHtml(categoryInfo.name)}:</p>
             <ul>
               ${categoryInfo.relatedBrandSlugs.map(bSlug => {
                 const b = SEO_BRANDS[bSlug];
@@ -373,7 +373,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
                 </li>
               `).join('')}
             </ul>` : `
-            <p>Our upcoming Tokyo shipment is currently restocking items in this collection. Explore other Japanese skincare essentials below.</p>`}
+            <p>Our upcoming Japanese shipment is currently restocking items in this collection. Explore other Japanese skincare essentials below.</p>`}
           </div>
 
           <section class="other-collections-nav">
@@ -474,7 +474,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
               `).join('')}
             </ul>` : `
             <div class="brand-restock-notice">
-              <p>Fresh batches of authentic ${escapeHtml(brandInfo.name)} from Tokyo are currently en route or restocking. In the meantime, browse our popular Japanese skincare essentials below or visit our <a href="/collections/skincare">Skincare Collection</a>.</p>
+              <p>Fresh batches of authentic ${escapeHtml(brandInfo.name)} from Japan are currently en route or restocking. In the meantime, browse our popular Japanese skincare essentials below or visit our <a href="/collections/skincare">Skincare Collection</a>.</p>
               <ul>
                 ${allProducts.slice(0, 6).map(p => `
                   <li>
@@ -487,7 +487,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
 
           <footer class="brand-footer-nav">
             <p>
-              Explore all <a href="/collections/skincare">Japanese Skincare Collections</a> or learn about our direct Tokyo sourcing on our <a href="/about">About Us</a> page.
+              Explore all <a href="/collections/skincare">Japanese Skincare Collections</a> or learn about our direct Japanese sourcing on our <a href="/about">About Us</a> page.
             </p>
           </footer>
         </main>
@@ -568,7 +568,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
           ${matchedProducts.length > 0 ? `
           <section class="guide-recommended-products">
             <h2>Recommended Japanese Skincare Products in this Guide</h2>
-            <p>Every product recommended in this guide is 100% authentic, imported directly from Tokyo, and stocked for fast delivery in India:</p>
+            <p>Every product recommended in this guide is 100% authentic, imported directly from Japan, and stocked for fast delivery in India:</p>
             <ul>
               ${matchedProducts.map(p => {
                 const brand = inferBrandFromProduct(p);
@@ -632,16 +632,36 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
   if (path === '/about') {
     return {
       title: 'About Konichiwa Mart | Authentic Japanese Skincare Dispensary India',
-      description: 'Learn about Konichiwa Mart: Direct Tokyo imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
+      description: 'Learn about Konichiwa Mart: Direct Japanese imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
       canonicalUrl: `${CANONICAL_SITE_URL}/about`,
       ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
       ogType: 'website',
       jsonLd: [orgSchema, webSiteSchema],
-      h1: 'About Konichiwa Mart – Direct Tokyo Skincare Dispensary',
+      h1: 'About Konichiwa Mart – Direct Japanese Skincare Dispensary',
       crawlerHtml: `
         <main class="seo-crawler-page">
           <h1>About Konichiwa Mart</h1>
-          <p>Konichiwa Mart is India's premier boutique dispensary for 100% authentic Japanese beauty (J-Beauty) and skincare essentials imported directly from Tokyo.</p>
+          <p>Konichiwa Mart is India's premier boutique dispensary for 100% authentic Japanese beauty (J-Beauty) and skincare essentials imported directly from Japan.</p>
+        </main>
+      `,
+      status: 200
+    };
+  }
+
+  // 5b. REFUND & RETURN POLICY PAGES
+  if (path === '/return-policy' || path === '/refund-policy' || path === '/cancellation-policy' || path === '/shipping-policy') {
+    return {
+      title: 'Refund, Return & Cancellation Policy | Konichiwa Mart',
+      description: 'Read Konichiwa Mart 100% transparent 7-day return policy, instant 3-5 day refund processing timeline, and order cancellation terms across India.',
+      canonicalUrl: `${CANONICAL_SITE_URL}/return-policy`,
+      ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+      ogType: 'website',
+      jsonLd: [orgSchema, webSiteSchema],
+      h1: 'Refund, Return & Cancellation Policy',
+      crawlerHtml: `
+        <main class="seo-crawler-page">
+          <h1>Refund, Return & Cancellation Policy - Konichiwa Mart</h1>
+          <p>We accept return requests within 7 days from delivery for damaged, defective, or incorrect items. Approved refunds are credited back to the original payment method within 3 to 5 business days. Orders can be cancelled prior to courier dispatch for a 100% full refund.</p>
         </main>
       `,
       status: 200
@@ -650,13 +670,13 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
 
   // 6. DEFAULT HOMEPAGE: /
   const homeTitle = 'Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India';
-  const homeDesc = 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Tokyo imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.';
+  const homeDesc = 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Japanese imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.';
   const homeCanonical = `${CANONICAL_SITE_URL}/`;
 
   const homeCrawlerHtml = `
     <main class="seo-crawler-page">
       <h1>Konichiwa Mart – Authentic Japanese Skincare & Cosmetics India</h1>
-      <p>Direct Tokyo imports of verified Japanese beauty essentials: sunscreens, face washes, multi-weight hyaluronic lotions, and hair masks.</p>
+      <p>Direct Japanese imports of verified Japanese beauty essentials: sunscreens, face washes, multi-weight hyaluronic lotions, and hair masks.</p>
 
       <section class="seo-collections-nav">
         <h2>Shop by Japanese Skincare Collection</h2>
@@ -671,7 +691,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
       </section>
 
       <section class="seo-brands-nav">
-        <h2>Authentic Tokyo Brands</h2>
+        <h2>Authentic Japanese Brands</h2>
         <ul>
           <li><a href="/brands/senka">Senka by Shiseido</a></li>
           <li><a href="/brands/biore">Bioré UV & Skincare</a></li>

@@ -5,6 +5,7 @@ import {
   Clock, 
   MapPin, 
   Instagram, 
+  PhoneCall,
   Send, 
   CheckCircle2, 
   Sparkles 
@@ -126,7 +127,23 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
         <div className="p-5 sm:p-6 overflow-y-auto space-y-6 text-left">
           
           {/* Quick Direct Channels Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+            {/* Phone & WhatsApp Support */}
+            <a
+              id="contact-channel-phone"
+              href="tel:+918879258004"
+              className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-900/60 transition-all flex items-start gap-3 group cursor-pointer"
+            >
+              <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                <PhoneCall className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">Call / WhatsApp</span>
+                <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 block truncate">+91 8879258004</span>
+                <span className="text-[10px] text-slate-500 dark:text-zinc-400 block mt-0.5">Mon–Sat, 10am–7pm</span>
+              </div>
+            </a>
 
             {/* Email */}
             <a

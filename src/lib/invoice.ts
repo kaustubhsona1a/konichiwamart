@@ -52,7 +52,7 @@ export const SELLER_DETAILS = {
   pincode: '400093',
   country: 'India',
   supportEmail: 'info@konichiwamart.com',
-  supportPhone: '+91 (022) 4890 2341'
+  supportPhone: '+91 8879258004'
 };
 
 /**
@@ -242,7 +242,7 @@ export function generateGSTInvoiceHtml(data: InvoiceData): string {
 
     <div class="footer">
       This is a computer-generated tax invoice issued under Rule 46 of the CGST Rules, 2017. No signature required.<br>
-      Imported Japanese Cosmetics • Authenticity Guaranteed • Questions? Contact ${SELLER_DETAILS.supportEmail}
+      Imported Japanese Cosmetics • Authenticity Guaranteed • Questions? Contact ${SELLER_DETAILS.supportEmail} or Call/WhatsApp: ${SELLER_DETAILS.supportPhone}
     </div>
   </div>
 </body>

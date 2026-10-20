@@ -143,7 +143,7 @@ export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
               <Sparkles className="w-4 h-4 text-pink-500" />
               <span>Recommended in this Guide</span>
             </h3>
-            <span className="text-xs text-slate-500 dark:text-zinc-400">Authentic Tokyo Imports</span>
+            <span className="text-xs text-slate-500 dark:text-zinc-400">Authentic Japanese Imports</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-6">
@@ -170,7 +170,7 @@ export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
             Explore {categoryInfo.name} in India
           </div>
           <p className="text-xs text-slate-600 dark:text-zinc-400">
-            Discover our full range of Tokyo-imported {categoryInfo.name.toLowerCase()} with standard 5-7 business day delivery.
+            Discover our full range of Japanese-imported {categoryInfo.name.toLowerCase()} with standard 5-7 business day delivery.
           </p>
         </div>
         <a

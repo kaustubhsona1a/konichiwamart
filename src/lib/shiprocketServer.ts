@@ -508,13 +508,18 @@ export async function createShiprocketOrder(order: any): Promise<{ order_id: num
 
   try {
     const rawItems = order.items || order.order_items || [];
-    let orderItems = rawItems.map((item: any) => ({
-      name: item.title || item.name || 'Japanese Skincare Product',
-      sku: item.sku || item.productId || item.product_id || 'SKU-KM',
-      units: Number(item.quantity || item.units || 1),
-      selling_price: Number(item.price || item.unitPrice || item.selling_price || item.unit_price || 0),
-      hsn: String(item.hsn || item.hsn_code || '3304')
-    }));
+    let orderItems = rawItems.map((item: any, idx: number) => {
+      const rawSku = (item.sku || item.productId || item.product_id || '').trim();
+      const cleanSku = rawSku && rawSku !== 'SKU-KM' ? rawSku : `SKU-KM-${idx + 1}`;
+      const uniqueSku = rawItems.length > 1 ? `${cleanSku}-${idx + 1}` : cleanSku;
+      return {
+        name: item.title || item.name || 'Japanese Skincare Product',
+        sku: uniqueSku,
+        units: Number(item.quantity || item.units || 1),
+        selling_price: Number(item.price || item.unitPrice || item.selling_price || item.unit_price || 0),
+        hsn: String(item.hsn || item.hsn_code || '3304')
+      };
+    });
 
     if (orderItems.length === 0) {
       orderItems = [{

@@ -201,7 +201,7 @@ export function getProductSeoDescription(product: Product): string {
   if (coreFeature) {
     desc = `Buy ${product.title}${size} online in India at Konichiwa Mart. ${coreFeature}. Fast India delivery.`;
   } else {
-    desc = `Buy authentic ${product.title}${size} online in India at Konichiwa Mart. Genuine Tokyo import with fast delivery across India.`;
+    desc = `Buy authentic ${product.title}${size} online in India at Konichiwa Mart. Genuine Japanese import with fast delivery across India.`;
   }
 
   // Ensure length is strictly between 120 and 158 characters without truncation
@@ -211,10 +211,10 @@ export function getProductSeoDescription(product: Product): string {
     }
   }
   if (desc.length > 158) {
-    desc = `Buy ${product.title}${size} online in India at Konichiwa Mart. Direct Tokyo import with fast express delivery.`;
+    desc = `Buy ${product.title}${size} online in India at Konichiwa Mart. Direct Japanese import with fast express delivery.`;
   }
   if (desc.length > 158) {
-    desc = `Buy ${product.title} online in India at Konichiwa Mart. Direct Tokyo import with express delivery across India.`;
+    desc = `Buy ${product.title} online in India at Konichiwa Mart. Direct Japanese import with express delivery across India.`;
   }
 
   return desc;
@@ -277,7 +277,7 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
     '@context': 'https://schema.org',
     '@type': 'Product',
     'name': product.title,
-    'description': product.description || product.subtitle || `Authentic ${product.title} imported directly from Tokyo, Japan.`,
+    'description': product.description || product.subtitle || `Authentic ${product.title} imported directly from Japan.`,
     'image': absoluteImages.length > 0 ? absoluteImages : [`${CANONICAL_SITE_URL}/products/keana-rice-mask.png`],
     'url': canonicalUrl,
     'offers': offer
@@ -353,12 +353,18 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
 export function generateOrganizationJsonLd(): Record<string, any> {
   return {
     '@context': 'https://schema.org',
-    '@type': 'OnlineStore',
+    '@type': ['Organization', 'OnlineStore'],
+    '@id': `${CANONICAL_SITE_URL}/#organization`,
     'name': 'Konichiwa Mart',
     'url': CANONICAL_SITE_URL,
-    'logo': `${CANONICAL_SITE_URL}/konichiwalogo.png`,
+    'logo': {
+      '@type': 'ImageObject',
+      'url': `${CANONICAL_SITE_URL}/konichiwalogo.png`,
+      'width': '512',
+      'height': '512'
+    },
     'image': `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
-    'description': 'Premier boutique destination in India for 100% authentic Japanese skincare, sunscreens, serums, and cosmetics imported directly from Tokyo.',
+    'description': 'Premier boutique destination in India for 100% authentic Japanese skincare, sunscreens, serums, and cosmetics imported directly from Japan.',
     'email': 'info@konichiwamart.com',
     'currenciesAccepted': 'INR',
     'paymentAccepted': 'Credit Card, Debit Card, NetBanking, UPI, Cash on Delivery',

@@ -19,5 +19,5 @@ export const STORE_LOCATION_CONFIG = {
   googleRatingFormatted: '4.8',
   hours: 'Monday – Saturday, 10:00 AM – 7:00 PM IST',
   supportEmail: 'info@konichiwamart.com',
-  supportPhone: '+91 (022) 4890 2341'
+  supportPhone: '+91 8879258004'
 };

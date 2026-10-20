@@ -595,7 +595,7 @@ export async function sendTrackingUpdateEmail(data: TrackingEmailData): Promise<
               Konichiwa Mart Logistics
             </h2>
             <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">
-              Order #${data.orderNumber} • 100% Authentic Tokyo Imports
+              Order #${data.orderNumber} • 100% Authentic Japanese Imports
             </p>
           </div>
 

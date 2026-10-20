@@ -44,7 +44,7 @@ export const CategorySeoBanner: React.FC<CategorySeoBannerProps> = ({
         <div className="space-y-2.5 max-w-3xl">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-pink-100 dark:bg-pink-950/60 text-pink-700 dark:text-pink-300 text-[11px] font-semibold tracking-wide border border-pink-200 dark:border-pink-800">
             <Sparkles className="w-3 h-3 text-pink-500" />
-            <span>{category.badge || '100% Authentic Tokyo Import'}</span>
+            <span>{category.badge || '100% Authentic Japanese Import'}</span>
           </div>
 
           <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-black tracking-tight text-slate-900 dark:text-zinc-50">

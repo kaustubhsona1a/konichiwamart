@@ -14,6 +14,8 @@ interface FooterProps {
   onOpenAdmin?: () => void;
   onOpenAbout?: () => void;
   onOpenContact?: () => void;
+  onOpenTrackOrder?: () => void;
+  onOpenRefundPolicy?: () => void;
   onNavigateToProducts?: () => void;
   onNavigateCategory?: (slug: string) => void;
   onNavigateBrand?: (slug: string) => void;
@@ -26,6 +28,8 @@ export const Footer: React.FC<FooterProps> = ({
   onOpenAdmin,
   onOpenAbout,
   onOpenContact,
+  onOpenTrackOrder,
+  onOpenRefundPolicy,
   onNavigateToProducts,
   onNavigateCategory,
   onNavigateBrand,
@@ -234,7 +238,7 @@ export const Footer: React.FC<FooterProps> = ({
             </ul>
           </div>
 
-          {/* Authentic Tokyo Brands */}
+          {/* Authentic Japanese Brands */}
           <div className="space-y-2">
             <h3 className="font-serif font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-zinc-200">
               Japanese Brands
@@ -429,6 +433,85 @@ export const Footer: React.FC<FooterProps> = ({
                   className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
                 >
                   How to Use Japanese Hair Masks
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          {/* Customer Care & Merchant Policies */}
+          <div className="space-y-2">
+            <h3 className="font-serif font-bold text-xs uppercase tracking-wider text-slate-900 dark:text-zinc-200">
+              Customer Care & Policies
+            </h3>
+            <ul className="space-y-1.5 text-[11px] list-none p-0 m-0">
+              <li>
+                <a
+                  href="/return-policy"
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && onOpenRefundPolicy) {
+                      e.preventDefault();
+                      onOpenRefundPolicy();
+                    }
+                  }}
+                  className="font-bold text-pink-600 dark:text-pink-400 hover:underline transition-colors"
+                >
+                  Refund &amp; Return Policy
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/cancellation-policy"
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && onOpenRefundPolicy) {
+                      e.preventDefault();
+                      onOpenRefundPolicy();
+                    }
+                  }}
+                  className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                >
+                  Order Cancellation Terms
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/shipping-policy"
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && onOpenRefundPolicy) {
+                      e.preventDefault();
+                      onOpenRefundPolicy();
+                    }
+                  }}
+                  className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                >
+                  Shipping &amp; Delivery Policy
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/track-order"
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && onOpenTrackOrder) {
+                      e.preventDefault();
+                      onOpenTrackOrder();
+                    }
+                  }}
+                  className="font-semibold text-pink-600 dark:text-pink-400 hover:underline transition-colors"
+                >
+                  Track Order Status
+                </a>
+              </li>
+              <li>
+                <a
+                  href="/contact"
+                  onClick={(e) => {
+                    if (!e.metaKey && !e.ctrlKey && onOpenContact) {
+                      e.preventDefault();
+                      onOpenContact();
+                    }
+                  }}
+                  className="hover:text-pink-600 dark:hover:text-pink-400 transition-colors"
+                >
+                  Contact Support &amp; Helpdesk
                 </a>
               </li>
             </ul>

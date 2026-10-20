@@ -57,8 +57,10 @@ import { InstagramReelFeed } from './components/InstagramReelFeed';
 import { ReviewsSection } from './components/ReviewsSection';
 import { AboutUsModal } from './components/AboutUsModal';
 import { AboutUsPage } from './components/AboutUsPage';
+import { RefundPolicyPage } from './components/RefundPolicyPage';
 import { ContactUsModal } from './components/ContactUsModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
+import { TrackOrderModal } from './components/TrackOrderModal';
 import { CategorySeoBanner } from './components/CategorySeoBanner';
 import { BrandLandingPage } from './components/BrandLandingPage';
 import { GuideArticlePage } from './components/GuideArticlePage';
@@ -389,7 +391,15 @@ export default function App() {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [isContactOpen, setIsContactOpen] = useState(false);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState(false);
+  const [isTrackOrderOpen, setIsTrackOrderOpen] = useState(false);
+  const [trackOrderQuery, setTrackOrderQuery] = useState('');
   const [writeReviewProductId, setWriteReviewProductId] = useState<string | null>(null);
+
+  const handleOpenTrackOrder = (query?: string) => {
+    if (query) setTrackOrderQuery(query);
+    else setTrackOrderQuery('');
+    setIsTrackOrderOpen(true);
+  };
 
   // Dynamic categories synced from Supabase and Server
   const [dbCategories, setDbCategories] = useState<Array<{ id: string; name: string; slug: string; display_order?: number }>>([]);
@@ -747,7 +757,7 @@ export default function App() {
     setIsCustomerAuthOpen(true);
   };
 
-  const [currentPage, setCurrentPage] = useState<'store' | 'about'>('store');
+  const [currentPage, setCurrentPage] = useState<'store' | 'about' | 'refund-policy'>('store');
   const [activeBrandSlug, setActiveBrandSlug] = useState<string | null>(null);
   const [activeGuideSlug, setActiveGuideSlug] = useState<string | null>(null);
   const [activeCategorySlug, setActiveCategorySlug] = useState<string | null>(null);
@@ -903,8 +913,32 @@ export default function App() {
       setActiveCategorySlug(null);
       updateClientSeoMetadata({
         title: 'About Konichiwa Mart | Authentic Japanese Skincare Dispensary India',
-        description: 'Learn about Konichiwa Mart: Direct Tokyo imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
+        description: 'Learn about Konichiwa Mart: Direct Japanese imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
         canonicalUrl: `${CANONICAL_SITE_URL}/about`,
+        ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+        ogType: 'website',
+        jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
+      });
+      return;
+    }
+
+    // 6. /return-policy, /refund-policy, /cancellation-policy, /shipping-policy
+    if (
+      cleanPath === '/return-policy' || 
+      cleanPath === '/refund-policy' || 
+      cleanPath === '/cancellation-policy' ||
+      cleanPath === '/shipping-policy' ||
+      window.location.hash === '#refund-policy' ||
+      window.location.hash === '#return-policy'
+    ) {
+      setCurrentPage('refund-policy');
+      setActiveBrandSlug(null);
+      setActiveGuideSlug(null);
+      setActiveCategorySlug(null);
+      updateClientSeoMetadata({
+        title: 'Refund, Return & Cancellation Policy | Konichiwa Mart',
+        description: 'Read Konichiwa Mart 100% transparent 7-day return policy, instant refund processing timeline, and order cancellation terms across India.',
+        canonicalUrl: `${CANONICAL_SITE_URL}/return-policy`,
         ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
         ogType: 'website',
         jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
@@ -919,7 +953,7 @@ export default function App() {
     setActiveCategorySlug(null);
     updateClientSeoMetadata({
       title: 'Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India',
-      description: 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Tokyo imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.',
+      description: 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Japanese imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.',
       canonicalUrl: `${CANONICAL_SITE_URL}/`,
       ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
       ogType: 'website',
@@ -1117,7 +1151,7 @@ export default function App() {
     } catch {}
     updateClientSeoMetadata({
       title: 'Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India',
-      description: 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Tokyo imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.',
+      description: 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Japanese imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.',
       canonicalUrl: `${CANONICAL_SITE_URL}/`,
       ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
       ogType: 'website',
@@ -1145,8 +1179,27 @@ export default function App() {
     } catch {}
     updateClientSeoMetadata({
       title: 'About Konichiwa Mart | Authentic Japanese Skincare Dispensary India',
-      description: 'Learn about Konichiwa Mart: Direct Tokyo imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
+      description: 'Learn about Konichiwa Mart: Direct Japanese imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
       canonicalUrl: `${CANONICAL_SITE_URL}/about`,
+      ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
+      ogType: 'website',
+      jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenRefundPolicy = () => {
+    setActiveCategorySlug(null);
+    setActiveBrandSlug(null);
+    setActiveGuideSlug(null);
+    setCurrentPage('refund-policy');
+    try {
+      window.history.pushState(null, '', '/return-policy');
+    } catch {}
+    updateClientSeoMetadata({
+      title: 'Refund, Return & Cancellation Policy | Konichiwa Mart',
+      description: 'Read Konichiwa Mart 100% transparent 7-day return policy, instant refund processing timeline, and order cancellation terms across India.',
+      canonicalUrl: `${CANONICAL_SITE_URL}/return-policy`,
       ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
       ogType: 'website',
       jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
@@ -1194,7 +1247,7 @@ export default function App() {
       const saved = localStorage.getItem('km_site_settings');
       if (saved) {
         const parsed = JSON.parse(saved);
-        const tagline = (!parsed.storeTagline || parsed.storeTagline === 'Japan Skincare' || parsed.storeTagline === 'Tokyo Skincare' || parsed.storeTagline === 'Japanese')
+        const tagline = (!parsed.storeTagline || parsed.storeTagline === 'Japan Skincare' || parsed.storeTagline === 'Japanese Skincare' || parsed.storeTagline === 'Japanese')
           ? 'Japanese Skincare'
           : parsed.storeTagline;
 
@@ -2252,6 +2305,7 @@ export default function App() {
         onOpenCustomerAuth={handleOpenCustomerAuth}
         onOpenAbout={handleOpenAboutPage}
         onOpenContact={() => setIsContactOpen(true)}
+        onOpenTrackOrder={() => handleOpenTrackOrder()}
         onNavigateToProducts={handleNavigateHome}
         onOpenAdmin={() => handleRequestAdminAccess('dashboard')}
         onOpenSecurityGuide={() => setIsSecurityGuideOpen(true)}
@@ -2290,11 +2344,15 @@ export default function App() {
         density={siteSettings.flowerDriftDensity}
       />
 
-      {/* CONTENT CONDITIONAL: DEDICATED ABOUT US PAGE, BRAND LANDING, SKINCARE GUIDE, OR STORE CATALOG */}
+      {/* CONTENT CONDITIONAL: DEDICATED ABOUT US PAGE, REFUND POLICY PAGE, BRAND LANDING, SKINCARE GUIDE, OR STORE CATALOG */}
       {currentPage === 'about' ? (
         <AboutUsPage
           onNavigateToProducts={handleNavigateHome}
           onOpenContact={() => setIsContactOpen(true)}
+        />
+      ) : currentPage === 'refund-policy' ? (
+        <RefundPolicyPage
+          onBackToStore={handleNavigateHome}
         />
       ) : activeBrandSlug && SEO_BRANDS[activeBrandSlug] ? (
         <BrandLandingPage
@@ -2505,6 +2563,8 @@ export default function App() {
         onOpenAdmin={handleRequestAdminAccess}
         onOpenAbout={handleOpenAboutPage}
         onOpenContact={() => setIsContactOpen(true)}
+        onOpenTrackOrder={() => handleOpenTrackOrder()}
+        onOpenRefundPolicy={handleOpenRefundPolicy}
         onNavigateToProducts={handleNavigateHome}
         onNavigateCategory={handleNavigateCategory}
         onNavigateBrand={handleNavigateBrand}
@@ -2567,7 +2627,7 @@ export default function App() {
         isOpen={!!activeInvoiceOrder}
         onClose={() => setActiveInvoiceOrder(null)}
         onTrackOrder={(order) => {
-          setIsAccountOpen(true);
+          handleOpenTrackOrder(order.orderNumber || order.id);
         }}
       />
 
@@ -2581,6 +2641,15 @@ export default function App() {
         onAddToCart={handleAddToCart}
         onRemoveWishlist={handleToggleWishlist}
         onSignOut={handleCustomerLogout}
+        onOpenTrackOrder={handleOpenTrackOrder}
+      />
+
+      {/* 6a. Standalone Public Customer Order Tracking Modal */}
+      <TrackOrderModal
+        isOpen={isTrackOrderOpen}
+        onClose={() => setIsTrackOrderOpen(false)}
+        initialOrderNumber={trackOrderQuery}
+        onOpenContact={() => setIsContactOpen(true)}
       />
 
       {/* 6b. Customer Sign-In & Registration Modal (Supabase Customer Auth) */}

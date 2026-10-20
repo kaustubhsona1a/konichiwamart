@@ -15,7 +15,8 @@ import {
   ShieldCheck,
   ChevronDown,
   UserPlus,
-  LogIn
+  LogIn,
+  Truck
 } from 'lucide-react';
 import { ProductCategory } from '../types';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
@@ -28,6 +29,7 @@ interface NavbarProps {
   onOpenAccount: () => void;
   onOpenAbout?: () => void;
   onOpenContact?: () => void;
+  onOpenTrackOrder?: () => void;
   onNavigateToProducts?: () => void;
   onOpenAdmin?: () => void;
   onOpenSecurityGuide?: () => void;
@@ -40,7 +42,7 @@ interface NavbarProps {
   logoUrl?: string;
   instagramUrl?: string;
   instagramHandle?: string;
-  activePage?: 'store' | 'about';
+  activePage?: 'store' | 'about' | 'refund-policy';
   isDarkMode?: boolean;
   onToggleTheme?: () => void;
   isCustomerLoggedIn?: boolean;
@@ -56,6 +58,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAccount,
   onOpenAbout,
   onOpenContact,
+  onOpenTrackOrder,
   onNavigateToProducts,
   onSelectCategory,
   storeName = 'Konichiwa.Mart',
@@ -216,6 +219,19 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Right Action Area: Instagram logo, Cart, and Dropdown Menu button */}
         <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
           
+          {/* Track Order Button */}
+          {onOpenTrackOrder && (
+            <button
+              id="header-track-order-btn"
+              onClick={onOpenTrackOrder}
+              className="h-8 sm:h-9 px-2.5 sm:px-3 rounded-xl bg-pink-50 hover:bg-pink-100 dark:bg-zinc-900 dark:hover:bg-zinc-800 border border-pink-200/80 dark:border-zinc-800 text-pink-700 dark:text-pink-300 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 text-xs font-semibold shadow-2xs"
+              title="Track Order Status"
+            >
+              <Truck className="w-3.5 h-3.5 text-pink-600 dark:text-pink-400" />
+              <span className="hidden md:inline">Track Order</span>
+            </button>
+          )}
+
           {/* Instagram Logo Button */}
           <a
             id="header-instagram-btn"
@@ -363,6 +379,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <span className="w-1.5 h-1.5 rounded-full bg-pink-500" />
                     )}
                   </button>
+
+                  {onOpenTrackOrder && (
+                    <button
+                      id="dropdown-nav-track-order"
+                      onClick={() => {
+                        setDropdownOpen(false);
+                        onOpenTrackOrder();
+                      }}
+                      className="w-full h-8.5 px-2.5 rounded-xl text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-stone-50 dark:hover:bg-zinc-850 flex items-center justify-between cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Truck className="w-4 h-4 text-pink-600 dark:text-pink-400" />
+                        <span>Track Order Status</span>
+                      </div>
+                    </button>
+                  )}
 
                   <button
                     id="dropdown-nav-contact"

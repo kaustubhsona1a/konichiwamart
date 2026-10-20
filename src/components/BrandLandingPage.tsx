@@ -135,7 +135,7 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
                 {products.length}
               </div>
               <div className="text-[10px] text-slate-500 dark:text-zinc-400 uppercase tracking-wider font-semibold">
-                Tokyo Stock
+                Japanese Stock
               </div>
             </div>
 
@@ -154,7 +154,7 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-serif font-bold text-slate-900 dark:text-zinc-100">
-            {brand.name} Tokyo Products in India ({products.length})
+            {brand.name} Japanese Products in India ({products.length})
           </h2>
           <span className="text-xs text-slate-500 dark:text-zinc-400">
             100% Genuine Direct Imports
@@ -164,7 +164,7 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
         {products.length === 0 ? (
           <div className="text-center py-16 bg-white/40 dark:bg-zinc-900/40 rounded-3xl border border-dashed border-slate-200 dark:border-zinc-800 p-8">
             <p className="text-slate-600 dark:text-zinc-400 mb-4 text-sm">
-              New shipment of {brand.name} is currently en route from Tokyo.
+              New shipment of {brand.name} is currently en route from Japan.
             </p>
             <button
               onClick={onBackToStore}

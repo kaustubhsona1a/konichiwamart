@@ -47,8 +47,8 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'J-Beauty products India',
       'buy Japanese skincare India'
     ],
-    targetAudience: 'Indian beauty shoppers seeking verified, authentic Tokyo-imported J-Beauty products with fast domestic shipping.',
-    searchContext: 'Central dispensary hub showcasing certified Japanese skincare collections, featured Tokyo brands, and genuine imports.',
+    targetAudience: 'Indian beauty shoppers seeking verified, authentic Japanese-imported J-Beauty products with fast domestic shipping.',
+    searchContext: 'Central dispensary hub showcasing certified Japanese skincare collections, featured Japanese brands, and genuine imports.',
     relatedCategorySlug: 'skincare',
     relatedGuideSlugs: [
       'japanese-skincare-routine-beginners',
@@ -171,7 +171,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
     id: 'category-face-mask',
     path: '/collections/face-mask',
     pageType: 'category',
-    title: 'Japanese Sheet Masks in India | Tokyo Facial Care | Konichiwa Mart',
+    title: 'Japanese Sheet Masks in India | Japanese Facial Care | Konichiwa Mart',
     primaryIntent: 'Japanese sheet masks India',
     secondaryIntents: [
       'Japanese face mask',
@@ -228,15 +228,15 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
     id: 'category-skincare',
     path: '/collections/skincare',
     pageType: 'category',
-    title: 'Japanese Skincare in India | 100% Tokyo Imports | Konichiwa Mart',
+    title: 'Japanese Skincare in India | 100% Japanese Imports | Konichiwa Mart',
     primaryIntent: 'Japanese skincare products India',
     secondaryIntents: [
       'Japanese beauty products online India',
       'buy Japanese skincare India',
       'authentic Japanese beauty India',
-      'Tokyo skincare dispensary India'
+      'Japanese skincare dispensary India'
     ],
-    targetAudience: 'General J-Beauty shoppers looking to browse the complete Tokyo-imported catalog across all routines.',
+    targetAudience: 'General J-Beauty shoppers looking to browse the complete Japanese-imported catalog across all routines.',
     searchContext: 'Comprehensive collection of all authentic Japanese skincare, sun protection, and hair care items.',
     relatedCategorySlug: 'skincare',
     relatedGuideSlugs: [
@@ -260,7 +260,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'Shiseido Senka cleanser'
     ],
     targetAudience: 'Shoppers looking for genuine Shiseido Senka Perfect Whip facial washes with natural silk essence micro-foam.',
-    searchContext: 'Dedicated brand showcase for Senka Perfect Whip (Original, Acne Care, Collagen) with direct Tokyo authenticity.',
+    searchContext: 'Dedicated brand showcase for Senka Perfect Whip (Original, Acne Care, Collagen) with direct Japanese authenticity.',
     relatedCategorySlug: 'face-wash',
     relatedBrandSlug: 'senka',
     relatedProductSlugs: [
@@ -314,7 +314,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'Rohto Hada Labo hyaluronic lotion'
     ],
     targetAudience: 'Indian skincare shoppers looking for Rohto Hada Labo’s legendary multi-molecular hyaluronic acid lotions.',
-    searchContext: 'Brand page explaining Rohto Hada Labo philosophy, incoming Tokyo restock status, and seamless connections to toners & J-Beauty routines.',
+    searchContext: 'Brand page explaining Rohto Hada Labo philosophy, incoming Japanese restock status, and seamless connections to toners & J-Beauty routines.',
     relatedCategorySlug: 'toner',
     relatedBrandSlug: 'hada-labo',
     relatedProductSlugs: [
@@ -388,7 +388,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'buy Tsubaki hair mask online'
     ],
     targetAudience: 'Shoppers looking for high-purity Japanese red camellia oil formulas for salon mirror gloss and deep repair.',
-    searchContext: 'Features Shiseido Tsubaki Premium Repair Hair Mask direct from Tokyo.',
+    searchContext: 'Features Shiseido Tsubaki Premium Repair Hair Mask direct from Japan.',
     relatedCategorySlug: 'hair-care',
     relatedBrandSlug: 'tsubaki',
     relatedProductSlugs: [
@@ -485,7 +485,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'buy LuLuLun face mask online',
       'LuLuLun Precious Clear'
     ],
-    targetAudience: 'Shoppers looking for Tokyo’s No. 1 daily face mask ritual with 3-layer microfiber cotton sheets.',
+    targetAudience: 'Shoppers looking for Japan’s No. 1 daily face mask ritual with 3-layer microfiber cotton sheets.',
     searchContext: 'Features LuLuLun Precious CLEAR (White), Precious MOIST (Red), and Precious BALANCE (Green).',
     relatedCategorySlug: 'face-mask',
     relatedBrandSlug: 'lululun',
@@ -509,7 +509,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'Kose India',
       'Kose Clear Turn masks India',
       'Kose Makeup Keep Mist India',
-      'Kose Cosmeport Tokyo'
+      'Kose Cosmeport Japan'
     ],
     targetAudience: 'Shoppers seeking heritage Japanese cosmetics, Clear Turn Vitamin Bomb sheet masks, and viral long-wear setting mists.',
     searchContext: 'Features Kosé Clear Turn Vitamin Bomb, Uruuru Bomb, Glutathione Bomb, and Makeup Keep Mist.',
@@ -538,7 +538,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'fresh encapsulated Vitamin C serum'
     ],
     targetAudience: 'Shoppers seeking stabilized micro-capsule suspension technology for pure Vitamin C pore and brightening therapy.',
-    searchContext: 'Features Premium Capsule Serum Vitamin C and Vitamin C Capsule Serum direct from Tokyo.',
+    searchContext: 'Features Premium Capsule Serum Vitamin C and Vitamin C Capsule Serum direct from Japan.',
     relatedCategorySlug: 'serum',
     relatedBrandSlug: 'capsule-serum',
     relatedProductSlugs: [
@@ -559,7 +559,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
     secondaryIntents: [
       'Shiseido India',
       'Shiseido skincare India',
-      'Shiseido Tokyo imports',
+      'Shiseido Japanese imports',
       'buy Shiseido online India'
     ],
     targetAudience: 'Shoppers searching for Shiseido’s heritage beauty lines, including Senka, Fino, and Tsubaki.',
@@ -619,7 +619,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'Shiseido Senka face wash India'
     ],
     targetAudience: 'Shoppers seeking the authentic Japanese No. 1 micro-dense whipped foam cleanser with natural silk essence.',
-    searchContext: 'Exact product details, 120g size, verified Tokyo import, ₹1099 INR with standard 5-7 business day pan-India shipping.',
+    searchContext: 'Exact product details, 120g size, verified Japanese import, ₹1099 INR with standard 5-7 business day pan-India shipping.',
     relatedCategorySlug: 'face-wash',
     relatedBrandSlug: 'senka',
     relatedGuideSlugs: [
@@ -665,7 +665,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'Fino 7 beauty essence treatment'
     ],
     targetAudience: 'Consumers dealing with dry, frizzy, or heat-damaged hair seeking Japan’s viral salon-finish rinse-off hair mask.',
-    searchContext: 'Full 230g salon tub with royal jelly extract and squalane, ₹999 INR, verified direct Tokyo import.',
+    searchContext: 'Full 230g salon tub with royal jelly extract and squalane, ₹999 INR, verified direct Japanese import.',
     relatedCategorySlug: 'hair-care',
     relatedBrandSlug: 'fino',
     relatedGuideSlugs: [
@@ -729,7 +729,7 @@ export const SEARCH_INTENT_MAP: Record<string, SearchIntentItem> = {
       'buy LuLuLun online India'
     ],
     targetAudience: 'Customers seeking everyday brightening and translucency hydration with Japanese botanical rice and seaweed extracts.',
-    searchContext: '7-sheet daily pack from Tokyo, ₹799 INR.',
+    searchContext: '7-sheet daily pack from Japan, ₹799 INR.',
     relatedCategorySlug: 'face-mask',
     relatedBrandSlug: 'lululun',
     relatedGuideSlugs: [
