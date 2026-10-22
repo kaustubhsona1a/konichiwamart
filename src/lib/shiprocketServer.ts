@@ -578,7 +578,7 @@ export async function createShiprocketOrder(order: any): Promise<{ order_id: num
   }
 
   const creds = await getShiprocketCredentials();
-  const pickupLocation = (creds?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || 'home').trim();
+  const pickupLocation = (creds?.pickupLocation || 'Primary Warehouse').trim();
 
   try {
     const rawItems = order.items || order.order_items || [];

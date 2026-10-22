@@ -2829,25 +2829,17 @@ app.post('/api/admin/save-shiprocket-config', verifyOperatorAccess, async (req: 
  */
 app.post('/api/admin/test-shiprocket', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
-    let email = (req.body?.email || process.env.SHIPROCKET_EMAIL || '').trim();
-    let password = (req.body?.password || process.env.SHIPROCKET_PASSWORD || '').trim();
-    let configuredPickup = (req.body?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+    const envCreds = getEnvShiprocketCredentials();
+    const activeCreds = await getShiprocketCredentials();
 
-    if (!email || !password) {
-      const dbCreds = await getShiprocketCredentials();
-      if (dbCreds) {
-        email = dbCreds.email;
-        password = dbCreds.password;
-        if (!configuredPickup || configuredPickup === 'Primary Warehouse') {
-          configuredPickup = dbCreds.pickupLocation || 'Primary Warehouse';
-        }
-      }
-    }
+    let email = (req.body?.email || envCreds?.email || activeCreds?.email || '').trim();
+    let password = (req.body?.password || envCreds?.password || activeCreds?.password || '').trim();
+    let configuredPickup = (req.body?.pickupLocation || envCreds?.pickupLocation || activeCreds?.pickupLocation || 'Primary Warehouse').trim();
 
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Shiprocket API credentials are not configured yet. Please enter your Shiprocket API Email and Password in Admin Settings below.'
+        error: 'Shiprocket API credentials are not detected in Vercel environment variables or database config.'
       });
     }
 
