@@ -12,16 +12,45 @@ function getSupabase() {
   return createClient(url, key);
 }
 
-export async function getShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string } | null> {
-  const envEmail = (process.env.SHIPROCKET_EMAIL || '').trim();
-  const envPassword = (process.env.SHIPROCKET_PASSWORD || '').trim();
-  const envPickup = (process.env.SHIPROCKET_PICKUP_LOCATION || 'home').trim();
+function cleanEnvValue(val: string | undefined): string {
+  if (!val) return '';
+  return val.replace(/^["']|["']$/g, '').replace(/\\n/g, '').trim();
+}
 
-  if (envEmail && envPassword) {
-    return { email: envEmail, password: envPassword, pickupLocation: envPickup };
+export function getEnvShiprocketCredentials(): { email: string; password: string; pickupLocation: string } | null {
+  const email = cleanEnvValue(
+    process.env.SHIPROCKET_EMAIL ||
+    process.env.SHIPROCKET_API_USER_EMAIL ||
+    process.env.SHIPROCKET_API_EMAIL ||
+    process.env.SHIPROCKET_USER ||
+    process.env.SHIPROCKET_USER_EMAIL ||
+    process.env.SHIPROCKET_USERNAME ||
+    process.env.VITE_SHIPROCKET_EMAIL
+  );
+
+  const password = cleanEnvValue(
+    process.env.SHIPROCKET_PASSWORD ||
+    process.env.SHIPROCKET_API_USER_PASSWORD ||
+    process.env.SHIPROCKET_API_PASSWORD ||
+    process.env.SHIPROCKET_PASS ||
+    process.env.SHIPROCKET_USER_PASSWORD ||
+    process.env.VITE_SHIPROCKET_PASSWORD
+  );
+
+  const pickupLocation = cleanEnvValue(
+    process.env.SHIPROCKET_PICKUP_LOCATION ||
+    process.env.SHIPROCKET_PICKUP ||
+    process.env.SHIPROCKET_LOCATION ||
+    process.env.VITE_SHIPROCKET_PICKUP_LOCATION
+  ) || 'Primary Warehouse';
+
+  if (email && password) {
+    return { email, password, pickupLocation };
   }
+  return null;
+}
 
-  // Fallback to Supabase database storage
+export async function getDbShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string } | null> {
   try {
     const supabase = getSupabase();
     if (supabase) {
@@ -33,19 +62,57 @@ export async function getShiprocketCredentials(): Promise<{ email: string; passw
 
       if (data?.description) {
         const parsed = JSON.parse(data.description);
-        if (parsed.email && parsed.password) {
-          return {
-            email: parsed.email.trim(),
-            password: parsed.password.trim(),
-            pickupLocation: (parsed.pickupLocation || envPickup || 'home').trim()
-          };
+        const email = cleanEnvValue(parsed.email);
+        const password = cleanEnvValue(parsed.password);
+        const pickupLocation = cleanEnvValue(parsed.pickupLocation) || 'Primary Warehouse';
+
+        if (email && password) {
+          return { email, password, pickupLocation };
         }
       }
     }
   } catch (err) {
-    console.warn('[Shiprocket] Credential fallback notice:', err);
+    console.warn('[Shiprocket] DB Credential fetch notice:', err);
+  }
+  return null;
+}
+
+export async function getShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string; source: 'env' | 'db' } | null> {
+  const envCreds = getEnvShiprocketCredentials();
+  if (envCreds) {
+    return { ...envCreds, source: 'env' };
   }
 
+  const dbCreds = await getDbShiprocketCredentials();
+  if (dbCreds) {
+    return { ...dbCreds, source: 'db' };
+  }
+
+  return null;
+}
+
+async function attemptShiprocketLogin(email: string, pass: string): Promise<string | null> {
+  const cleanEmail = cleanEnvValue(email);
+  const cleanPass = cleanEnvValue(pass);
+
+  if (!cleanEmail || !cleanPass) return null;
+
+  try {
+    const res = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, password: cleanPass })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data && data.token) {
+      return String(data.token);
+    } else {
+      console.warn(`[Shiprocket Auth Attempt Failed] Email: ${cleanEmail.slice(0, 4)}*** | Status: ${res.status} | Msg: ${data.message || 'Invalid credentials'}`);
+    }
+  } catch (err) {
+    console.error('[Shiprocket Auth Exception]:', err);
+  }
   return null;
 }
 
@@ -54,29 +121,36 @@ export async function getShiprocketToken(): Promise<string | null> {
     return shiprocketToken;
   }
 
-  const creds = await getShiprocketCredentials();
-  if (!creds) {
-    console.warn('[Shiprocket] Missing credentials in environment and database.');
-    return null;
+  const envCreds = getEnvShiprocketCredentials();
+  const dbCreds = await getDbShiprocketCredentials();
+
+  // 1. Try Vercel environment credentials if present
+  if (envCreds) {
+    const token = await attemptShiprocketLogin(envCreds.email, envCreds.password);
+    if (token) {
+      shiprocketToken = token;
+      tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
+      console.log(`[Shiprocket Auth SUCCESS] Authenticated via Vercel Environment Variables (${envCreds.email.slice(0, 4)}***)`);
+      return shiprocketToken;
+    }
+    console.warn('[Shiprocket Auth] Vercel environment credentials failed authentication. Checking Supabase DB backup...');
   }
 
-  try {
-    const res = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: creds.email, password: creds.password })
-    });
-    const data = await res.json();
-    if (data && data.token) {
-      shiprocketToken = data.token;
-      tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000; // Token valid for 10 days, cache for 9
+  // 2. Try Supabase database credentials as secondary or primary
+  if (dbCreds) {
+    const token = await attemptShiprocketLogin(dbCreds.email, dbCreds.password);
+    if (token) {
+      shiprocketToken = token;
+      tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
+      console.log(`[Shiprocket Auth SUCCESS] Authenticated via Supabase DB Config (${dbCreds.email.slice(0, 4)}***)`);
       return shiprocketToken;
-    } else {
-      console.error('[Shiprocket Auth Error Response]:', data);
     }
-  } catch (err) {
-    console.error('Shiprocket Auth Error:', err);
+    console.warn('[Shiprocket Auth] Supabase DB config failed authentication.');
   }
+
+  console.warn('[Shiprocket] No valid credentials found in Vercel environment variables or Supabase DB.');
+  shiprocketToken = '';
+  tokenExpiry = 0;
   return null;
 }
 

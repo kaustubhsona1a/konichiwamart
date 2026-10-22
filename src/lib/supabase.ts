@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { Product, Order } from '../types';
+import { Product, Order, Review } from '../types';
 import { PRODUCTS } from '../data/products';
 
 const env = (import.meta as any).env || {};
@@ -2532,3 +2532,113 @@ export const syncReelsListToSupabase = async (reels: any[]): Promise<boolean> =>
     return false;
   }
 };
+
+// --- REVIEWS SYNCHRONIZATION & PERSISTENCE ---
+
+export const fetchReviewsFromStore = async (): Promise<Review[]> => {
+  // 1. Try server API route FIRST (authoritative endpoint)
+  try {
+    const res = await fetch('/api/reviews');
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.reviews)) {
+        try {
+          localStorage.setItem('konichiwa_customer_reviews_v5', JSON.stringify(data.reviews));
+        } catch {}
+        return data.reviews;
+      }
+    }
+  } catch (err) {
+    console.warn('[Reviews Store] Server fetch notice:', err);
+  }
+
+  // 2. Direct Supabase Client fallback
+  const client = await ensureSupabaseClient() || getSupabaseClient();
+  if (client) {
+    try {
+      const { data, error } = await client.from('reviews').select('*').order('created_at', { ascending: false });
+      if (!error && Array.isArray(data) && data.length > 0) {
+        const mapped: Review[] = data.map((r: any) => ({
+          id: r.id,
+          author: r.author || 'Verified Buyer',
+          location: r.location || 'Verified Buyer',
+          rating: Number(r.rating || 5),
+          date: 'Just now',
+          createdAt: r.created_at || new Date().toISOString(),
+          timestamp: r.created_at ? Date.parse(r.created_at) : Date.now(),
+          verified: r.verified !== undefined ? Boolean(r.verified) : true,
+          productId: r.product_id || 'general',
+          productName: r.product_name || 'Japanese Skincare Essential',
+          skinType: r.skin_type || 'All Skin Types',
+          headline: r.headline || '',
+          comment: r.comment || '',
+          helpfulCount: Number(r.helpful_count || 0),
+          imageUrl: r.image_url || undefined,
+          status: r.status || 'approved'
+        }));
+        try {
+          localStorage.setItem('konichiwa_customer_reviews_v5', JSON.stringify(mapped));
+        } catch {}
+        return mapped;
+      }
+    } catch (sbErr) {
+      console.warn('[Reviews Store] Supabase fetch notice:', sbErr);
+    }
+  }
+
+  // 3. Local Storage fallback
+  try {
+    const saved = localStorage.getItem('konichiwa_customer_reviews_v5');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+
+  return [];
+};
+
+export const saveReviewToStore = async (review: Review): Promise<boolean> => {
+  // 1. Server API
+  try {
+    const res = await fetch('/api/reviews', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(review)
+    });
+    if (res.ok) {
+      return true;
+    }
+  } catch (err) {
+    console.warn('[saveReviewToStore] Server POST notice:', err);
+  }
+
+  // 2. Direct Supabase Client fallback
+  const client = await ensureSupabaseClient() || getSupabaseClient();
+  if (client) {
+    try {
+      await client.from('reviews').upsert([{
+        id: review.id,
+        product_id: review.productId,
+        product_name: review.productName,
+        author: review.author,
+        location: review.location,
+        rating: review.rating,
+        headline: review.headline,
+        comment: review.comment,
+        image_url: review.imageUrl || null,
+        verified: review.verified,
+        helpful_count: review.helpfulCount || 0,
+        skin_type: review.skinType,
+        status: 'approved',
+        created_at: review.createdAt || new Date().toISOString()
+      }], { onConflict: 'id' });
+      return true;
+    } catch (err) {
+      console.warn('[saveReviewToStore] Supabase direct notice:', err);
+    }
+  }
+
+  return false;
+};
+

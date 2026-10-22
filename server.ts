@@ -1,6 +1,9 @@
 import { 
   createShiprocketOrder, 
   getShiprocketToken,
+  getShiprocketCredentials,
+  getEnvShiprocketCredentials,
+  getDbShiprocketCredentials,
   checkShiprocketServiceability, 
   trackShiprocketAwb, 
   normalizeShiprocketStatus,
@@ -2727,20 +2730,124 @@ app.patch('/api/admin/orders/:orderId', verifyOperatorAccess, async (req: Reques
 });
 
 /**
+ * GET /api/admin/shiprocket-config
+ * Retrieves saved Shiprocket configuration state
+ */
+app.get('/api/admin/shiprocket-config', verifyOperatorAccess, async (_req: Request, res: Response) => {
+  try {
+    const creds = await getShiprocketCredentials();
+    const envCreds = getEnvShiprocketCredentials();
+    const dbCreds = await getDbShiprocketCredentials();
+
+    return res.json({
+      success: true,
+      configured: Boolean(creds && creds.email),
+      source: creds?.source || 'none',
+      isEnvConfigured: Boolean(envCreds && envCreds.email),
+      isDbConfigured: Boolean(dbCreds && dbCreds.email),
+      email: creds?.email || envCreds?.email || dbCreds?.email || '',
+      pickupLocation: creds?.pickupLocation || envCreds?.pickupLocation || dbCreds?.pickupLocation || 'Primary Warehouse',
+      hasPassword: Boolean(creds?.password || envCreds?.password || dbCreds?.password)
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/admin/save-shiprocket-config
+ * Persists Shiprocket API credentials into Supabase (_app_shiprocket_config) and validates login with Shiprocket API
+ */
+app.post('/api/admin/save-shiprocket-config', verifyOperatorAccess, async (req: Request, res: Response) => {
+  try {
+    const email = (req.body?.email || '').trim();
+    const password = (req.body?.password || '').trim();
+    const pickupLocation = (req.body?.pickupLocation || 'Primary Warehouse').trim();
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Shiprocket API Email and Password are required.'
+      });
+    }
+
+    // 1. Verify credentials against Shiprocket REST v2 API
+    const authRes = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+
+    const authData = await authRes.json().catch(() => ({}));
+
+    if (!authRes.ok || !authData.token) {
+      let friendlyError = authData.message || 'Shiprocket authentication failed. Please check your credentials.';
+      if (authRes.status === 403 || authData.message === 'Access forbidden') {
+        friendlyError = "Shiprocket returned 'Access forbidden' (403). Shiprocket requires creating an 'API User' credential. In your Shiprocket Dashboard, go to Settings > API > API Users > 'Add New API User' (enter a secondary email like yourname+api@gmail.com, set permissions to All, and use that email & password).";
+      } else if (authData.message === 'Invalid API key' || authData.message === 'Unauthenticated.') {
+        friendlyError = 'Invalid Shiprocket API Email or Password. Please double-check your credentials in Shiprocket Dashboard (Settings > API > API Users).';
+      }
+
+      return res.status(400).json({
+        success: false,
+        error: friendlyError,
+        details: authData
+      });
+    }
+
+    // 2. Persist in process.env & Supabase _app_shiprocket_config
+    process.env.SHIPROCKET_EMAIL = email;
+    process.env.SHIPROCKET_PASSWORD = password;
+    process.env.SHIPROCKET_PICKUP_LOCATION = pickupLocation;
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      const configPayload = { email, password, pickupLocation, updatedAt: new Date().toISOString() };
+      await supabase.from('categories').upsert({
+        slug: '_app_shiprocket_config',
+        name: 'Shiprocket API Configuration Metadata',
+        description: JSON.stringify(configPayload)
+      }, { onConflict: 'slug' });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Shiprocket API credentials verified and saved successfully!',
+      accountEmail: email,
+      pickupLocation
+    });
+  } catch (err: any) {
+    console.error('[Save Shiprocket Config Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Server error saving Shiprocket credentials.' });
+  }
+});
+
+/**
  * POST /api/admin/test-shiprocket
  * Tests live connection with Shiprocket API, validates credentials, checks wallet balance,
  * and lists registered pickup addresses.
  */
 app.post('/api/admin/test-shiprocket', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
-    const email = (req.body?.email || process.env.SHIPROCKET_EMAIL || '').trim();
-    const password = (req.body?.password || process.env.SHIPROCKET_PASSWORD || '').trim();
-    const configuredPickup = (req.body?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+    let email = (req.body?.email || process.env.SHIPROCKET_EMAIL || '').trim();
+    let password = (req.body?.password || process.env.SHIPROCKET_PASSWORD || '').trim();
+    let configuredPickup = (req.body?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+
+    if (!email || !password) {
+      const dbCreds = await getShiprocketCredentials();
+      if (dbCreds) {
+        email = dbCreds.email;
+        password = dbCreds.password;
+        if (!configuredPickup || configuredPickup === 'Primary Warehouse') {
+          configuredPickup = dbCreds.pickupLocation || 'Primary Warehouse';
+        }
+      }
+    }
 
     if (!email || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Shiprocket credentials missing. Please set SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in your environment variables.'
+        error: 'Shiprocket API credentials are not configured yet. Please enter your Shiprocket API Email and Password in Admin Settings below.'
       });
     }
 
@@ -2756,6 +2863,8 @@ app.post('/api/admin/test-shiprocket', verifyOperatorAccess, async (req: Request
       let friendlyError = errData.message || 'Shiprocket authentication failed. Please verify your credentials.';
       if (authRes.status === 403 || errData.message === 'Access forbidden') {
         friendlyError = "Shiprocket returned 'Access forbidden' (403). Shiprocket requires creating an 'API User' credential instead of using your personal account login. In your Shiprocket Dashboard, go to Settings > API > API Users > 'Add New API User' (enter a secondary email like yourname+api@gmail.com, set permissions to All, and use that email & password).";
+      } else if (errData.message === 'Invalid API key' || errData.message === 'Unauthenticated.') {
+        friendlyError = 'Invalid Shiprocket API Email or Password. Please double-check your credentials in Shiprocket Dashboard (Settings > API > API Users).';
       }
       return res.status(authRes.status || 401).json({
         success: false,
@@ -2999,6 +3108,22 @@ app.post('/api/admin/push-order-to-shiprocket', verifyOperatorAccess, async (req
  */
 app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async (_req: Request, res: Response) => {
   try {
+    const creds = await getShiprocketCredentials();
+    if (!creds || !creds.email || !creds.password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Shiprocket API credentials are not configured. Please enter your API Email and Password in Admin Settings > Shiprocket Configuration below.'
+      });
+    }
+
+    const token = await getShiprocketToken();
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Shiprocket authentication failed (Invalid API key or account error). Please double-check your API Email and Password in Admin Settings.'
+      });
+    }
+
     const supabase = getSupabaseServerClient();
     if (!supabase) {
       return res.status(500).json({ success: false, error: 'Database client not connected' });
@@ -3067,10 +3192,19 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
 
           await supabase.from('orders').update(patch).eq('id', ord.id);
           successCount++;
+        } else {
+          errors.push(`Order ${ord.order_number}: Rejected by Shiprocket (verify pickup location or balance)`);
         }
       } catch (err: any) {
         errors.push(`Order ${ord.order_number}: ${err.message}`);
       }
+    }
+
+    if (successCount === 0 && unsyncedOrders.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: `Could not sync orders to Shiprocket. ${errors[0] || 'Please verify pickup location address in Shiprocket Dashboard.'}`
+      });
     }
 
     return res.json({
@@ -4891,13 +5025,70 @@ app.post('/api/products/reset', verifyOperatorAccess, async (_req: Request, res:
 
 /**
  * GET /api/reviews
- * Returns all verified customer reviews, sorted with newest first.
+ * Returns all verified customer reviews synced with Supabase and local disk.
  */
 app.get('/api/reviews', async (_req: Request, res: Response) => {
   try {
-    const reviews = getReviewsServer();
-    // Sort newest first based on numeric timestamp or parsed createdAt
-    const sorted = [...reviews].sort((a, b) => {
+    const supabase = getSupabaseServerClient();
+    let dbReviews: Review[] = [];
+
+    if (supabase) {
+      try {
+        const { data, error } = await supabase
+          .from('reviews')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!error && Array.isArray(data) && data.length > 0) {
+          data.forEach((r: any) => {
+            dbReviews.push({
+              id: r.id,
+              author: r.author || 'Verified Buyer',
+              location: r.location || 'Verified Buyer',
+              rating: Number(r.rating || 5),
+              date: 'Just now',
+              createdAt: r.created_at || new Date().toISOString(),
+              timestamp: r.created_at ? Date.parse(r.created_at) : Date.now(),
+              verified: r.verified !== undefined ? Boolean(r.verified) : true,
+              productId: r.product_id || 'general',
+              productName: r.product_name || 'Japanese Skincare Essential',
+              skinType: r.skin_type || 'All Skin Types',
+              headline: r.headline || '',
+              comment: r.comment || '',
+              helpfulCount: Number(r.helpful_count || 0),
+              imageUrl: r.image_url || undefined,
+              status: r.status || 'approved'
+            });
+          });
+        }
+
+        // Always merge with categories metadata '_app_reviews' to ensure no reviews are lost
+        const { data: catData } = await supabase
+          .from('categories')
+          .select('description')
+          .eq('slug', '_app_reviews')
+          .maybeSingle();
+
+        if (catData?.description) {
+          try {
+            const parsed = JSON.parse(catData.description);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              parsed.forEach((r: Review) => dbReviews.push(r));
+            }
+          } catch {}
+        }
+      } catch (sbErr) {
+        console.warn('[Server] Supabase reviews query warning:', sbErr);
+      }
+    }
+
+    const localReviews = getReviewsServer();
+    // Merge DB reviews with local reviews (avoid duplicates by id)
+    const map = new Map<string, Review>();
+    localReviews.forEach(r => map.set(r.id, r));
+    dbReviews.forEach(r => map.set(r.id, r));
+
+    const combined = Array.from(map.values()).sort((a, b) => {
       const timeA = (typeof a.timestamp === 'number' && !isNaN(a.timestamp))
         ? a.timestamp
         : (a.createdAt ? Date.parse(a.createdAt) : 0);
@@ -4906,7 +5097,8 @@ app.get('/api/reviews', async (_req: Request, res: Response) => {
         : (b.createdAt ? Date.parse(b.createdAt) : 0);
       return timeB - timeA;
     });
-    return res.json({ success: true, count: sorted.length, reviews: sorted });
+
+    return res.json({ success: true, count: combined.length, reviews: combined });
   } catch (err: any) {
     console.error('[Server] Get reviews error:', err);
     return res.status(500).json({ success: false, error: err?.message || 'Failed to fetch reviews' });
@@ -4920,6 +5112,7 @@ app.get('/api/reviews', async (_req: Request, res: Response) => {
 app.post('/api/reviews', async (req: Request, res: Response) => {
   try {
     const {
+      id: customId,
       author,
       location,
       rating,
@@ -4944,7 +5137,7 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
     const timestamp = Date.parse(nowIso);
 
     const newReview: Review = {
-      id: `rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id: customId || `rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       author: author.trim(),
       location: (location || 'Verified Buyer').trim(),
       rating: Number(rating) >= 1 && Number(rating) <= 5 ? Number(rating) : 5,
@@ -4962,14 +5155,14 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
       status: 'approved' as const
     };
 
-    const updated = [newReview, ...current];
+    const updated = [newReview, ...current.filter(r => r.id !== newReview.id)];
     await saveReviewsServer(updated);
 
     // Sync to Supabase reviews table if connected
     const supabase = getSupabaseServerClient();
     if (supabase) {
       try {
-        await supabase.from('reviews').insert([{
+        await supabase.from('reviews').upsert([{
           id: newReview.id,
           product_id: newReview.productId,
           product_name: newReview.productName,
@@ -4984,7 +5177,7 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
           skin_type: newReview.skinType,
           status: 'approved',
           created_at: newReview.createdAt
-        }]);
+        }], { onConflict: 'id' });
       } catch (sbErr) {
         console.warn('[Server] Supabase review sync notice:', sbErr);
       }
@@ -4995,6 +5188,32 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('[Server] Create review error:', err);
     return res.status(500).json({ success: false, error: err?.message || 'Failed to submit review' });
+  }
+});
+
+/**
+ * POST /api/reviews/:id/helpful
+ */
+app.post('/api/reviews/:id/helpful', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const current = getReviewsServer();
+    const updated = current.map(r => r.id === id ? { ...r, helpfulCount: (r.helpfulCount || 0) + 1 } : r);
+    await saveReviewsServer(updated);
+
+    const supabase = getSupabaseServerClient();
+    if (supabase) {
+      try {
+        const { data: revRow } = await supabase.from('reviews').select('helpful_count').eq('id', id).maybeSingle();
+        if (revRow) {
+          await supabase.from('reviews').update({ helpful_count: Number(revRow.helpful_count || 0) + 1 }).eq('id', id);
+        }
+      } catch {}
+    }
+
+    return res.json({ success: true, id });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

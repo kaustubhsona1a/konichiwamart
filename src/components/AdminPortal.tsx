@@ -297,6 +297,71 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   // Shiprocket Test State
   const [isTestingShiprocket, setIsTestingShiprocket] = useState(false);
+  // Shiprocket Credentials Config State
+  const [srConfigEmail, setSrConfigEmail] = useState('');
+  const [srConfigPassword, setSrConfigPassword] = useState('');
+  const [srConfigPickupLocation, setSrConfigPickupLocation] = useState('Primary Warehouse');
+  const [isSavingSrConfig, setIsSavingSrConfig] = useState(false);
+  const [isSrConfigured, setIsSrConfigured] = useState(false);
+  const [srConfigSource, setSrConfigSource] = useState<'env' | 'db' | 'none'>('none');
+  const [isEnvConfigured, setIsEnvConfigured] = useState(false);
+  const [isDbConfigured, setIsDbConfigured] = useState(false);
+  const [srConfigMsg, setSrConfigMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showSrPassword, setShowSrPassword] = useState(false);
+
+  // Load Shiprocket config on Settings tab open
+  useEffect(() => {
+    if (activeTab === 'settings' && isOpen) {
+      fetch('/api/admin/shiprocket-config', {
+        headers: { ...getOperatorAuthHeaders() }
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.success) {
+            if (data.email) setSrConfigEmail(data.email);
+            if (data.pickupLocation) setSrConfigPickupLocation(data.pickupLocation);
+            setIsSrConfigured(Boolean(data.configured));
+            setSrConfigSource(data.source || 'none');
+            setIsEnvConfigured(Boolean(data.isEnvConfigured));
+            setIsDbConfigured(Boolean(data.isDbConfigured));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeTab, isOpen]);
+
+  const handleSaveShiprocketConfig = async () => {
+    if (!srConfigEmail.trim() || !srConfigPassword.trim()) {
+      setSrConfigMsg({ type: 'error', text: 'Please enter both your Shiprocket API Email and Password.' });
+      return;
+    }
+    setIsSavingSrConfig(true);
+    setSrConfigMsg(null);
+    try {
+      const res = await fetch('/api/admin/save-shiprocket-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
+        body: JSON.stringify({
+          email: srConfigEmail.trim(),
+          password: srConfigPassword.trim(),
+          pickupLocation: srConfigPickupLocation.trim() || 'Primary Warehouse'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsSrConfigured(true);
+        setSrConfigMsg({ type: 'success', text: data.message || 'Shiprocket credentials verified & saved!' });
+        handleTestShiprocket();
+      } else {
+        setSrConfigMsg({ type: 'error', text: data.error || 'Failed to verify Shiprocket credentials' });
+      }
+    } catch (err: any) {
+      setSrConfigMsg({ type: 'error', text: err.message || 'Network error saving credentials' });
+    } finally {
+      setIsSavingSrConfig(false);
+    }
+  };
+
   const [shiprocketTestResult, setShiprocketTestResult] = useState<{
     success: boolean;
     message?: string;
@@ -3821,6 +3886,125 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </span>
                 </div>
 
+                {/* Shiprocket Credential Form */}
+                <div className="p-4 rounded-xl bg-indigo-50/50 border border-indigo-100 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                      <Settings className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Shiprocket REST API Credentials & Pickup Location</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {isEnvConfigured && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                          Vercel Secrets Active
+                        </span>
+                      )}
+                      {isDbConfigured && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-indigo-800 bg-indigo-100/80 px-2.5 py-0.5 rounded-full border border-indigo-300">
+                          <CheckCircle2 className="w-3 h-3 text-indigo-600" />
+                          Database Backup Active
+                        </span>
+                      )}
+                      {!isSrConfigured && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-800 bg-amber-100/80 px-2.5 py-0.5 rounded-full border border-amber-300">
+                          <AlertTriangle className="w-3 h-3 text-amber-600" />
+                          Credentials Needed
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Shiprocket API User Email
+                      </label>
+                      <input
+                        type="email"
+                        value={srConfigEmail}
+                        onChange={(e) => setSrConfigEmail(e.target.value)}
+                        placeholder="e.g. api-user@konichiwamart.com"
+                        className="w-full px-3 py-2 rounded-lg bg-white border border-stone-200 text-xs font-mono text-slate-900 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        API Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showSrPassword ? "text" : "password"}
+                          value={srConfigPassword}
+                          onChange={(e) => setSrConfigPassword(e.target.value)}
+                          placeholder="Enter API password..."
+                          className="w-full px-3 py-2 pr-10 rounded-lg bg-white border border-stone-200 text-xs font-mono text-slate-900 focus:outline-none focus:border-indigo-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowSrPassword(!showSrPassword)}
+                          className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-[10px] font-bold"
+                        >
+                          {showSrPassword ? 'HIDE' : 'SHOW'}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Pickup Location Nickname
+                      </label>
+                      <input
+                        type="text"
+                        value={srConfigPickupLocation}
+                        onChange={(e) => setSrConfigPickupLocation(e.target.value)}
+                        placeholder="Primary Warehouse / Home"
+                        className="w-full px-3 py-2 rounded-lg bg-white border border-stone-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                    <p className="text-[11px] text-slate-500 max-w-xl">
+                      <strong>Tip:</strong> In your Shiprocket Dashboard, create an "API User" under <em>Settings &gt; API &gt; API Users &gt; "Add New API User"</em> with full permissions.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSaveShiprocketConfig}
+                      disabled={isSavingSrConfig}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 shrink-0"
+                    >
+                      {isSavingSrConfig ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Verifying & Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Save & Verify Credentials</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {srConfigMsg && (
+                    <div className={`p-3 rounded-lg border text-xs flex items-center gap-2 animate-in fade-in ${
+                      srConfigMsg.type === 'success'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-medium'
+                        : 'bg-rose-50 border-rose-200 text-rose-800 font-medium'
+                    }`}>
+                      {srConfigMsg.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                      )}
+                      <span>{srConfigMsg.text}</span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Configuration Overview */}
                 <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-3">
                   <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
@@ -3833,7 +4017,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">Default Pickup Nickname</span>
-                      <span className="font-mono font-medium text-slate-800">Primary Warehouse</span>
+                      <span className="font-mono font-medium text-slate-800">{srConfigPickupLocation || 'Primary Warehouse'}</span>
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[10px] uppercase font-bold">Coverage</span>
