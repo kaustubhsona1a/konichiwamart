@@ -351,7 +351,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       if (data.success) {
         setIsSrConfigured(true);
         setSrConfigMsg({ type: 'success', text: data.message || 'Shiprocket credentials verified & saved!' });
-        handleTestShiprocket();
       } else {
         setSrConfigMsg({ type: 'error', text: data.error || 'Failed to verify Shiprocket credentials' });
       }
@@ -554,65 +553,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [editCity, setEditCity] = useState('');
   const [editState, setEditState] = useState('');
   const [editPincode, setEditPincode] = useState('');
+  const [editSendEmail, setEditSendEmail] = useState(true);
+  const [editCustomNote, setEditCustomNote] = useState('');
+  const [editCourierPartner, setEditCourierPartner] = useState('');
+  const [editAwbNumber, setEditAwbNumber] = useState('');
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [orderActionMsg, setOrderActionMsg] = useState<string | null>(null);
 
-  // Custom Customer Email Modal State
-  const [emailingOrder, setEmailingOrder] = useState<Order | null>(null);
-  const [selectedEmailStatus, setSelectedEmailStatus] = useState<string>('OUT_FOR_DELIVERY');
-  const [customEmailNote, setCustomEmailNote] = useState<string>('');
-  const [emailCourierPartner, setEmailCourierPartner] = useState<string>('');
-  const [emailAwbNumber, setEmailAwbNumber] = useState<string>('');
-  const [isSendingCustomEmail, setIsSendingCustomEmail] = useState(false);
-  const [customEmailResult, setCustomEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleSendCustomEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!emailingOrder) return;
-
-    setIsSendingCustomEmail(true);
-    setCustomEmailResult(null);
-
-    try {
-      const res = await fetch('/api/admin/send-custom-customer-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
-        body: JSON.stringify({
-          orderId: emailingOrder.id,
-          status: selectedEmailStatus,
-          customMessage: customEmailNote.trim(),
-          courierPartner: emailCourierPartner.trim(),
-          awbNumber: emailAwbNumber.trim()
-        })
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setCustomEmailResult({
-          type: 'success',
-          text: data.message || `Status notification email dispatched to ${emailingOrder.customerEmail}!`
-        });
-        if (onRefreshOrders) await onRefreshOrders();
-        setTimeout(() => {
-          setEmailingOrder(null);
-          setCustomEmailResult(null);
-          setCustomEmailNote('');
-        }, 1800);
-      } else {
-        setCustomEmailResult({
-          type: 'error',
-          text: data.error || 'Failed to dispatch customer email'
-        });
-      }
-    } catch (err: any) {
-      setCustomEmailResult({
-        type: 'error',
-        text: err?.message || 'Network error sending custom email'
-      });
-    } finally {
-      setIsSendingCustomEmail(false);
-    }
-  };
 
   // Shiprocket direct order push state
   const [pushingOrderId, setPushingOrderId] = useState<string | null>(null);
@@ -793,6 +741,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setEditCity(order.shippingAddress?.city || '');
     setEditState(order.shippingAddress?.state || '');
     setEditPincode(order.shippingAddress?.pincode || '');
+    setEditSendEmail(true);
+    setEditCustomNote('');
+    setEditAwbNumber(order.awbNumber || '');
+    setEditCourierPartner(order.courierPartner || 'Shiprocket Express');
   };
 
   const handleSaveOrderEdit = async (e: React.FormEvent) => {
@@ -805,6 +757,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         customerEmail: editCustomerEmail.trim(),
         customerPhone: editCustomerPhone.trim(),
         status: editStatus,
+        courierPartner: editCourierPartner.trim() || editingOrder.courierPartner,
+        awbNumber: editAwbNumber.trim() || editingOrder.awbNumber,
         shippingAddress: {
           ...editingOrder.shippingAddress,
           fullName: editCustomerName.trim() || editingOrder.shippingAddress.fullName,
@@ -823,7 +777,30 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         await onUpdateOrderStatus(editingOrder.id, editStatus);
       }
 
-      setOrderActionMsg(`Order #${editingOrder.orderNumber} updated successfully!`);
+      let emailNotice = '';
+      if (editSendEmail && editCustomerEmail.trim()) {
+        try {
+          const res = await fetch('/api/admin/send-custom-customer-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
+            body: JSON.stringify({
+              orderId: editingOrder.id,
+              status: editStatus,
+              customMessage: editCustomNote.trim(),
+              courierPartner: editCourierPartner.trim(),
+              awbNumber: editAwbNumber.trim()
+            })
+          });
+          const emailData = await res.json();
+          if (emailData?.success) {
+            emailNotice = ' & status email sent to customer';
+          }
+        } catch (emailErr) {
+          console.warn('[Edit Order Email Warning]:', emailErr);
+        }
+      }
+
+      setOrderActionMsg(`Order #${editingOrder.orderNumber} updated successfully${emailNotice}!`);
       setTimeout(() => setOrderActionMsg(null), 3500);
       setEditingOrder(null);
     } catch (err: any) {
@@ -3983,192 +3960,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
 
-                {/* Test Connection Button & Result Card */}
-                <div className="space-y-3 pt-1">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                        Live Connection & Wallet Verification
-                      </label>
-                      <p className="text-xs text-slate-500">
-                        Verify your Shiprocket API credentials, check shipping wallet balance, and validate pickup locations.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={handleSyncTracking}
-                        disabled={isSyncingTracking}
-                        className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-50 flex-shrink-0"
-                      >
-                        {isSyncingTracking ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-600" />
-                            <span>Syncing...</span>
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 text-slate-600" />
-                            <span>Sync Tracking</span>
-                          </>
-                        )}
-                      </button>
 
-                      <button
-                        type="button"
-                        onClick={handleTestShiprocket}
-                        disabled={isTestingShiprocket}
-                        className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 flex-shrink-0"
-                      >
-                        {isTestingShiprocket ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Testing Connection...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Truck className="w-3.5 h-3.5" />
-                            <span>Test Connection</span>
-                          </>
-                        )}
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleSendTestOrder}
-                        disabled={isSendingTestOrder}
-                        title="Creates a draft order in Shiprocket without assigning a courier. Cost = ₹0."
-                        className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 flex-shrink-0"
-                      >
-                        {isSendingTestOrder ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Sending Order...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Package className="w-3.5 h-3.5" />
-                            <span>Push Test Order (₹0)</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-                  {testOrderResult && (
-                    <div className={`p-4 rounded-xl border text-xs space-y-2 animate-in fade-in ${
-                      testOrderResult.success ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-rose-50 border-rose-200 text-rose-900'
-                    }`}>
-                      <div className="flex items-center gap-2 font-bold">
-                        {testOrderResult.success ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                        )}
-                        <span>{testOrderResult.message || (testOrderResult.success ? 'Order Created!' : 'Failed to create order')}</span>
-                      </div>
-                      {testOrderResult.error && (
-                        <div className="text-rose-700 font-medium">
-                          {testOrderResult.error}
-                        </div>
-                      )}
-                      {testOrderResult.success && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-emerald-200/60 text-[11px]">
-                          <div>
-                            <span className="font-semibold text-emerald-800">Order Number:</span>{' '}
-                            <span className="font-mono">{testOrderResult.orderNumber}</span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-emerald-800">Shiprocket Order ID:</span>{' '}
-                            <span className="font-mono">{testOrderResult.shiprocketOrderId}</span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-emerald-800">Wallet Cost:</span>{' '}
-                            <span className="font-bold text-emerald-700">{testOrderResult.cost}</span>
-                          </div>
-                          <div>
-                            <a 
-                              href={testOrderResult.dashboardUrl || 'https://app.shiprocket.in/orders'} 
-                              target="_blank" 
-                              rel="noreferrer" 
-                              className="font-bold text-pink-600 hover:underline inline-flex items-center gap-1"
-                            >
-                              <span>View in Shiprocket Dashboard</span>
-                              <ExternalLink className="w-3 h-3" />
-                            </a>
-                          </div>
-                          <div className="sm:col-span-2 text-slate-500 italic text-[10px]">
-                            {testOrderResult.note}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {syncTrackingResult && (
-                    <div className={`p-3.5 rounded-xl border text-xs animate-in fade-in ${
-                      syncTrackingResult.success ? 'bg-indigo-50 border-indigo-200 text-indigo-900' : 'bg-rose-50 border-rose-200 text-rose-900'
-                    }`}>
-                      <div className="flex items-center gap-2 font-semibold">
-                        <CheckCircle2 className="w-4 h-4 text-indigo-600" />
-                        <span>Tracking Sync Completed: Checked {syncTrackingResult.totalChecked || 0} active orders, updated {syncTrackingResult.updatedCount || 0} statuses.</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {shiprocketTestResult && (
-                    <div className={`p-4 rounded-xl border text-xs space-y-2.5 animate-in fade-in ${
-                      shiprocketTestResult.success 
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900' 
-                        : 'bg-rose-50 border-rose-200 text-rose-900'
-                    }`}>
-                      <div className="flex items-center gap-2 font-bold">
-                        {shiprocketTestResult.success ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                        )}
-                        <span>{shiprocketTestResult.message || (shiprocketTestResult.success ? 'Connected!' : 'Connection issue')}</span>
-                      </div>
-
-                      {shiprocketTestResult.error && (
-                        <div className="text-rose-700 font-medium">
-                          {shiprocketTestResult.error}
-                        </div>
-                      )}
-
-                      {shiprocketTestResult.success && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-emerald-200/60 text-[11px]">
-                          <div>
-                            <span className="font-semibold text-emerald-800">Account:</span>{' '}
-                            <span className="font-mono">{shiprocketTestResult.accountEmail}</span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-emerald-800">Wallet Balance:</span>{' '}
-                            <span className="font-bold">{shiprocketTestResult.walletBalance}</span>
-                          </div>
-                          <div>
-                            <span className="font-semibold text-emerald-800">Configured Pickup Location:</span>{' '}
-                            <span className="font-mono">{shiprocketTestResult.configuredPickupLocation}</span>
-                            {shiprocketTestResult.pickupLocationFound ? (
-                              <span className="ml-1 text-emerald-700 font-bold">(Matched ✓)</span>
-                            ) : (
-                              <span className="ml-1 text-amber-600 font-bold">(Not found in Shiprocket addresses)</span>
-                            )}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-emerald-800">Registered Addresses in Shiprocket:</span>{' '}
-                            <span className="font-mono">
-                              {shiprocketTestResult.availablePickupLocations && shiprocketTestResult.availablePickupLocations.length > 0
-                                ? shiprocketTestResult.availablePickupLocations.join(', ')
-                                : 'None registered yet'}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
 
                 {/* Real-Time Automated Tracking Webhook */}
                 <div className="p-4 rounded-xl bg-violet-50/70 border border-violet-200 space-y-2 text-xs">
@@ -5763,6 +5555,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </select>
               </div>
 
+              {/* Send Status Email Option */}
+              <div className="p-3 bg-purple-50/70 rounded-2xl border border-purple-200/80 space-y-2.5">
+                <label className="flex items-center gap-2 cursor-pointer font-bold text-slate-800 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={editSendEmail}
+                    onChange={(e) => setEditSendEmail(e.target.checked)}
+                    className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                  />
+                  <span>Send status update email to customer ({editCustomerEmail || 'customer'})</span>
+                </label>
+
+                {editSendEmail && (
+                  <div className="space-y-2 pt-1 border-t border-purple-200/60">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-[10px] font-semibold text-purple-950 uppercase block mb-1">Courier Partner</span>
+                        <input
+                          type="text"
+                          value={editCourierPartner}
+                          onChange={(e) => setEditCourierPartner(e.target.value)}
+                          placeholder="Blue Dart / Shiprocket"
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-purple-500 font-medium"
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-semibold text-purple-950 uppercase block mb-1">AWB Tracking Code</span>
+                        <input
+                          type="text"
+                          value={editAwbNumber}
+                          onChange={(e) => setEditAwbNumber(e.target.value)}
+                          placeholder="e.g. 1489201938"
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-900 text-xs font-mono font-bold focus:outline-none focus:border-purple-500"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-semibold text-purple-950 uppercase block mb-1">Custom Delivery Note / Special Instructions (Optional)</span>
+                      <textarea
+                        rows={2}
+                        value={editCustomNote}
+                        onChange={(e) => setEditCustomNote(e.target.value)}
+                        placeholder="e.g. Out for delivery today with executive. Contact driver at delivery hub."
+                        className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-900 text-xs focus:outline-none focus:border-purple-500 font-sans"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Shipping Address */}
               <div className="space-y-2">
                 <label className="block font-bold text-slate-700 uppercase tracking-wider text-[10px]">
@@ -5936,21 +5778,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <span>WhatsApp</span>
                   </a>
 
-                  {/* Send Status Email */}
+                  {/* Update Status & Send Email */}
                   <button
                     type="button"
                     onClick={() => {
-                      setEmailingOrder(inspectingOrder);
-                      setSelectedEmailStatus(inspectingOrder.status === 'CONFIRMED' ? 'DISPATCHED' : (inspectingOrder.status || 'OUT_FOR_DELIVERY'));
-                      setEmailCourierPartner(inspectingOrder.courierPartner || 'Shiprocket Express');
-                      setEmailAwbNumber(inspectingOrder.awbNumber || '');
-                      setCustomEmailNote('');
-                      setCustomEmailResult(null);
+                      const current = inspectingOrder;
+                      setInspectingOrder(null);
+                      handleOpenEditOrder(current);
                     }}
                     className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-purple-600/20 cursor-pointer"
                   >
                     <Mail className="w-4 h-4" />
-                    <span>Send Status Email</span>
+                    <span>Update Status & Email Customer</span>
                   </button>
 
                   {/* Connect via Email App */}
@@ -6387,155 +6226,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </button>
       </nav>
 
-      {/* ========================================================================= */}
-      {/* CUSTOM STATUS EMAIL DISPATCH MODAL (`emailingOrder`)                        */}
-      {/* ========================================================================= */}
-      {emailingOrder && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-3xl max-w-lg w-full border border-purple-100 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
-              <div className="flex items-center gap-2.5 text-purple-700">
-                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center flex-shrink-0">
-                  <Mail className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-sm uppercase tracking-wider text-slate-900">
-                    Send Status Notification Email
-                  </h3>
-                  <span className="text-[10px] text-slate-500 font-medium">To: {emailingOrder.customerEmail} (#{emailingOrder.orderNumber})</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEmailingOrder(null)}
-                className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <form onSubmit={handleSendCustomEmail} className="space-y-4 text-xs">
-              {/* Status Milestone Selection */}
-              <div>
-                <label className="block font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-1.5">
-                  Select Email Status Trigger
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: 'CONFIRMED', label: 'Order Confirmed', icon: '📦' },
-                    { id: 'DISPATCHED', label: 'Dispatched / AWB', icon: '🏷️' },
-                    { id: 'IN_TRANSIT', label: 'In Transit Hub', icon: '🚚' },
-                    { id: 'OUT_FOR_DELIVERY', label: 'Out For Delivery', icon: '🛵' },
-                    { id: 'DELIVERED', label: 'Delivered', icon: '🎉' },
-                    { id: 'CANCELLED', label: 'Cancelled / Void', icon: '❌' }
-                  ].map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSelectedEmailStatus(item.id)}
-                      className={`p-2.5 rounded-xl border font-bold text-left transition-all cursor-pointer flex items-center gap-2 ${
-                        selectedEmailStatus === item.id
-                          ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
-                          : 'bg-stone-50 hover:bg-stone-100 text-slate-700 border-stone-200'
-                      }`}
-                    >
-                      <span className="text-sm">{item.icon}</span>
-                      <span>{item.label}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Courier & AWB Details */}
-              <div className="grid grid-cols-2 gap-3 p-3 bg-purple-50/50 rounded-2xl border border-purple-100">
-                <div>
-                  <label className="block font-semibold text-purple-950 text-[10px] uppercase mb-1">
-                    Courier Partner
-                  </label>
-                  <input
-                    type="text"
-                    value={emailCourierPartner}
-                    onChange={(e) => setEmailCourierPartner(e.target.value)}
-                    placeholder="e.g. Blue Dart Air Express"
-                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-900 font-semibold focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-purple-950 text-[10px] uppercase mb-1">
-                    AWB Tracking Code
-                  </label>
-                  <input
-                    type="text"
-                    value={emailAwbNumber}
-                    onChange={(e) => setEmailAwbNumber(e.target.value)}
-                    placeholder="e.g. 1489201938"
-                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-stone-200 font-mono font-bold text-slate-900 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-              </div>
-
-              {/* Custom Delivery Note / Message */}
-              <div>
-                <label className="block font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-1">
-                  Custom Delivery Note / Special Message (Optional)
-                </label>
-                <textarea
-                  rows={3}
-                  value={customEmailNote}
-                  onChange={(e) => setCustomEmailNote(e.target.value)}
-                  placeholder="e.g. Your parcel is scheduled for delivery today between 2 PM and 5 PM. Delivery OTP is 4821..."
-                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-purple-500 focus:outline-none font-sans text-xs"
-                />
-              </div>
-
-              {/* Result Feedback Banner */}
-              {customEmailResult && (
-                <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 animate-in fade-in ${
-                  customEmailResult.type === 'success'
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-medium'
-                    : 'bg-rose-50 border-rose-200 text-rose-800 font-medium'
-                }`}>
-                  {customEmailResult.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                  ) : (
-                    <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                  )}
-                  <span>{customEmailResult.text}</span>
-                </div>
-              )}
-
-              {/* Modal Buttons */}
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
-                <button
-                  type="button"
-                  onClick={() => setEmailingOrder(null)}
-                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 font-semibold cursor-pointer transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSendingCustomEmail}
-                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold flex items-center gap-2 cursor-pointer shadow-md shadow-purple-600/20 transition-all"
-                >
-                  {isSendingCustomEmail ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Dispatching Email...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-3.5 h-3.5" />
-                      <span>Send Status Email</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
     </div>
   );
