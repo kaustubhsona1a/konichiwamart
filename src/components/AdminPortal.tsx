@@ -30,7 +30,7 @@ import { X,
   FolderPlus,
   Loader2,
   RefreshCw,
-  Mail, Edit3,
+  Mail, Edit3, Send,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -556,6 +556,63 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [editPincode, setEditPincode] = useState('');
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [orderActionMsg, setOrderActionMsg] = useState<string | null>(null);
+
+  // Custom Customer Email Modal State
+  const [emailingOrder, setEmailingOrder] = useState<Order | null>(null);
+  const [selectedEmailStatus, setSelectedEmailStatus] = useState<string>('OUT_FOR_DELIVERY');
+  const [customEmailNote, setCustomEmailNote] = useState<string>('');
+  const [emailCourierPartner, setEmailCourierPartner] = useState<string>('');
+  const [emailAwbNumber, setEmailAwbNumber] = useState<string>('');
+  const [isSendingCustomEmail, setIsSendingCustomEmail] = useState(false);
+  const [customEmailResult, setCustomEmailResult] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleSendCustomEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailingOrder) return;
+
+    setIsSendingCustomEmail(true);
+    setCustomEmailResult(null);
+
+    try {
+      const res = await fetch('/api/admin/send-custom-customer-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
+        body: JSON.stringify({
+          orderId: emailingOrder.id,
+          status: selectedEmailStatus,
+          customMessage: customEmailNote.trim(),
+          courierPartner: emailCourierPartner.trim(),
+          awbNumber: emailAwbNumber.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCustomEmailResult({
+          type: 'success',
+          text: data.message || `Status notification email dispatched to ${emailingOrder.customerEmail}!`
+        });
+        if (onRefreshOrders) await onRefreshOrders();
+        setTimeout(() => {
+          setEmailingOrder(null);
+          setCustomEmailResult(null);
+          setCustomEmailNote('');
+        }, 1800);
+      } else {
+        setCustomEmailResult({
+          type: 'error',
+          text: data.error || 'Failed to dispatch customer email'
+        });
+      }
+    } catch (err: any) {
+      setCustomEmailResult({
+        type: 'error',
+        text: err?.message || 'Network error sending custom email'
+      });
+    } finally {
+      setIsSendingCustomEmail(false);
+    }
+  };
 
   // Shiprocket direct order push state
   const [pushingOrderId, setPushingOrderId] = useState<string | null>(null);
@@ -2841,15 +2898,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
-                    onClick={handleFetchAndEmailAllTracking}
-                    disabled={isFetchingAndEmailing}
-                    className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer w-fit"
-                    title="Fetches live AWB & tracking updates from Shiprocket and automatically emails customers"
-                  >
-                    <Mail className={`w-3.5 h-3.5 ${isFetchingAndEmailing ? 'animate-bounce' : ''}`} />
-                    <span>{isFetchingAndEmailing ? 'Syncing Tracking...' : 'Fetch Status & Email Customers'}</span>
-                  </button>
-                  <button
                     onClick={handleSyncAllUnsyncedShiprocket}
                     disabled={isSyncingAllShiprocket}
                     className="inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50 cursor-pointer w-fit"
@@ -3886,18 +3934,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </span>
                 </div>
 
-                {/* Shiprocket Credential Form */}
-                <div className="p-4 rounded-xl bg-indigo-50/50 border border-indigo-100 space-y-4">
+                {/* Shiprocket Credential Security Status */}
+                <div className="p-4 rounded-xl bg-indigo-50/50 border border-indigo-100 space-y-3">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                     <div className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
                       <Settings className="w-3.5 h-3.5 text-indigo-600" />
-                      <span>Shiprocket REST API Credentials & Pickup Location</span>
+                      <span>Shiprocket REST API Environment Configuration</span>
                     </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {isEnvConfigured && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-300">
                           <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          Vercel Secrets Active
+                          Vercel Environment Secrets Active
                         </span>
                       )}
                       {isDbConfigured && (
@@ -3906,103 +3954,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           Database Backup Active
                         </span>
                       )}
-                      {!isSrConfigured && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-800 bg-amber-100/80 px-2.5 py-0.5 rounded-full border border-amber-300">
-                          <AlertTriangle className="w-3 h-3 text-amber-600" />
-                          Credentials Needed
-                        </span>
-                      )}
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                        Shiprocket API User Email
-                      </label>
-                      <input
-                        type="email"
-                        value={srConfigEmail}
-                        onChange={(e) => setSrConfigEmail(e.target.value)}
-                        placeholder="e.g. api-user@konichiwamart.com"
-                        className="w-full px-3 py-2 rounded-lg bg-white border border-stone-200 text-xs font-mono text-slate-900 focus:outline-none focus:border-indigo-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                        API Password
-                      </label>
-                      <div className="relative">
-                        <input
-                          type={showSrPassword ? "text" : "password"}
-                          value={srConfigPassword}
-                          onChange={(e) => setSrConfigPassword(e.target.value)}
-                          placeholder="Enter API password..."
-                          className="w-full px-3 py-2 pr-10 rounded-lg bg-white border border-stone-200 text-xs font-mono text-slate-900 focus:outline-none focus:border-indigo-500"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowSrPassword(!showSrPassword)}
-                          className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-[10px] font-bold"
-                        >
-                          {showSrPassword ? 'HIDE' : 'SHOW'}
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                        Pickup Location Nickname
-                      </label>
-                      <input
-                        type="text"
-                        value={srConfigPickupLocation}
-                        onChange={(e) => setSrConfigPickupLocation(e.target.value)}
-                        placeholder="Primary Warehouse / Home"
-                        className="w-full px-3 py-2 rounded-lg bg-white border border-stone-200 text-xs text-slate-900 focus:outline-none focus:border-indigo-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-                    <p className="text-[11px] text-slate-500 max-w-xl">
-                      <strong>Tip:</strong> In your Shiprocket Dashboard, create an "API User" under <em>Settings &gt; API &gt; API Users &gt; "Add New API User"</em> with full permissions.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleSaveShiprocketConfig}
-                      disabled={isSavingSrConfig}
-                      className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5 shrink-0"
-                    >
-                      {isSavingSrConfig ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Verifying & Saving...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Check className="w-3.5 h-3.5" />
-                          <span>Save & Verify Credentials</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {srConfigMsg && (
-                    <div className={`p-3 rounded-lg border text-xs flex items-center gap-2 animate-in fade-in ${
-                      srConfigMsg.type === 'success'
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-medium'
-                        : 'bg-rose-50 border-rose-200 text-rose-800 font-medium'
-                    }`}>
-                      {srConfigMsg.type === 'success' ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
-                      )}
-                      <span>{srConfigMsg.text}</span>
-                    </div>
-                  )}
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Shiprocket API User credentials (<code className="bg-white px-1.5 py-0.5 rounded border border-stone-200 font-mono text-[11px]">SHIPROCKET_EMAIL</code>, <code className="bg-white px-1.5 py-0.5 rounded border border-stone-200 font-mono text-[11px]">SHIPROCKET_PASSWORD</code>, <code className="bg-white px-1.5 py-0.5 rounded border border-stone-200 font-mono text-[11px]">SHIPROCKET_PICKUP_LOCATION</code>) are encrypted and loaded directly from <strong>Vercel Environment Variables</strong>. UI secret editing is disabled in the dealer portal for security.
+                  </p>
                 </div>
 
                 {/* Configuration Overview */}
@@ -5965,7 +5922,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {/* Connect via WhatsApp */}
                   <a
                     href={`https://wa.me/91${(inspectingOrder.customerPhone || '8879258004').replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(
@@ -5973,21 +5930,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-emerald-600/20 cursor-pointer"
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span>Connect on WhatsApp</span>
+                    <span>WhatsApp</span>
                   </a>
 
-                  {/* Connect via Email */}
-                  <a
-                    href={`mailto:${inspectingOrder.customerEmail}?subject=${encodeURIComponent(`Konichiwa Mart Order #${inspectingOrder.orderNumber}`)}&body=${encodeURIComponent(
-                      `Dear ${inspectingOrder.customerName || 'Valued Customer'},\n\nThank you for shopping with Konichiwa Mart!\n\nWe are reaching out regarding your Order #${inspectingOrder.orderNumber}.\n\nOrder Summary:\n- Amount Paid: ${formatINR(inspectingOrder.totalAmount)}\n- Current Status: ${inspectingOrder.status || 'CONFIRMED'}\n${inspectingOrder.awbNumber ? `- Tracking AWB: ${inspectingOrder.awbNumber}\n` : ''}\nIf you have any queries or requests, please reply to this email or call our customer hotline at +91 8879258004.\n\nWarm regards,\nKonichiwa Mart Team`
-                    )}`}
-                    className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+                  {/* Send Status Email */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEmailingOrder(inspectingOrder);
+                      setSelectedEmailStatus(inspectingOrder.status === 'CONFIRMED' ? 'DISPATCHED' : (inspectingOrder.status || 'OUT_FOR_DELIVERY'));
+                      setEmailCourierPartner(inspectingOrder.courierPartner || 'Shiprocket Express');
+                      setEmailAwbNumber(inspectingOrder.awbNumber || '');
+                      setCustomEmailNote('');
+                      setCustomEmailResult(null);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-purple-600/20 cursor-pointer"
                   >
                     <Mail className="w-4 h-4" />
-                    <span>Connect on Email</span>
+                    <span>Send Status Email</span>
+                  </button>
+
+                  {/* Connect via Email App */}
+                  <a
+                    href={`mailto:${inspectingOrder.customerEmail}?subject=${encodeURIComponent(`Konichiwa Mart Order #${inspectingOrder.orderNumber}`)}`}
+                    className="inline-flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>Email App</span>
                   </a>
                 </div>
               </div>
@@ -6414,6 +6386,156 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           <span className="text-[10px] tracking-tight">Settings</span>
         </button>
       </nav>
+
+      {/* ========================================================================= */}
+      {/* CUSTOM STATUS EMAIL DISPATCH MODAL (`emailingOrder`)                        */}
+      {/* ========================================================================= */}
+      {emailingOrder && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-purple-100 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+              <div className="flex items-center gap-2.5 text-purple-700">
+                <div className="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center flex-shrink-0">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm uppercase tracking-wider text-slate-900">
+                    Send Status Notification Email
+                  </h3>
+                  <span className="text-[10px] text-slate-500 font-medium">To: {emailingOrder.customerEmail} (#{emailingOrder.orderNumber})</span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEmailingOrder(null)}
+                className="w-8 h-8 rounded-lg hover:bg-stone-100 flex items-center justify-center text-slate-400 hover:text-slate-600 cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendCustomEmail} className="space-y-4 text-xs">
+              {/* Status Milestone Selection */}
+              <div>
+                <label className="block font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-1.5">
+                  Select Email Status Trigger
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { id: 'CONFIRMED', label: 'Order Confirmed', icon: '📦' },
+                    { id: 'DISPATCHED', label: 'Dispatched / AWB', icon: '🏷️' },
+                    { id: 'IN_TRANSIT', label: 'In Transit Hub', icon: '🚚' },
+                    { id: 'OUT_FOR_DELIVERY', label: 'Out For Delivery', icon: '🛵' },
+                    { id: 'DELIVERED', label: 'Delivered', icon: '🎉' },
+                    { id: 'CANCELLED', label: 'Cancelled / Void', icon: '❌' }
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setSelectedEmailStatus(item.id)}
+                      className={`p-2.5 rounded-xl border font-bold text-left transition-all cursor-pointer flex items-center gap-2 ${
+                        selectedEmailStatus === item.id
+                          ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                          : 'bg-stone-50 hover:bg-stone-100 text-slate-700 border-stone-200'
+                      }`}
+                    >
+                      <span className="text-sm">{item.icon}</span>
+                      <span>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Courier & AWB Details */}
+              <div className="grid grid-cols-2 gap-3 p-3 bg-purple-50/50 rounded-2xl border border-purple-100">
+                <div>
+                  <label className="block font-semibold text-purple-950 text-[10px] uppercase mb-1">
+                    Courier Partner
+                  </label>
+                  <input
+                    type="text"
+                    value={emailCourierPartner}
+                    onChange={(e) => setEmailCourierPartner(e.target.value)}
+                    placeholder="e.g. Blue Dart Air Express"
+                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-stone-200 text-slate-900 font-semibold focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-purple-950 text-[10px] uppercase mb-1">
+                    AWB Tracking Code
+                  </label>
+                  <input
+                    type="text"
+                    value={emailAwbNumber}
+                    onChange={(e) => setEmailAwbNumber(e.target.value)}
+                    placeholder="e.g. 1489201938"
+                    className="w-full px-3 py-1.5 rounded-lg bg-white border border-stone-200 font-mono font-bold text-slate-900 focus:outline-none focus:border-purple-500"
+                  />
+                </div>
+              </div>
+
+              {/* Custom Delivery Note / Message */}
+              <div>
+                <label className="block font-bold text-slate-800 uppercase tracking-wider text-[11px] mb-1">
+                  Custom Delivery Note / Special Message (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={customEmailNote}
+                  onChange={(e) => setCustomEmailNote(e.target.value)}
+                  placeholder="e.g. Your parcel is scheduled for delivery today between 2 PM and 5 PM. Delivery OTP is 4821..."
+                  className="w-full px-3 py-2 rounded-xl bg-stone-50 border border-stone-200 text-slate-900 focus:bg-white focus:border-purple-500 focus:outline-none font-sans text-xs"
+                />
+              </div>
+
+              {/* Result Feedback Banner */}
+              {customEmailResult && (
+                <div className={`p-3 rounded-xl border text-xs flex items-center gap-2 animate-in fade-in ${
+                  customEmailResult.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800 font-medium'
+                    : 'bg-rose-50 border-rose-200 text-rose-800 font-medium'
+                }`}>
+                  {customEmailResult.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  ) : (
+                    <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  )}
+                  <span>{customEmailResult.text}</span>
+                </div>
+              )}
+
+              {/* Modal Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-stone-100">
+                <button
+                  type="button"
+                  onClick={() => setEmailingOrder(null)}
+                  className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-slate-700 font-semibold cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSendingCustomEmail}
+                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white font-bold flex items-center gap-2 cursor-pointer shadow-md shadow-purple-600/20 transition-all"
+                >
+                  {isSendingCustomEmail ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Dispatching Email...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Send Status Email</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

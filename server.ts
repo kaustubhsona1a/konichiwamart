@@ -3683,6 +3683,103 @@ app.post('/api/admin/fetch-and-email-tracking', verifyOperatorAccess, async (req
 });
 
 /**
+ * POST /api/admin/send-custom-customer-email
+ * Allows operator to manually dispatch a custom status update email (CONFIRMED, DISPATCHED, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, or Custom Message)
+ */
+app.post('/api/admin/send-custom-customer-email', verifyOperatorAccess, async (req: Request, res: Response) => {
+  try {
+    const { orderId, status, customMessage, courierPartner, awbNumber } = req.body || {};
+    if (!orderId) {
+      return res.status(400).json({ success: false, error: 'Order ID or order number is required' });
+    }
+
+    const supabase = getSupabaseServerClient();
+    if (!supabase) {
+      return res.status(500).json({ success: false, error: 'Database service unavailable' });
+    }
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('*, order_items(*)')
+      .or(`id.eq.${orderId},order_number.eq.${orderId}`)
+      .maybeSingle();
+
+    if (error || !order) {
+      return res.status(404).json({ success: false, error: 'Order not found in database' });
+    }
+
+    const customerEmail = (order.customer_email || '').trim();
+    if (!customerEmail) {
+      return res.status(400).json({ success: false, error: 'Customer email address is missing for this order.' });
+    }
+
+    const targetStatus = (status || order.status || 'CONFIRMED').toUpperCase();
+    const finalAwb = (awbNumber || order.awb_number || 'PENDING').trim();
+    const finalCourier = (courierPartner || order.courier_partner || 'Shiprocket Express').trim();
+
+    // Optionally update order status in Supabase if changed
+    if (status && status.toLowerCase() !== (order.status || '').toLowerCase()) {
+      const patch: Record<string, any> = {
+        status: status.toLowerCase(),
+        updated_at: new Date().toISOString()
+      };
+      if (finalAwb !== 'PENDING') patch.awb_number = finalAwb;
+      if (finalCourier !== 'Shiprocket Express') patch.courier_partner = finalCourier;
+      await supabase.from('orders').update(patch).eq('id', order.id);
+    }
+
+    const emailResult = await sendTrackingUpdateEmail({
+      customerEmail,
+      customerName: order.customer_name || 'Valued Customer',
+      orderNumber: order.order_number,
+      status: targetStatus as any,
+      courierPartner: finalCourier,
+      awbNumber: finalAwb,
+      trackingUrl: finalAwb && finalAwb !== 'PENDING' ? `https://shiprocket.co/tracking/${finalAwb}` : undefined,
+      estimatedDeliveryDate: order.estimated_delivery_date || undefined,
+      shippingAddress: {
+        addressLine1: order.shipping_address_line1 || '',
+        addressLine2: order.shipping_address_line2 || '',
+        city: order.city || '',
+        state: order.state || '',
+        pincode: order.pincode || ''
+      },
+      items: (order.order_items || []).map((it: any) => ({
+        name: it.title || 'Japanese Skincare Product',
+        quantity: it.quantity || 1,
+        price: it.unit_price || 0
+      })),
+      activityNote: customMessage || undefined
+    });
+
+    if (!emailResult.success) {
+      return res.status(400).json({
+        success: false,
+        error: emailResult.error || 'Failed to dispatch email via Resend'
+      });
+    }
+
+    await recordCustomerNotification(
+      order.order_number,
+      customerEmail,
+      targetStatus,
+      finalAwb,
+      customMessage || `Operator sent ${targetStatus} email`,
+      emailResult.messageId
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Status notification email (${targetStatus}) sent successfully to ${customerEmail}!`,
+      messageId: emailResult.messageId
+    });
+  } catch (err: any) {
+    console.error('[Send Custom Customer Email Exception]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Server error' });
+  }
+});
+
+/**
  * POST /api/shiprocket/webhook and POST /api/webhooks/shiprocket
  * Real-time event listener for Shiprocket automated tracking status updates.
  * Automatically updates Supabase and emails customer whenever an AWB is generated or status updates.
