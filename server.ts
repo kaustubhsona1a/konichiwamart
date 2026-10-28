@@ -2648,10 +2648,20 @@ app.post('/api/admin/update-order-status', verifyOperatorAccess, async (req: Req
       return res.status(500).json({ success: false, error: 'Database client not connected.' });
     }
 
-    const { error } = await supabase
+    const cleanId = String(orderId).trim();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
+    const filterExpr = isUuid ? `id.eq.${cleanId},order_number.eq.${cleanId}` : `order_number.eq.${cleanId}`;
+
+    let { error } = await supabase
       .from('orders')
       .update({ status: String(status).toLowerCase() })
-      .or(`id.eq.${orderId},order_number.eq.${orderId}`);
+      .or(filterExpr);
+
+    if (error && (error.message?.includes('Invalid API key') || error.message?.includes('JWT'))) {
+      const fb = getFallbackSupabaseServerClient();
+      const retry = await fb.from('orders').update({ status: String(status).toLowerCase() }).or(filterExpr);
+      error = retry.error;
+    }
 
     if (error) {
       return res.status(400).json({ success: false, error: error.message });
@@ -2676,10 +2686,15 @@ app.delete('/api/admin/orders/:orderId', verifyOperatorAccess, async (req: Reque
 
     const supabase = getSupabaseServerClient();
     if (supabase) {
+      const cleanId = String(orderId).trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
+      const filterExpr = isUuid ? `id.eq.${cleanId},order_number.eq.${cleanId}` : `order_number.eq.${cleanId}`;
       try {
-        await supabase.from('order_items').delete().or(`order_id.eq.${orderId}`);
+        if (isUuid) {
+          await supabase.from('order_items').delete().eq('order_id', cleanId);
+        }
       } catch {}
-      await supabase.from('orders').delete().or(`id.eq.${orderId},order_number.eq.${orderId}`);
+      await supabase.from('orders').delete().or(filterExpr);
     }
 
     return res.status(200).json({ success: true, message: 'Order deleted successfully.' });
@@ -2716,7 +2731,10 @@ app.patch('/api/admin/orders/:orderId', verifyOperatorAccess, async (req: Reques
       }
 
       if (Object.keys(dbPatch).length > 0) {
-        await supabase.from('orders').update(dbPatch).or(`id.eq.${orderId},order_number.eq.${orderId}`);
+        const cleanId = String(orderId).trim();
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
+        const filterExpr = isUuid ? `id.eq.${cleanId},order_number.eq.${cleanId}` : `order_number.eq.${cleanId}`;
+        await supabase.from('orders').update(dbPatch).or(filterExpr);
       }
     }
 
@@ -2728,23 +2746,21 @@ app.patch('/api/admin/orders/:orderId', verifyOperatorAccess, async (req: Reques
 
 /**
  * GET /api/admin/shiprocket-config
- * Retrieves saved Shiprocket configuration state
+ * Retrieves saved Shiprocket configuration state from Vercel Environment Variables
  */
 app.get('/api/admin/shiprocket-config', verifyOperatorAccess, async (_req: Request, res: Response) => {
   try {
-    const creds = await getShiprocketCredentials();
     const envCreds = getEnvShiprocketCredentials();
-    const dbCreds = await getDbShiprocketCredentials();
 
     return res.json({
       success: true,
-      configured: Boolean(creds && creds.email),
-      source: creds?.source || 'none',
+      configured: Boolean(envCreds && envCreds.email),
+      source: envCreds ? 'env' : 'none',
       isEnvConfigured: Boolean(envCreds && envCreds.email),
-      isDbConfigured: Boolean(dbCreds && dbCreds.email),
-      email: creds?.email || envCreds?.email || dbCreds?.email || '',
-      pickupLocation: creds?.pickupLocation || envCreds?.pickupLocation || dbCreds?.pickupLocation || 'Primary Warehouse',
-      hasPassword: Boolean(creds?.password || envCreds?.password || dbCreds?.password)
+      isDbConfigured: false,
+      email: envCreds?.email || '',
+      pickupLocation: envCreds?.pickupLocation || 'Primary Warehouse',
+      hasPassword: Boolean(envCreds?.password)
     });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err.message });
@@ -2753,7 +2769,7 @@ app.get('/api/admin/shiprocket-config', verifyOperatorAccess, async (_req: Reque
 
 /**
  * POST /api/admin/save-shiprocket-config
- * Persists Shiprocket API credentials into Supabase (_app_shiprocket_config) and validates login with Shiprocket API
+ * Validates Shiprocket API credentials in-memory (credentials are managed in Vercel Environment Variables)
  */
 app.post('/api/admin/save-shiprocket-config', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
@@ -2768,7 +2784,6 @@ app.post('/api/admin/save-shiprocket-config', verifyOperatorAccess, async (req: 
       });
     }
 
-    // 1. Verify credentials against Shiprocket REST v2 API
     const authRes = await fetch('https://apiv2.shiprocket.in/v1/external/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2780,7 +2795,7 @@ app.post('/api/admin/save-shiprocket-config', verifyOperatorAccess, async (req: 
     if (!authRes.ok || !authData.token) {
       let friendlyError = authData.message || 'Shiprocket authentication failed. Please check your credentials.';
       if (authRes.status === 403 || authData.message === 'Access forbidden') {
-        friendlyError = "Shiprocket returned 'Access forbidden' (403). Shiprocket requires creating an 'API User' credential. In your Shiprocket Dashboard, go to Settings > API > API Users > 'Add New API User' (enter a secondary email like yourname+api@gmail.com, set permissions to All, and use that email & password).";
+        friendlyError = "Shiprocket returned 'Access forbidden' (403). Shiprocket requires creating an 'API User' credential. In your Shiprocket Dashboard, go to Settings > API > API Users > 'Add New API User'.";
       } else if (authData.message === 'Invalid API key' || authData.message === 'Unauthenticated.') {
         friendlyError = 'Invalid Shiprocket API Email or Password. Please double-check your credentials in Shiprocket Dashboard (Settings > API > API Users).';
       }
@@ -2792,30 +2807,20 @@ app.post('/api/admin/save-shiprocket-config', verifyOperatorAccess, async (req: 
       });
     }
 
-    // 2. Persist in process.env & Supabase _app_shiprocket_config
     process.env.SHIPROCKET_EMAIL = email;
     process.env.SHIPROCKET_PASSWORD = password;
     process.env.SHIPROCKET_PICKUP_LOCATION = pickupLocation;
-
-    const supabase = getSupabaseServerClient();
-    if (supabase) {
-      const configPayload = { email, password, pickupLocation, updatedAt: new Date().toISOString() };
-      await supabase.from('categories').upsert({
-        slug: '_app_shiprocket_config',
-        name: 'Shiprocket API Configuration Metadata',
-        description: JSON.stringify(configPayload)
-      }, { onConflict: 'slug' });
-    }
+    clearShiprocketTokenCache();
 
     return res.json({
       success: true,
-      message: 'Shiprocket API credentials verified and saved successfully!',
+      message: 'Shiprocket API credentials verified!',
       accountEmail: email,
       pickupLocation
     });
   } catch (err: any) {
     console.error('[Save Shiprocket Config Error]:', err);
-    return res.status(500).json({ success: false, error: err.message || 'Server error saving Shiprocket credentials.' });
+    return res.status(500).json({ success: false, error: err.message || 'Server error verifying Shiprocket credentials.' });
   }
 });
 

@@ -144,57 +144,11 @@ export function getEnvShiprocketCredentials(): { email: string; password: string
 }
 
 export async function getDbShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string } | null> {
-  try {
-    const supabase = getSupabase();
-    let { data, error } = await supabase
-      .from('categories')
-      .select('description')
-      .eq('slug', '_app_shiprocket_config')
-      .maybeSingle();
-
-    if (error && (error.message?.includes('Invalid API key') || error.message?.includes('JWT'))) {
-      const fb = getFallbackSupabaseServerClient();
-      const retry = await fb
-        .from('categories')
-        .select('description')
-        .eq('slug', '_app_shiprocket_config')
-        .maybeSingle();
-      data = retry.data;
-    }
-
-    if (data?.description) {
-      const parsed = JSON.parse(data.description);
-      const email = cleanEnvValue(parsed.email);
-      const password = cleanEnvValue(parsed.password);
-      const pickupLocation = cleanEnvValue(parsed.pickupLocation) || 'Primary Warehouse';
-
-      if (email && password) {
-        return { email, password, pickupLocation };
-      }
-    }
-  } catch (err) {
-    console.warn('[Shiprocket] DB Credential fetch notice:', err);
-  }
   return null;
 }
 
-export async function saveDbShiprocketCredentials(email: string, password: string, pickupLocation: string): Promise<void> {
-  try {
-    const supabase = getFallbackSupabaseServerClient();
-    await supabase.from('categories').upsert({
-      name: 'Shiprocket Configuration',
-      slug: '_app_shiprocket_config',
-      description: JSON.stringify({
-        email: cleanEnvValue(email),
-        password: cleanEnvValue(password),
-        pickupLocation: cleanEnvValue(pickupLocation) || 'Primary Warehouse',
-        updatedAt: new Date().toISOString()
-      }),
-      display_order: 997
-    }, { onConflict: 'slug' });
-  } catch (err) {
-    console.warn('[Shiprocket] Could not persist credentials to DB backup:', err);
-  }
+export async function saveDbShiprocketCredentials(_email: string, _password: string, _pickupLocation: string): Promise<void> {
+  // Credentials are managed exclusively via Vercel Environment Variables
 }
 
 export async function getShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string; source: 'env' | 'db' } | null> {
@@ -202,12 +156,6 @@ export async function getShiprocketCredentials(): Promise<{ email: string; passw
   if (envCreds) {
     return { ...envCreds, source: 'env' };
   }
-
-  const dbCreds = await getDbShiprocketCredentials();
-  if (dbCreds) {
-    return { ...dbCreds, source: 'db' };
-  }
-
   return null;
 }
 
@@ -246,40 +194,17 @@ export async function getShiprocketToken(): Promise<string | null> {
   }
 
   const envCreds = getEnvShiprocketCredentials();
-  const dbCreds = await getDbShiprocketCredentials();
 
-  // 1. Try Vercel environment credentials if present
   if (envCreds) {
     const token = await attemptShiprocketLogin(envCreds.email, envCreds.password, 'Vercel Env');
     if (token) {
       shiprocketToken = token;
       tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
       console.log(`[Shiprocket Auth SUCCESS] Authenticated via Vercel Environment Variables (${envCreds.email})`);
-      // Keep Supabase backup synced with working Vercel credentials
-      if (!dbCreds || dbCreds.email !== envCreds.email || dbCreds.password !== envCreds.password) {
-        saveDbShiprocketCredentials(envCreds.email, envCreds.password, envCreds.pickupLocation).catch(() => {});
-      }
       return shiprocketToken;
     }
-    console.warn('[Shiprocket Auth] Vercel environment credentials failed authentication. Checking Supabase DB backup...');
-  }
-
-  // 2. Try Supabase database credentials as secondary or primary
-  if (dbCreds) {
-    // Skip re-testing identical credentials if they already failed above
-    if (!envCreds || envCreds.email !== dbCreds.email || envCreds.password !== dbCreds.password) {
-      const token = await attemptShiprocketLogin(dbCreds.email, dbCreds.password, 'Database Backup');
-      if (token) {
-        shiprocketToken = token;
-        tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
-        console.log(`[Shiprocket Auth SUCCESS] Authenticated via Supabase DB Config (${dbCreds.email})`);
-        return shiprocketToken;
-      }
-    }
-    console.warn('[Shiprocket Auth] Supabase DB config failed authentication.');
-  }
-
-  if (!envCreds && !dbCreds) {
+    console.warn('[Shiprocket Auth] Vercel environment credentials failed authentication.');
+  } else {
     lastShiprocketAuthError = 'SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD are not set in Vercel Environment Variables.';
   }
 
