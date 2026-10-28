@@ -1,6 +1,10 @@
 import { 
   createShiprocketOrder, 
+  createShiprocketOrderWithDetails,
   getShiprocketToken,
+  getLastShiprocketAuthError,
+  clearShiprocketTokenCache,
+  resolveValidPickupLocation,
   getShiprocketCredentials,
   getEnvShiprocketCredentials,
   getDbShiprocketCredentials,
@@ -8,7 +12,9 @@ import {
   trackShiprocketAwb, 
   normalizeShiprocketStatus,
   fetchShiprocketOrderDetails,
-  searchShiprocketOrderByNumber
+  searchShiprocketOrderByNumber,
+  getValidSupabaseServerClient,
+  getFallbackSupabaseServerClient
 } from './src/lib/shiprocketServer';
 import {
   shouldNotifyCustomer,
@@ -47,18 +53,9 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
-// Helper to initialize server-side Supabase client
+// Helper to initialize server-side Supabase client (validates JWT to avoid "Invalid API key" from misconfigured SUPABASE_SERVICE_ROLE_KEY)
 function getSupabaseServerClient(): SupabaseClient | null {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false
-    }
-  });
+  return getValidSupabaseServerClient();
 }
 
 // In-memory active session store for local dev fallback (prevents unauthorized token forging)
@@ -2917,6 +2914,29 @@ app.post('/api/admin/test-shiprocket', verifyOperatorAccess, async (req: Request
   }
 });
 
+async function findOrderByIdOrNumber(supabase: SupabaseClient, rawOrderId: string): Promise<{ data: any; error: any }> {
+  const cleanId = String(rawOrderId || '').trim();
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanId);
+  let query = supabase.from('orders').select('*, order_items(*)');
+  if (isUuid) {
+    query = query.or(`id.eq.${cleanId},order_number.eq.${cleanId}`);
+  } else {
+    query = query.eq('order_number', cleanId);
+  }
+  let res = await query.maybeSingle();
+  if (res.error && (res.error.message?.includes('Invalid API key') || res.error.message?.includes('JWT'))) {
+    const fb = getFallbackSupabaseServerClient();
+    let fbQuery = fb.from('orders').select('*, order_items(*)');
+    if (isUuid) {
+      fbQuery = fbQuery.or(`id.eq.${cleanId},order_number.eq.${cleanId}`);
+    } else {
+      fbQuery = fbQuery.eq('order_number', cleanId);
+    }
+    res = await fbQuery.maybeSingle();
+  }
+  return res;
+}
+
 /**
  * POST /api/admin/test-shiprocket-order
  * Pushes a zero-cost test draft order to Shiprocket (adhoc order creation).
@@ -2929,11 +2949,14 @@ app.post('/api/admin/test-shiprocket-order', verifyOperatorAccess, async (_req: 
     if (!token) {
       return res.status(400).json({
         success: false,
-        error: 'Shiprocket credentials missing or invalid. Please check SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in your environment variables.'
+        error: getLastShiprocketAuthError() || 'Shiprocket credentials missing or invalid. Please check SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in your environment variables.'
       });
     }
 
-    const pickupLocation = (process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+    const creds = await getShiprocketCredentials();
+    const preferredPickup = (creds?.pickupLocation || process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary Warehouse').trim();
+    const pickupLocation = await resolveValidPickupLocation(token, preferredPickup);
+
     const testOrderNum = `TEST-KM-${Math.floor(100000 + Math.random() * 900000)}`;
     const now = new Date();
     const orderDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -2997,7 +3020,7 @@ app.post('/api/admin/test-shiprocket-order', verifyOperatorAccess, async (_req: 
 
     return res.status(200).json({
       success: true,
-      message: `Zero-cost test order created successfully in Shiprocket!`,
+      message: `Zero-cost test order created successfully in Shiprocket (Pickup: ${pickupLocation})!`,
       orderNumber: testOrderNum,
       shiprocketOrderId: data.order_id,
       shiprocketShipmentId: data.shipment_id,
@@ -3017,55 +3040,83 @@ app.post('/api/admin/test-shiprocket-order', verifyOperatorAccess, async (_req: 
  */
 app.post('/api/admin/push-order-to-shiprocket', verifyOperatorAccess, async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.body;
-    if (!orderId) {
+    const { orderId, order: clientOrder } = req.body || {};
+    if (!orderId && !clientOrder) {
       return res.status(400).json({ success: false, error: 'Order ID or order number is required' });
     }
 
     const supabase = getSupabaseServerClient();
-    if (!supabase) {
-      return res.status(500).json({ success: false, error: 'Database client not connected' });
+    let order: any = null;
+
+    if (supabase && orderId) {
+      const lookup = await findOrderByIdOrNumber(supabase, String(orderId));
+      if (lookup.data) {
+        order = lookup.data;
+      }
     }
 
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .or(`id.eq.${orderId},order_number.eq.${orderId}`)
-      .maybeSingle();
-
-    if (error || !order) {
-      return res.status(404).json({ success: false, error: 'Order not found in database' });
+    // Fallback to client-provided order object if DB lookup returned nothing
+    if (!order && clientOrder) {
+      order = {
+        id: clientOrder.id,
+        order_number: clientOrder.orderNumber || clientOrder.order_number || orderId,
+        customer_name: clientOrder.customerName || clientOrder.customer_name,
+        customer_email: clientOrder.customerEmail || clientOrder.customer_email,
+        customer_phone: clientOrder.customerPhone || clientOrder.customer_phone,
+        subtotal: clientOrder.subtotal || clientOrder.totalAmount,
+        total_amount: clientOrder.totalAmount || clientOrder.total_amount,
+        shipping_fee: clientOrder.shippingFee || clientOrder.shipping_fee || 0,
+        discount_amount: clientOrder.discountAmount || clientOrder.discount_amount || 0,
+        payment_method: clientOrder.paymentMethod || clientOrder.payment_method || 'Prepaid',
+        shipping_address_line1: clientOrder.shippingAddress?.addressLine1 || clientOrder.shipping_address_line1,
+        shipping_address_line2: clientOrder.shippingAddress?.addressLine2 || clientOrder.shipping_address_line2,
+        city: clientOrder.shippingAddress?.city || clientOrder.city,
+        state: clientOrder.shippingAddress?.state || clientOrder.state,
+        pincode: clientOrder.shippingAddress?.pincode || clientOrder.pincode,
+        order_items: (clientOrder.items || clientOrder.order_items || []).map((it: any) => ({
+          title: it.title || it.name,
+          sku: it.sku || it.productId || 'SKU-KM',
+          quantity: it.quantity || it.units || 1,
+          unit_price: it.price || it.unitPrice || it.unit_price || 0,
+          hsn_code: it.hsn || it.hsn_code || '3304'
+        }))
+      };
     }
 
-    const srResult = await createShiprocketOrder({
+    if (!order) {
+      return res.status(404).json({ success: false, error: `Order ${orderId} not found in database` });
+    }
+
+    const srOutcome = await createShiprocketOrderWithDetails({
       ...order,
-      orderNumber: order.order_number,
-      customerEmail: order.customer_email,
-      customerPhone: order.customer_phone,
+      orderNumber: order.order_number || order.orderNumber,
+      customerEmail: order.customer_email || order.customerEmail,
+      customerPhone: order.customer_phone || order.customerPhone,
       subtotal: order.subtotal,
-      totalAmount: order.total_amount,
-      shippingFee: order.shipping_fee,
-      discountAmount: order.discount_amount,
-      paymentMethod: order.payment_method,
+      totalAmount: order.total_amount || order.totalAmount,
+      shippingFee: order.shipping_fee || order.shippingFee,
+      discountAmount: order.discount_amount || order.discountAmount,
+      paymentMethod: order.payment_method || order.paymentMethod,
       shippingAddress: {
-        fullName: order.customer_name,
-        addressLine1: order.shipping_address_line1,
-        addressLine2: order.shipping_address_line2,
-        city: order.city,
-        state: order.state,
-        pincode: order.pincode,
-        phone: order.customer_phone
+        fullName: order.customer_name || order.customerName,
+        addressLine1: order.shipping_address_line1 || order.shippingAddress?.addressLine1,
+        addressLine2: order.shipping_address_line2 || order.shippingAddress?.addressLine2,
+        city: order.city || order.shippingAddress?.city,
+        state: order.state || order.shippingAddress?.state,
+        pincode: order.pincode || order.shippingAddress?.pincode,
+        phone: order.customer_phone || order.customerPhone
       },
-      items: (order.order_items || []).map((it: any) => ({
-        title: it.title,
+      items: (order.order_items || order.items || []).map((it: any) => ({
+        title: it.title || it.name,
         sku: it.sku || 'SKU-KM',
-        quantity: it.quantity,
-        price: it.unit_price || order.subtotal,
-        hsn: it.hsn_code || '3304'
+        quantity: it.quantity || 1,
+        price: Number(it.unit_price || it.price || 0) || Number(order.subtotal || order.total_amount || 999),
+        hsn: it.hsn_code || it.hsn || '3304'
       }))
     });
 
-    if (srResult && srResult.order_id) {
+    if (srOutcome.success && srOutcome.data && srOutcome.data.order_id) {
+      const srResult = srOutcome.data;
       const patch: any = {
         shiprocket_order_id: String(srResult.order_id),
         shiprocket_shipment_id: String(srResult.shipment_id)
@@ -3073,19 +3124,27 @@ app.post('/api/admin/push-order-to-shiprocket', verifyOperatorAccess, async (req
       if (srResult.awb_code) patch.awb_number = srResult.awb_code;
       if (srResult.courier_name) patch.courier_partner = srResult.courier_name;
 
-      await supabase.from('orders').update(patch).eq('id', order.id);
+      if (supabase && order.id) {
+        const { error: updErr } = await supabase.from('orders').update(patch).eq('id', order.id);
+        if (updErr) {
+          const fb = getFallbackSupabaseServerClient();
+          await fb.from('orders').update(patch).eq('id', order.id);
+        }
+      }
 
       return res.json({
         success: true,
-        message: `Order ${order.order_number} successfully pushed to Shiprocket! Order ID: ${srResult.order_id}`,
+        message: `Order ${order.order_number || order.orderNumber} successfully pushed to Shiprocket! Order ID: ${srResult.order_id}`,
         shiprocketOrderId: srResult.order_id,
         shiprocketShipmentId: srResult.shipment_id,
+        awbNumber: srResult.awb_code || undefined,
+        courierPartner: srResult.courier_name || undefined,
         dashboardUrl: `https://app.shiprocket.in/orders`
       });
     } else {
       return res.status(400).json({
         success: false,
-        error: 'Shiprocket rejected the order. Please check Shiprocket API logs, pickup location, or wallet balance.'
+        error: srOutcome.error || 'Shiprocket rejected the order. Please verify your Shiprocket API credentials and pickup location.'
       });
     }
   } catch (err: any) {
@@ -3104,7 +3163,7 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
     if (!creds || !creds.email || !creds.password) {
       return res.status(400).json({
         success: false,
-        error: 'Shiprocket API credentials are not configured. Please enter your API Email and Password in Admin Settings > Shiprocket Configuration below.'
+        error: 'Shiprocket API credentials are not configured in Vercel Environment Variables (SHIPROCKET_EMAIL & SHIPROCKET_PASSWORD).'
       });
     }
 
@@ -3112,7 +3171,7 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
     if (!token) {
       return res.status(400).json({
         success: false,
-        error: 'Shiprocket authentication failed (Invalid API key or account error). Please double-check your API Email and Password in Admin Settings.'
+        error: getLastShiprocketAuthError() || 'Shiprocket authentication failed. Please verify SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in Vercel and Redeploy.'
       });
     }
 
@@ -3121,7 +3180,7 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
       return res.status(500).json({ success: false, error: 'Database client not connected' });
     }
 
-    const { data: unsyncedOrders, error } = await supabase
+    let { data: unsyncedOrders, error } = await supabase
       .from('orders')
       .select('*, order_items(*)')
       .is('shiprocket_order_id', null)
@@ -3130,7 +3189,20 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
       .limit(20);
 
     if (error) {
-      return res.status(400).json({ success: false, error: error.message });
+      const fb = getFallbackSupabaseServerClient();
+      const retry = await fb
+        .from('orders')
+        .select('*, order_items(*)')
+        .is('shiprocket_order_id', null)
+        .neq('status', 'cancelled')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      unsyncedOrders = retry.data;
+      error = retry.error;
+    }
+
+    if (error) {
+      return res.status(400).json({ success: false, error: `Supabase query error: ${error.message}` });
     }
 
     if (!unsyncedOrders || unsyncedOrders.length === 0) {
@@ -3146,7 +3218,7 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
 
     for (const ord of unsyncedOrders) {
       try {
-        const srResult = await createShiprocketOrder({
+        const srOutcome = await createShiprocketOrderWithDetails({
           ...ord,
           orderNumber: ord.order_number,
           customerEmail: ord.customer_email,
@@ -3169,12 +3241,13 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
             title: it.title,
             sku: it.sku || 'SKU-KM',
             quantity: it.quantity,
-            price: it.unit_price || ord.subtotal,
+            price: Number(it.unit_price || 0) || Number(ord.subtotal || ord.total_amount || 999),
             hsn: it.hsn_code || '3304'
           }))
         });
 
-        if (srResult && srResult.order_id) {
+        if (srOutcome.success && srOutcome.data && srOutcome.data.order_id) {
+          const srResult = srOutcome.data;
           const patch: any = {
             shiprocket_order_id: String(srResult.order_id),
             shiprocket_shipment_id: String(srResult.shipment_id)
@@ -3182,10 +3255,14 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
           if (srResult.awb_code) patch.awb_number = srResult.awb_code;
           if (srResult.courier_name) patch.courier_partner = srResult.courier_name;
 
-          await supabase.from('orders').update(patch).eq('id', ord.id);
+          const { error: updErr } = await supabase.from('orders').update(patch).eq('id', ord.id);
+          if (updErr) {
+            const fb = getFallbackSupabaseServerClient();
+            await fb.from('orders').update(patch).eq('id', ord.id);
+          }
           successCount++;
         } else {
-          errors.push(`Order ${ord.order_number}: Rejected by Shiprocket (verify pickup location or balance)`);
+          errors.push(`Order ${ord.order_number}: ${srOutcome.error || 'Rejected by Shiprocket'}`);
         }
       } catch (err: any) {
         errors.push(`Order ${ord.order_number}: ${err.message}`);
@@ -3201,7 +3278,7 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
 
     return res.json({
       success: true,
-      message: `Synced ${successCount} of ${unsyncedOrders.length} orders to Shiprocket.`,
+      message: `Successfully pushed ${successCount} of ${unsyncedOrders.length} order(s) to Shiprocket!`,
       syncedCount: successCount,
       errors: errors.length > 0 ? errors : undefined
     });
@@ -3297,6 +3374,7 @@ app.post('/api/orders/public-track', async (req: Request, res: Response) => {
 
     const cleanQuery = query.replace(/^#/, '').trim();
     const cleanPhone = query.replace(/\D/g, '');
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanQuery);
     const supabase = getSupabaseServerClient();
 
     let matchingOrders: any[] = [];
@@ -3306,11 +3384,13 @@ app.post('/api/orders/public-track', async (req: Request, res: Response) => {
       
       if (cleanQuery.toUpperCase().startsWith('KM-') || /^\d{3,8}$/.test(cleanQuery)) {
         const numOnly = cleanQuery.replace(/\D/g, '');
-        dbQuery = dbQuery.or(`order_number.eq.${cleanQuery},order_number.eq.${numOnly},order_number.ilike.%${cleanQuery}%,id.eq.${cleanQuery}`);
+        dbQuery = dbQuery.or(`order_number.eq.${cleanQuery},order_number.eq.${numOnly},order_number.ilike.%${cleanQuery}%`);
       } else if (cleanPhone.length >= 8) {
         dbQuery = dbQuery.or(`customer_phone.ilike.%${cleanPhone.slice(-10)}%`);
-      } else {
+      } else if (isUuid) {
         dbQuery = dbQuery.or(`order_number.ilike.%${cleanQuery}%,awb_number.ilike.%${cleanQuery}%,id.eq.${cleanQuery}`);
+      } else {
+        dbQuery = dbQuery.or(`order_number.ilike.%${cleanQuery}%,awb_number.ilike.%${cleanQuery}%`);
       }
 
       const { data, error } = await dbQuery.order('created_at', { ascending: false }).limit(5);
@@ -3528,7 +3608,6 @@ async function syncOrderShiprocketStatusAndNotify(
   // Format estimated delivery date nicely if valid date string
   if (etd) {
     try {
-      // Handles '2026-10-24 01:25:22' or '24-10-2026' or ISO
       let cleanDate = etd;
       if (/^\d{2}-\d{2}-\d{4}/.test(etd)) {
         const parts = etd.split(' ')[0].split('-');
@@ -3576,7 +3655,6 @@ async function syncOrderShiprocketStatusAndNotify(
 
   if (customerEmail && notifyCheck.shouldNotify && awb && awb !== 'PENDING') {
     try {
-      // Fetch full order items if missing
       let items = order.order_items || [];
       if (!items || items.length === 0) {
         const { data: dbItems } = await supabase.from('order_items').select('*').eq('order_id', order.id);
@@ -3659,11 +3737,7 @@ app.post('/api/admin/fetch-and-email-tracking', verifyOperatorAccess, async (req
       return res.status(500).json({ success: false, error: 'Database client not connected' });
     }
 
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .or(`id.eq.${orderId},order_number.eq.${orderId}`)
-      .maybeSingle();
+    const { data: order, error } = await findOrderByIdOrNumber(supabase, String(orderId));
 
     if (error || !order) {
       return res.status(404).json({ success: false, error: 'Order not found in database' });
@@ -3698,11 +3772,7 @@ app.post('/api/admin/send-custom-customer-email', verifyOperatorAccess, async (r
       return res.status(500).json({ success: false, error: 'Database service unavailable' });
     }
 
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .or(`id.eq.${orderId},order_number.eq.${orderId}`)
-      .maybeSingle();
+    const { data: order, error } = await findOrderByIdOrNumber(supabase, String(orderId));
 
     if (error || !order) {
       return res.status(404).json({ success: false, error: 'Order not found in database' });
@@ -3717,7 +3787,6 @@ app.post('/api/admin/send-custom-customer-email', verifyOperatorAccess, async (r
     const finalAwb = (awbNumber || order.awb_number || 'PENDING').trim();
     const finalCourier = (courierPartner || order.courier_partner || 'Shiprocket Express').trim();
 
-    // Optionally update order status in Supabase if changed
     if (status && status.toLowerCase() !== (order.status || '').toLowerCase()) {
       const patch: Record<string, any> = {
         status: status.toLowerCase(),

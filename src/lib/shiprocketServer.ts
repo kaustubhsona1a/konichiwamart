@@ -1,20 +1,113 @@
 import { Order } from '../types';
-import { lookupPincode } from '../data/pincodes';
-import { createClient } from '@supabase/supabase-js';
+import { lookupPincode, resolveIndianStateAndCityFromPincode } from '../data/pincodes';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 let shiprocketToken = '';
 let tokenExpiry = 0;
+let lastShiprocketAuthError = '';
+let cachedPickupLocations: string[] = [];
+let pickupCacheExpiry = 0;
 
-function getSupabase() {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
+export const FALLBACK_SUPABASE_URL = 'https://nhcgwxvfuupkflhixxmj.supabase.co';
+export const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oY2d3eHZmdXVwa2ZsaGl4eG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4ODAxNDUsImV4cCI6MjEwNDQ1NjE0NX0.ZQ-Y13BuS347Y1MJ-9YKbUm1r0J4UZ4Vs5NoNgIihmQ';
 
 function cleanEnvValue(val: string | undefined): string {
-  if (!val) return '';
+  if (!val || typeof val !== 'string') return '';
   return val.replace(/^["']|["']$/g, '').replace(/\\n/g, '').trim();
+}
+
+/**
+ * Verifies that a candidate Supabase API key is a valid JWT matching the target project ref.
+ * Prevents a misconfigured or corrupted SUPABASE_SERVICE_ROLE_KEY in Vercel from throwing "Invalid API key".
+ */
+export function isValidSupabaseJwt(candidateKey: string | undefined, targetUrl?: string): boolean {
+  const cleaned = cleanEnvValue(candidateKey);
+  if (!cleaned || !cleaned.startsWith('eyJ')) return false;
+  const parts = cleaned.split('.');
+  if (parts.length !== 3) return false;
+
+  try {
+    const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
+    const payload = JSON.parse(payloadJson);
+    if (payload.iss !== 'supabase') return false;
+
+    const url = cleanEnvValue(targetUrl) || FALLBACK_SUPABASE_URL;
+    const refMatch = url.match(/https?:\/\/([a-z0-9]+)\.supabase\.co/i);
+    if (refMatch && refMatch[1] && payload.ref && payload.ref !== refMatch[1]) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getValidSupabaseServerClient(): SupabaseClient {
+  const rawUrl = cleanEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+  const url = rawUrl && rawUrl.startsWith('http') ? rawUrl : FALLBACK_SUPABASE_URL;
+
+  const candidates = [
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    process.env.SUPABASE_ANON_KEY,
+    process.env.VITE_SUPABASE_ANON_KEY,
+    FALLBACK_SUPABASE_ANON_KEY
+  ];
+
+  let chosenKey = FALLBACK_SUPABASE_ANON_KEY;
+  for (const cand of candidates) {
+    if (isValidSupabaseJwt(cand, url)) {
+      chosenKey = cleanEnvValue(cand);
+      break;
+    }
+  }
+
+  return createClient(url, chosenKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  });
+}
+
+export function getFallbackSupabaseServerClient(): SupabaseClient {
+  const rawUrl = cleanEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
+  const url = rawUrl && rawUrl.startsWith('http') ? rawUrl : FALLBACK_SUPABASE_URL;
+
+  const anonCandidates = [
+    process.env.VITE_SUPABASE_ANON_KEY,
+    process.env.SUPABASE_ANON_KEY,
+    FALLBACK_SUPABASE_ANON_KEY
+  ];
+
+  let chosenKey = FALLBACK_SUPABASE_ANON_KEY;
+  for (const cand of anonCandidates) {
+    if (isValidSupabaseJwt(cand, url)) {
+      chosenKey = cleanEnvValue(cand);
+      break;
+    }
+  }
+
+  return createClient(url, chosenKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false
+    }
+  });
+}
+
+function getSupabase(): SupabaseClient {
+  return getValidSupabaseServerClient();
+}
+
+export function getLastShiprocketAuthError(): string {
+  return lastShiprocketAuthError;
+}
+
+export function clearShiprocketTokenCache(): void {
+  shiprocketToken = '';
+  tokenExpiry = 0;
 }
 
 export function getEnvShiprocketCredentials(): { email: string; password: string; pickupLocation: string } | null {
@@ -53,28 +146,55 @@ export function getEnvShiprocketCredentials(): { email: string; password: string
 export async function getDbShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string } | null> {
   try {
     const supabase = getSupabase();
-    if (supabase) {
-      const { data } = await supabase
+    let { data, error } = await supabase
+      .from('categories')
+      .select('description')
+      .eq('slug', '_app_shiprocket_config')
+      .maybeSingle();
+
+    if (error && (error.message?.includes('Invalid API key') || error.message?.includes('JWT'))) {
+      const fb = getFallbackSupabaseServerClient();
+      const retry = await fb
         .from('categories')
         .select('description')
         .eq('slug', '_app_shiprocket_config')
         .maybeSingle();
+      data = retry.data;
+    }
 
-      if (data?.description) {
-        const parsed = JSON.parse(data.description);
-        const email = cleanEnvValue(parsed.email);
-        const password = cleanEnvValue(parsed.password);
-        const pickupLocation = cleanEnvValue(parsed.pickupLocation) || 'Primary Warehouse';
+    if (data?.description) {
+      const parsed = JSON.parse(data.description);
+      const email = cleanEnvValue(parsed.email);
+      const password = cleanEnvValue(parsed.password);
+      const pickupLocation = cleanEnvValue(parsed.pickupLocation) || 'Primary Warehouse';
 
-        if (email && password) {
-          return { email, password, pickupLocation };
-        }
+      if (email && password) {
+        return { email, password, pickupLocation };
       }
     }
   } catch (err) {
     console.warn('[Shiprocket] DB Credential fetch notice:', err);
   }
   return null;
+}
+
+export async function saveDbShiprocketCredentials(email: string, password: string, pickupLocation: string): Promise<void> {
+  try {
+    const supabase = getFallbackSupabaseServerClient();
+    await supabase.from('categories').upsert({
+      name: 'Shiprocket Configuration',
+      slug: '_app_shiprocket_config',
+      description: JSON.stringify({
+        email: cleanEnvValue(email),
+        password: cleanEnvValue(password),
+        pickupLocation: cleanEnvValue(pickupLocation) || 'Primary Warehouse',
+        updatedAt: new Date().toISOString()
+      }),
+      display_order: 997
+    }, { onConflict: 'slug' });
+  } catch (err) {
+    console.warn('[Shiprocket] Could not persist credentials to DB backup:', err);
+  }
 }
 
 export async function getShiprocketCredentials(): Promise<{ email: string; password: string; pickupLocation: string; source: 'env' | 'db' } | null> {
@@ -91,7 +211,7 @@ export async function getShiprocketCredentials(): Promise<{ email: string; passw
   return null;
 }
 
-async function attemptShiprocketLogin(email: string, pass: string): Promise<string | null> {
+async function attemptShiprocketLogin(email: string, pass: string, sourceLabel: string): Promise<string | null> {
   const cleanEmail = cleanEnvValue(email);
   const cleanPass = cleanEnvValue(pass);
 
@@ -106,11 +226,15 @@ async function attemptShiprocketLogin(email: string, pass: string): Promise<stri
 
     const data = await res.json().catch(() => ({}));
     if (res.ok && data && data.token) {
+      lastShiprocketAuthError = '';
       return String(data.token);
     } else {
-      console.warn(`[Shiprocket Auth Attempt Failed] Email: ${cleanEmail.slice(0, 4)}*** | Status: ${res.status} | Msg: ${data.message || 'Invalid credentials'}`);
+      const msg = data.message || `HTTP ${res.status} Invalid credentials`;
+      lastShiprocketAuthError = `Shiprocket login rejected for ${cleanEmail} (${sourceLabel}): ${msg}`;
+      console.warn(`[Shiprocket Auth Attempt Failed] Source: ${sourceLabel} | Email: ${cleanEmail} | Status: ${res.status} | Msg: ${msg}`);
     }
-  } catch (err) {
+  } catch (err: any) {
+    lastShiprocketAuthError = `Shiprocket network error (${sourceLabel}): ${err.message || 'Connection failed'}`;
     console.error('[Shiprocket Auth Exception]:', err);
   }
   return null;
@@ -126,11 +250,15 @@ export async function getShiprocketToken(): Promise<string | null> {
 
   // 1. Try Vercel environment credentials if present
   if (envCreds) {
-    const token = await attemptShiprocketLogin(envCreds.email, envCreds.password);
+    const token = await attemptShiprocketLogin(envCreds.email, envCreds.password, 'Vercel Env');
     if (token) {
       shiprocketToken = token;
       tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
-      console.log(`[Shiprocket Auth SUCCESS] Authenticated via Vercel Environment Variables (${envCreds.email.slice(0, 4)}***)`);
+      console.log(`[Shiprocket Auth SUCCESS] Authenticated via Vercel Environment Variables (${envCreds.email})`);
+      // Keep Supabase backup synced with working Vercel credentials
+      if (!dbCreds || dbCreds.email !== envCreds.email || dbCreds.password !== envCreds.password) {
+        saveDbShiprocketCredentials(envCreds.email, envCreds.password, envCreds.pickupLocation).catch(() => {});
+      }
       return shiprocketToken;
     }
     console.warn('[Shiprocket Auth] Vercel environment credentials failed authentication. Checking Supabase DB backup...');
@@ -138,20 +266,77 @@ export async function getShiprocketToken(): Promise<string | null> {
 
   // 2. Try Supabase database credentials as secondary or primary
   if (dbCreds) {
-    const token = await attemptShiprocketLogin(dbCreds.email, dbCreds.password);
-    if (token) {
-      shiprocketToken = token;
-      tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
-      console.log(`[Shiprocket Auth SUCCESS] Authenticated via Supabase DB Config (${dbCreds.email.slice(0, 4)}***)`);
-      return shiprocketToken;
+    // Skip re-testing identical credentials if they already failed above
+    if (!envCreds || envCreds.email !== dbCreds.email || envCreds.password !== dbCreds.password) {
+      const token = await attemptShiprocketLogin(dbCreds.email, dbCreds.password, 'Database Backup');
+      if (token) {
+        shiprocketToken = token;
+        tokenExpiry = Date.now() + 9 * 24 * 60 * 60 * 1000;
+        console.log(`[Shiprocket Auth SUCCESS] Authenticated via Supabase DB Config (${dbCreds.email})`);
+        return shiprocketToken;
+      }
     }
     console.warn('[Shiprocket Auth] Supabase DB config failed authentication.');
   }
 
-  console.warn('[Shiprocket] No valid credentials found in Vercel environment variables or Supabase DB.');
+  if (!envCreds && !dbCreds) {
+    lastShiprocketAuthError = 'SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD are not set in Vercel Environment Variables.';
+  }
+
   shiprocketToken = '';
   tokenExpiry = 0;
   return null;
+}
+
+/**
+ * Queries the user's Shiprocket account for registered pickup locations (e.g. "home", "Primary", etc.)
+ * and automatically resolves a valid pickup_location so Shiprocket never rejects an order due to pickup nickname mismatch.
+ */
+export async function resolveValidPickupLocation(token: string, preferredPickup: string): Promise<string> {
+  const cleanPreferred = (preferredPickup || 'Primary Warehouse').trim();
+
+  if (cachedPickupLocations.length > 0 && Date.now() < pickupCacheExpiry) {
+    const exactMatch = cachedPickupLocations.find(loc => loc.toLowerCase() === cleanPreferred.toLowerCase());
+    return exactMatch || cachedPickupLocations[0];
+  }
+
+  try {
+    const res = await fetch('https://apiv2.shiprocket.in/v1/external/settings/company/pickup', {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const locations = data?.data?.shipping_address || [];
+      if (Array.isArray(locations) && locations.length > 0) {
+        // Sort primary location first
+        const sorted = [...locations].sort((a: any, b: any) => (b.is_primary_location || 0) - (a.is_primary_location || 0));
+        const nicknames = sorted
+          .map((loc: any) => String(loc.pickup_location || '').trim())
+          .filter(Boolean);
+
+        if (nicknames.length > 0) {
+          cachedPickupLocations = nicknames;
+          pickupCacheExpiry = Date.now() + 10 * 60 * 1000;
+
+          const exactMatch = nicknames.find(name => name.toLowerCase() === cleanPreferred.toLowerCase());
+          if (exactMatch) {
+            return exactMatch;
+          }
+          console.log(`[Shiprocket Pickup Auto-Resolve] Configured pickup "${cleanPreferred}" not in [${nicknames.join(', ')}]. Using "${nicknames[0]}".`);
+          return nicknames[0];
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Shiprocket Pickup Lookup Warning]:', err);
+  }
+
+  return cleanPreferred;
 }
 
 /**
@@ -299,8 +484,8 @@ export async function checkShiprocketServiceability(
   if (!token) {
     return {
       serviceable: localFallback.isServiceable,
-      city: localFallback.city || 'Regional Hub',
-      state: localFallback.state || 'India',
+      city: localFallback.city || 'Mumbai',
+      state: localFallback.state || 'Maharashtra',
       estimatedDays: fallbackDays,
       estimatedDeliveryDate: formattedFallbackDate,
       fastestCourier: localFallback.couriers?.[0] || 'Blue Dart Air Express',
@@ -352,8 +537,8 @@ export async function checkShiprocketServiceability(
 
         return {
           serviceable: true,
-          city: localFallback.city || 'Direct Service Point',
-          state: localFallback.state || 'India',
+          city: localFallback.city || 'Mumbai',
+          state: localFallback.state || 'Maharashtra',
           estimatedDays: bestDays,
           estimatedDeliveryDate: etdDate,
           fastestCourier: best.courier_name || 'Blue Dart Air Express',
@@ -377,8 +562,8 @@ export async function checkShiprocketServiceability(
   // Graceful fallback to zone engine
   return {
     serviceable: localFallback.isServiceable,
-    city: localFallback.city || 'Regional Hub',
-    state: localFallback.state || 'India',
+    city: localFallback.city || 'Mumbai',
+    state: localFallback.state || 'Maharashtra',
     estimatedDays: fallbackDays,
     estimatedDeliveryDate: formattedFallbackDate,
     fastestCourier: localFallback.couriers?.[0] || 'Blue Dart Air Express',
@@ -516,7 +701,7 @@ export interface ShiprocketOrderDetailsResult {
 export async function fetchShiprocketOrderDetails(shiprocketOrderId: number | string): Promise<ShiprocketOrderDetailsResult> {
   const token = await getShiprocketToken();
   if (!token) {
-    return { success: false, mappedStatus: 'CONFIRMED', error: 'Shiprocket authentication failed' };
+    return { success: false, mappedStatus: 'CONFIRMED', error: getLastShiprocketAuthError() || 'Shiprocket authentication failed' };
   }
 
   try {
@@ -570,27 +755,69 @@ export async function fetchShiprocketOrderDetails(shiprocketOrderId: number | st
   }
 }
 
-export async function createShiprocketOrder(order: any): Promise<{ order_id: number; shipment_id: number; awb_code: string; courier_name: string } | null> {
+function sanitizeCityAndState(pincode: string, rawCity?: string, rawState?: string): { city: string; state: string } {
+  const resolved = resolveIndianStateAndCityFromPincode(pincode);
+  const cityStr = String(rawCity || '').trim();
+  const stateStr = String(rawState || '').trim();
+
+  const isInvalidState =
+    !stateStr ||
+    /region|hub|zone|india|unknown|n\/a/i.test(stateStr);
+
+  const isInvalidCity =
+    !cityStr ||
+    /region|hub|zone|india|unknown|n\/a/i.test(cityStr);
+
+  return {
+    city: isInvalidCity ? resolved.city : cityStr,
+    state: isInvalidState ? resolved.state : stateStr
+  };
+}
+
+export async function createShiprocketOrderWithDetails(order: any): Promise<{
+  success: boolean;
+  data?: { order_id: number; shipment_id: number; awb_code: string; courier_name: string };
+  error?: string;
+  details?: any;
+}> {
   const token = await getShiprocketToken();
   if (!token) {
-    console.warn('[Shiprocket] Token unavailable. Skipping live Shiprocket dispatch for order:', order?.orderNumber || order?.order_number);
-    return null;
+    const authErr = getLastShiprocketAuthError() || 'Shiprocket authentication failed. Verify SHIPROCKET_EMAIL and SHIPROCKET_PASSWORD in Vercel.';
+    console.warn('[Shiprocket] Token unavailable:', authErr);
+    return {
+      success: false,
+      error: authErr
+    };
   }
 
   const creds = await getShiprocketCredentials();
-  const pickupLocation = (creds?.pickupLocation || 'Primary Warehouse').trim();
+  const preferredPickup = (creds?.pickupLocation || 'Primary Warehouse').trim();
+  const pickupLocation = await resolveValidPickupLocation(token, preferredPickup);
 
   try {
+    const rawSubTotal = Number(order.subtotal || order.sub_total || order.totalAmount || order.total_amount || 999);
+    const baseSubTotal = rawSubTotal > 0 ? rawSubTotal : 999;
+
     const rawItems = order.items || order.order_items || [];
+    const totalUnits = Math.max(
+      1,
+      rawItems.reduce((acc: number, it: any) => acc + Math.max(1, Number(it.quantity || it.units || 1)), 0)
+    );
+    const defaultUnitPrice = Math.max(1, Math.round(baseSubTotal / totalUnits));
+
     let orderItems = rawItems.map((item: any, idx: number) => {
-      const rawSku = (item.sku || item.productId || item.product_id || '').trim();
+      const rawSku = String(item.sku || item.productId || item.product_id || '').trim();
       const cleanSku = rawSku && rawSku !== 'SKU-KM' ? rawSku : `SKU-KM-${idx + 1}`;
       const uniqueSku = rawItems.length > 1 ? `${cleanSku}-${idx + 1}` : cleanSku;
+      const units = Math.max(1, Number(item.quantity || item.units || 1));
+      const rawPrice = Number(item.price || item.unitPrice || item.selling_price || item.unit_price || 0);
+      const sellingPrice = rawPrice > 0 ? rawPrice : defaultUnitPrice;
+
       return {
-        name: item.title || item.name || 'Japanese Skincare Product',
-        sku: uniqueSku,
-        units: Number(item.quantity || item.units || 1),
-        selling_price: Number(item.price || item.unitPrice || item.selling_price || item.unit_price || 0),
+        name: String(item.title || item.name || 'Japanese Skincare Product').trim() || 'Japanese Skincare Product',
+        sku: uniqueSku.slice(0, 45),
+        units,
+        selling_price: sellingPrice,
         hsn: String(item.hsn || item.hsn_code || '3304')
       };
     });
@@ -598,12 +825,17 @@ export async function createShiprocketOrder(order: any): Promise<{ order_id: num
     if (orderItems.length === 0) {
       orderItems = [{
         name: 'Japanese Skincare Item',
-        sku: 'SKU-KM',
+        sku: 'SKU-KM-1',
         units: 1,
-        selling_price: Number(order.subtotal || order.totalAmount || order.total_amount || 999),
+        selling_price: baseSubTotal,
         hsn: '3304'
       }];
     }
+
+    const computedSubTotal = orderItems.reduce(
+      (sum: number, it: any) => sum + Number(it.selling_price) * Number(it.units),
+      0
+    );
 
     let orderDateStr = '';
     try {
@@ -626,26 +858,43 @@ export async function createShiprocketOrder(order: any): Promise<{ order_id: num
       phone: order.customer_phone || order.customerPhone
     };
 
-    const cleanEmail = order.customerEmail || order.customer_email || 'customer@example.com';
-    const cleanPhone = order.customerPhone || order.customer_phone || shippingAddr?.phone || '';
+    const cleanPin = String(shippingAddr?.pincode || order.pincode || '400001').replace(/\D/g, '').slice(0, 6) || '400001';
+    const { city: validCity, state: validState } = sanitizeCityAndState(
+      cleanPin,
+      shippingAddr?.city || order.city,
+      shippingAddr?.state || order.state
+    );
+
+    const cleanEmail = String(order.customerEmail || order.customer_email || 'customer@konichiwamart.com').trim() || 'customer@konichiwamart.com';
+    const rawPhone = String(order.customerPhone || order.customer_phone || shippingAddr?.phone || '').replace(/\D/g, '');
+    const cleanPhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : '9876543210';
+
+    const rawAddress1 = String(shippingAddr?.addressLine1 || order.shipping_address_line1 || '').trim();
+    const billingAddress1 = rawAddress1.length >= 3 ? rawAddress1 : `House 1, ${validCity}`;
+
+    const fullName = String(shippingAddr?.fullName || order.customer_name || order.customerName || 'Customer').trim() || 'Customer';
+    const nameParts = fullName.split(/\s+/);
+    const firstName = nameParts[0] || 'Customer';
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+
     const paymentMethodRaw = String(order.paymentMethod || order.payment_method || 'Prepaid').toUpperCase();
     const paymentMethod = paymentMethodRaw.includes('COD') ? 'COD' : 'Prepaid';
 
-    const subTotal = Number(order.subtotal || order.sub_total || order.totalAmount || order.total_amount || 0);
+    const orderNumberStr = String(order.orderNumber || order.order_number || order.id).trim();
 
     const payload = {
-      order_id: String(order.orderNumber || order.order_number),
+      order_id: orderNumberStr,
       order_date: orderDateStr,
       pickup_location: pickupLocation,
       channel_id: '',
       comment: 'Konichiwa Mart Order',
-      billing_customer_name: shippingAddr?.fullName || order.customer_name || 'Customer',
-      billing_last_name: '',
-      billing_address: shippingAddr?.addressLine1 || '',
-      billing_address_2: shippingAddr?.addressLine2 || '',
-      billing_city: shippingAddr?.city || '',
-      billing_pincode: String(shippingAddr?.pincode || ''),
-      billing_state: shippingAddr?.state || '',
+      billing_customer_name: firstName,
+      billing_last_name: lastName,
+      billing_address: billingAddress1,
+      billing_address_2: String(shippingAddr?.addressLine2 || order.shipping_address_line2 || '').trim(),
+      billing_city: validCity,
+      billing_pincode: cleanPin,
+      billing_state: validState,
       billing_country: 'India',
       billing_email: cleanEmail,
       billing_phone: cleanPhone,
@@ -656,14 +905,14 @@ export async function createShiprocketOrder(order: any): Promise<{ order_id: num
       giftwrap_charges: 0,
       transaction_charges: 0,
       total_discount: Number(order.discountAmount || order.discount_amount || 0),
-      sub_total: subTotal,
+      sub_total: computedSubTotal > 0 ? computedSubTotal : baseSubTotal,
       length: 15,
       breadth: 15,
       height: 10,
       weight: 0.5
     };
 
-    console.log(`[Shiprocket API] Pushing adhoc order ${payload.order_id} to pickup "${pickupLocation}"...`);
+    console.log(`[Shiprocket API] Pushing adhoc order ${payload.order_id} to pickup "${pickupLocation}" (${validCity}, ${validState} - ${cleanPin})...`);
 
     const res = await fetch('https://apiv2.shiprocket.in/v1/external/orders/create/adhoc', {
       method: 'POST',
@@ -673,21 +922,65 @@ export async function createShiprocketOrder(order: any): Promise<{ order_id: num
       },
       body: JSON.stringify(payload)
     });
-    
-    const data = await res.json();
+
+    const data = await res.json().catch(() => ({}));
     if (data && data.order_id) {
       console.log(`[Shiprocket Success] Order ${payload.order_id} pushed successfully! Order ID: ${data.order_id}, Shipment ID: ${data.shipment_id}`);
       return {
-        order_id: data.order_id,
-        shipment_id: data.shipment_id,
-        awb_code: data.awb_code || '',
-        courier_name: data.courier_name || ''
+        success: true,
+        data: {
+          order_id: data.order_id,
+          shipment_id: data.shipment_id,
+          awb_code: data.awb_code || '',
+          courier_name: data.courier_name || ''
+        }
       };
-    } else {
-      console.error(`[Shiprocket API Error] Order ${payload.order_id} rejected by Shiprocket:`, JSON.stringify(data));
     }
-  } catch (err) {
+
+    // Check if the order already exists in Shiprocket
+    const existing = await searchShiprocketOrderByNumber(orderNumberStr);
+    if (existing && (existing.id || existing.order_id)) {
+      const existingOrderId = Number(existing.id || existing.order_id);
+      const existingShipment = Array.isArray(existing.shipments) ? existing.shipments[0] : (existing.shipments || {});
+      const existingShipmentId = Number(existingShipment?.id || existing.shipment_id || 0);
+      return {
+        success: true,
+        data: {
+          order_id: existingOrderId,
+          shipment_id: existingShipmentId,
+          awb_code: String(existing.awb_code || existingShipment?.awb || ''),
+          courier_name: String(existing.courier_name || existingShipment?.courier || '')
+        }
+      };
+    }
+
+    // Format detailed validation errors from Shiprocket if present
+    let errorDetail = data?.message || `HTTP ${res.status} rejected by Shiprocket`;
+    if (data?.errors && typeof data.errors === 'object') {
+      const errList = Object.entries(data.errors)
+        .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`)
+        .join('; ');
+      if (errList) {
+        errorDetail = `${errorDetail} (${errList})`;
+      }
+    }
+
+    console.error(`[Shiprocket API Error] Order ${payload.order_id} rejected by Shiprocket:`, JSON.stringify(data));
+    return {
+      success: false,
+      error: errorDetail,
+      details: data
+    };
+  } catch (err: any) {
     console.error('Shiprocket Create Order Exception:', err);
+    return {
+      success: false,
+      error: err.message || 'Exception while creating Shiprocket order'
+    };
   }
-  return null;
+}
+
+export async function createShiprocketOrder(order: any): Promise<{ order_id: number; shipment_id: number; awb_code: string; courier_name: string } | null> {
+  const result = await createShiprocketOrderWithDetails(order);
+  return result.success && result.data ? result.data : null;
 }

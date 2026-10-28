@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { createClient } from '@supabase/supabase-js';
+import { getValidSupabaseServerClient } from './shiprocketServer';
 
 export interface TrackingNotificationEntry {
   orderNumber: string;
@@ -22,10 +22,7 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 const NOTIFICATIONS_FILE = path.join(DATA_DIR, 'tracking_notifications.json');
 
 function getSupabaseClient() {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
+  return getValidSupabaseServerClient();
 }
 
 // In-memory cache for fast lookups

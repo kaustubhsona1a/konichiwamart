@@ -571,14 +571,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     setPushingOrderId(orderId);
     setShiprocketActionMsg(null);
     try {
+      const matchedOrder = orders.find(o => o.id === orderId || o.orderNumber === orderId) || inspectingOrder;
       const res = await fetch('/api/admin/push-order-to-shiprocket', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
-        body: JSON.stringify({ orderId })
+        body: JSON.stringify({ orderId, order: matchedOrder })
       });
       const data = await res.json();
       if (data.success) {
         setShiprocketActionMsg({ type: 'success', text: data.message });
+        if (inspectingOrder && (inspectingOrder.id === orderId || inspectingOrder.orderNumber === orderId)) {
+          setInspectingOrder(prev => prev ? {
+            ...prev,
+            shiprocketOrderId: data.shiprocketOrderId ? String(data.shiprocketOrderId) : prev.shiprocketOrderId,
+            shiprocketShipmentId: data.shiprocketShipmentId ? String(data.shiprocketShipmentId) : prev.shiprocketShipmentId,
+            awbNumber: data.awbNumber || prev.awbNumber,
+            courierPartner: data.courierPartner || prev.courierPartner
+          } : null);
+        }
         if (onRefreshOrders) await onRefreshOrders();
       } else {
         setShiprocketActionMsg({ type: 'error', text: data.error || 'Failed to push order to Shiprocket' });
@@ -5963,6 +5973,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {shiprocketActionMsg && (
+                    <div className={`p-3 rounded-xl border text-xs font-medium flex items-center justify-between ${
+                      shiprocketActionMsg.type === 'success' 
+                        ? 'bg-emerald-50 text-emerald-900 border-emerald-200' 
+                        : 'bg-rose-50 text-rose-800 border-rose-200'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        <Truck className="w-4 h-4 flex-shrink-0" />
+                        <span>{shiprocketActionMsg.text}</span>
+                      </div>
+                      <button onClick={() => setShiprocketActionMsg(null)} className="text-stone-400 hover:text-stone-600 cursor-pointer">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
 
                   <div className="pt-2 border-t border-purple-200/60 flex items-center justify-between flex-wrap gap-2">
                     <button

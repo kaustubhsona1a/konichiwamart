@@ -3,9 +3,8 @@
  * Prevents duplicate orders, duplicate shipments, and double-charges
  */
 import crypto from 'crypto';
-import { createClient } from '@supabase/supabase-js';
 import { orderStore, ValidatedOrder } from './orderService';
-import { createShiprocketOrder } from './shiprocket';
+import { createShiprocketOrder, getValidSupabaseServerClient } from './shiprocketServer';
 import { sendOrderInvoiceEmail, sendNewOrderOwnerNotification } from './email';
 import { InvoiceData } from './invoice';
 
@@ -17,10 +16,7 @@ export interface WebhookProcessingResult {
 }
 
 function getSupabase(): any {
-  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
+  return getValidSupabaseServerClient();
 }
 
 /**
@@ -217,34 +213,47 @@ export async function processRazorpayWebhook(
 
   // 4. ORCHESTRATE SHIPROCKET DISPATCH (Resilient external API call)
   try {
-    const shiprocketResult = await createShiprocketOrder({
+    const srResult = await createShiprocketOrder({
       orderNumber: existingOrder.orderNumber,
       customerName: existingOrder.customer.fullName,
       customerEmail: existingOrder.customer.email,
       customerPhone: existingOrder.customer.phone,
-      shippingAddressLine1: existingOrder.shippingAddress.addressLine1,
-      shippingAddressLine2: existingOrder.shippingAddress.addressLine2,
-      city: existingOrder.shippingAddress.city,
-      state: existingOrder.shippingAddress.state,
-      pincode: existingOrder.shippingAddress.pincode,
+      shippingAddress: {
+        fullName: existingOrder.customer.fullName,
+        addressLine1: existingOrder.shippingAddress.addressLine1,
+        addressLine2: existingOrder.shippingAddress.addressLine2,
+        city: existingOrder.shippingAddress.city,
+        state: existingOrder.shippingAddress.state,
+        pincode: existingOrder.shippingAddress.pincode,
+        phone: existingOrder.customer.phone
+      },
       items: existingOrder.items.map(it => ({
-        name: it.title + (it.shadeName ? ` (${it.shadeName})` : ''),
+        title: it.title + (it.shadeName ? ` (${it.shadeName})` : ''),
         sku: it.sku,
-        units: it.quantity,
-        selling_price: it.unitPrice,
+        quantity: it.quantity,
+        price: it.unitPrice,
         hsn: it.hsn
       })),
       subtotal: existingOrder.subtotal,
       totalAmount: existingOrder.totalAmount,
-      isPrepaid: true
+      paymentMethod: 'Prepaid'
     });
 
-    if (shiprocketResult.success) {
-      existingOrder.shiprocketOrderId = String(shiprocketResult.orderId);
-      existingOrder.awbNumber = shiprocketResult.awbCode;
-      existingOrder.courierPartner = shiprocketResult.courierName;
+    if (srResult && srResult.order_id) {
+      existingOrder.shiprocketOrderId = String(srResult.order_id);
+      existingOrder.awbNumber = srResult.awb_code || undefined;
+      existingOrder.courierPartner = srResult.courier_name || undefined;
       existingOrder.status = 'processing';
-      console.log(`[Shiprocket Dispatch] Created shipment for ${existingOrder.orderNumber}: AWB ${existingOrder.awbNumber || 'PENDING'} via ${existingOrder.courierPartner}`);
+      if (supabase && supabaseOrder?.id) {
+        const patch: any = {
+          shiprocket_order_id: String(srResult.order_id),
+          shiprocket_shipment_id: String(srResult.shipment_id)
+        };
+        if (srResult.awb_code) patch.awb_number = srResult.awb_code;
+        if (srResult.courier_name) patch.courier_partner = srResult.courier_name;
+        await supabase.from('orders').update(patch).eq('id', supabaseOrder.id);
+      }
+      console.log(`[Shiprocket Dispatch] Created shipment for ${existingOrder.orderNumber}: Order ID ${srResult.order_id}`);
     }
   } catch (shiprocketErr) {
     console.error('[Shiprocket Dispatch Error] Non-blocking logistics failure:', shiprocketErr);
