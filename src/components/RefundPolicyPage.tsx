@@ -119,7 +119,7 @@ export const RefundPolicyPage: React.FC<RefundPolicyPageProps> = ({ onBackToStor
             </p>
             <ol className="list-decimal pl-5 space-y-2.5 text-xs sm:text-sm">
               <li>
-                <strong>Contact Support:</strong> Email us at <a href="mailto:info@konichiwamart.com" className="text-pink-600 dark:text-pink-400 font-bold underline">info@konichiwamart.com</a> or WhatsApp us at <strong>+91 96720 51678</strong> within 7 days of delivery.
+                <strong>Contact Support:</strong> Email us at <a href="mailto:info@konichiwamart.com" className="text-pink-600 dark:text-pink-400 font-bold underline">info@konichiwamart.com</a> or WhatsApp us at <strong>+91 91523 53737</strong> within 7 days of delivery.
               </li>
               <li>
                 <strong>Provide Details:</strong> Share your <strong>Order Number (e.g., KM-ORD-12345)</strong> along with 2-3 clear unboxing photos/videos showing the damaged or incorrect item.
@@ -156,7 +156,7 @@ export const RefundPolicyPage: React.FC<RefundPolicyPageProps> = ({ onBackToStor
               You can cancel your order anytime <strong>before it is dispatched</strong> for a <strong>100% full refund</strong>:
             </p>
             <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm">
-              <li>To cancel, email <a href="mailto:info@konichiwamart.com" className="text-pink-600 dark:text-pink-400 font-bold underline">info@konichiwamart.com</a> or WhatsApp <strong>+91 96720 51678</strong> with your Order ID.</li>
+              <li>To cancel, email <a href="mailto:info@konichiwamart.com" className="text-pink-600 dark:text-pink-400 font-bold underline">info@konichiwamart.com</a> or WhatsApp <strong>+91 91523 53737</strong> with your Order ID.</li>
               <li>If the order has already been handed over to the courier partner and an AWB tracking number has been issued, it cannot be cancelled in transit. You may refuse delivery upon arrival, and a full refund will be processed once returned.</li>
             </ul>
           </section>
@@ -179,7 +179,7 @@ export const RefundPolicyPage: React.FC<RefundPolicyPageProps> = ({ onBackToStor
                 <Phone className="w-5 h-5 text-pink-600 shrink-0" />
                 <div>
                   <div className="font-bold text-slate-900 dark:text-zinc-100">Phone & WhatsApp</div>
-                  <div className="text-slate-700 dark:text-zinc-300 font-semibold">+91 96720 51678</div>
+                  <div className="text-slate-700 dark:text-zinc-300 font-semibold">+91 91523 53737</div>
                 </div>
               </div>
 

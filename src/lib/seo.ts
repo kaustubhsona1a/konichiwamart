@@ -253,17 +253,54 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
       return `${CANONICAL_SITE_URL}${cleanPath}`;
     });
 
+  const numericPrice = typeof product.price === 'number' ? product.price : Number(product.price) || 0;
   const offer: Record<string, any> = {
     '@type': 'Offer',
     'url': canonicalUrl,
     'priceCurrency': 'INR',
-    'price': typeof product.price === 'number' ? product.price : Number(product.price) || 0,
+    'price': numericPrice,
     'itemCondition': 'https://schema.org/NewCondition',
     'availability': isInStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
     'seller': {
       '@type': 'Organization',
       'name': 'Konichiwa Mart',
       'url': CANONICAL_SITE_URL
+    },
+    'shippingDetails': {
+      '@type': 'OfferShippingDetails',
+      'shippingRate': {
+        '@type': 'MonetaryAmount',
+        'value': numericPrice >= 1500 ? 0 : 79,
+        'currency': 'INR'
+      },
+      'shippingDestination': {
+        '@type': 'DefinedRegion',
+        'addressCountry': 'IN'
+      },
+      'deliveryTime': {
+        '@type': 'ShippingDeliveryTime',
+        'handlingTime': {
+          '@type': 'QuantitativeValue',
+          'minValue': 0,
+          'maxValue': 1,
+          'unitCode': 'DAY'
+        },
+        'transitTime': {
+          '@type': 'QuantitativeValue',
+          'minValue': 2,
+          'maxValue': 5,
+          'unitCode': 'DAY'
+        }
+      }
+    },
+    'hasMerchantReturnPolicy': {
+      '@type': 'MerchantReturnPolicy',
+      'applicableCountry': 'IN',
+      'returnPolicyCategory': 'https://schema.org/MerchantReturnFiniteReturnWindow',
+      'merchantReturnDays': 7,
+      'returnMethod': 'https://schema.org/ReturnByMail',
+      'returnFees': 'https://schema.org/FreeReturn',
+      'url': `${CANONICAL_SITE_URL}/return-policy`
     }
   };
 
@@ -366,6 +403,7 @@ export function generateOrganizationJsonLd(): Record<string, any> {
     'image': `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
     'description': 'Premier boutique destination in India for 100% authentic Japanese skincare, sunscreens, serums, and cosmetics imported directly from Japan.',
     'email': 'info@konichiwamart.com',
+    'telephone': '+91-91523-53737',
     'currenciesAccepted': 'INR',
     'paymentAccepted': 'Credit Card, Debit Card, NetBanking, UPI, Cash on Delivery',
     'priceRange': '₹₹',

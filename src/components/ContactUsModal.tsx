@@ -132,7 +132,7 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
             {/* Phone & WhatsApp Support */}
             <a
               id="contact-channel-phone"
-              href="tel:+918879258004"
+              href="tel:+919152353737"
               className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/40 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-900/60 transition-all flex items-start gap-3 group cursor-pointer"
             >
               <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs group-hover:scale-105 transition-transform">
@@ -140,7 +140,7 @@ export const ContactUsModal: React.FC<ContactUsModalProps> = ({
               </div>
               <div className="min-w-0">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 block">Call / WhatsApp</span>
-                <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 block truncate">+91 8879258004</span>
+                <span className="text-xs font-bold text-slate-900 dark:text-zinc-100 block truncate">+91 91523 53737</span>
                 <span className="text-[10px] text-slate-500 dark:text-zinc-400 block mt-0.5">Mon–Sat, 10am–7pm</span>
               </div>
             </a>

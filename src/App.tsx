@@ -360,9 +360,11 @@ export default function App() {
     }
   };
 
-  // Hydrate store orders from Supabase on load and whenever Operator Portal is opened
+  // Hydrate store orders from Supabase only when Operator Portal is opened or operator session is active
   useEffect(() => {
-    handleRefreshOrders();
+    if (isAdminOpen || getStoredOperatorSession()) {
+      handleRefreshOrders();
+    }
   }, [isAdminOpen]);
   const [isAdminLoginOpen, setIsAdminLoginOpen] = useState(false);
   const [operatorSession, setOperatorSession] = useState<OperatorSession | null>(() => getStoredOperatorSession());

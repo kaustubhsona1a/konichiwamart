@@ -67,8 +67,11 @@ export default async function handler(req: any, res: any) {
       clean.startsWith('brands/') ||
       clean.startsWith('guides/') ||
       clean === 'about' ||
+      clean === 'return-policy' ||
       clean === 'sitemap.xml' ||
+      clean === 'google-merchant-feed.xml' ||
       clean === 'robots.txt' ||
+      clean === 'konichiwamart2026indexnowkey8879.txt' ||
       clean === '';
 
     if (isSeoRoute) {
@@ -88,8 +91,11 @@ export default async function handler(req: any, res: any) {
       cleanRaw.startsWith('brands/') ||
       cleanRaw.startsWith('guides/') ||
       cleanRaw === 'about' ||
+      cleanRaw === 'return-policy' ||
       cleanRaw === 'sitemap.xml' ||
-      cleanRaw === 'robots.txt';
+      cleanRaw === 'google-merchant-feed.xml' ||
+      cleanRaw === 'robots.txt' ||
+      cleanRaw === 'konichiwamart2026indexnowkey8879.txt';
 
     if (isSeoRoute) {
       req.url = `/${cleanRaw}`;

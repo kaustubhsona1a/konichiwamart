@@ -56,6 +56,7 @@ import { formatINR } from '../data/pincodes';
 import { KonichiwaMartLogo } from './KonichiwaMartLogo';
 import { getSupabaseClient, ensureSupabaseClient, fetchCategoriesFromStore, saveCategoryToStore, normalizeOrderItem, getOperatorAuthHeaders } from '../lib/supabase';
 import { generateGSTInvoiceHtml, InvoiceData, InvoiceItem } from '../lib/invoice';
+import { getProductCanonicalSlug, getProductCanonicalUrl } from '../lib/seo';
 import { ReelsManager } from './admin/ReelsManager';
 import { ReviewsManager } from './admin/ReviewsManager';
 
@@ -309,7 +310,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [srConfigMsg, setSrConfigMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showSrPassword, setShowSrPassword] = useState(false);
 
-  // Load Shiprocket config on Settings tab open
+  // Load Shiprocket config & SEO Indexing status on Settings tab open
   useEffect(() => {
     if (activeTab === 'settings' && isOpen) {
       fetch('/api/admin/shiprocket-config', {
@@ -324,6 +325,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             setSrConfigSource(data.source || 'none');
             setIsEnvConfigured(Boolean(data.isEnvConfigured));
             setIsDbConfigured(Boolean(data.isDbConfigured));
+          }
+        })
+        .catch(() => {});
+
+      fetch('/api/admin/seo-status', {
+        headers: { ...getOperatorAuthHeaders() }
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data && data.success) {
+            setSeoStatusData(data);
           }
         })
         .catch(() => {});
@@ -419,6 +431,56 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setSyncTrackingResult({ success: false, error: err.message || 'Tracking sync network error' });
     } finally {
       setIsSyncingTracking(false);
+    }
+  };
+
+  // Search Engine Indexing, Google Merchant Feed & IndexNow State
+  const [seoStatusData, setSeoStatusData] = useState<{
+    siteUrl?: string;
+    sitemapUrl?: string;
+    merchantFeedUrl?: string;
+    indexNowKey?: string;
+    totalUrls?: number;
+    productCount?: number;
+    collectionCount?: number;
+    brandCount?: number;
+    guideCount?: number;
+    products?: { id: string; title: string; slug: string; url: string; price: number; inStock: boolean; category: string }[];
+  } | null>(null);
+  const [isPingingIndexNow, setIsPingingIndexNow] = useState(false);
+  const [indexNowResult, setIndexNowResult] = useState<{
+    success: boolean;
+    message?: string;
+    submittedCount?: number;
+    error?: string;
+  } | null>(null);
+  const [copiedSeoItem, setCopiedSeoItem] = useState<string | null>(null);
+  const [seoUrlSearchQuery, setSeoUrlSearchQuery] = useState('');
+
+  const handleCopySeoText = (key: string, text: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopiedSeoItem(key);
+    setTimeout(() => setCopiedSeoItem(null), 2200);
+  };
+
+  const handlePingIndexNow = async () => {
+    setIsPingingIndexNow(true);
+    setIndexNowResult(null);
+    try {
+      const res = await fetch('/api/admin/seo-index-now', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getOperatorAuthHeaders() },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      setIndexNowResult(data);
+    } catch (err: any) {
+      setIndexNowResult({
+        success: false,
+        error: err.message || 'Network error while submitting URLs to IndexNow.'
+      });
+    } finally {
+      setIsPingingIndexNow(false);
     }
   };
 
@@ -4038,6 +4100,228 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               </div>
 
+              {/* MODULE 6: GOOGLE SEARCH CONSOLE, MERCHANT SHOPPING FEED & INDEXNOW COMMAND CENTER */}
+              <div className="bg-white border border-stone-200/80 rounded-2xl p-6 shadow-xs space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-stone-100 pb-4">
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                      <Search className="w-4 h-4 text-emerald-600" />
+                      <span>Google Search Ranking, Merchant Shopping Feed &amp; IndexNow</span>
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Static HTML pre-rendering, India rich snippet schema (INR price, shipping &amp; 7-day returns), Google Merchant Shopping XML feed, and instant IndexNow submission for <strong>Konichiwa Mart</strong>.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handlePingIndexNow}
+                    disabled={isPingingIndexNow}
+                    className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-semibold text-xs flex items-center justify-center gap-2 transition-colors shadow-xs cursor-pointer shrink-0"
+                  >
+                    {isPingingIndexNow ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Submitting All URLs...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Push All URLs to Search Engines (IndexNow)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {/* Live Indexed URL Metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <div className="p-3.5 rounded-xl bg-stone-50 border border-stone-200/80">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Total Indexed URLs</div>
+                    <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+                      {seoStatusData?.totalUrls ?? (products.filter(p => !p.isComingSoon).length + 14)}
+                    </div>
+                    <div className="text-[11px] text-emerald-700 font-medium mt-0.5">Static HTML + JSON-LD</div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-stone-50 border border-stone-200/80">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Product Pages</div>
+                    <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+                      {seoStatusData?.productCount ?? products.filter(p => !p.isComingSoon).length}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">INR Rich Snippets</div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-stone-50 border border-stone-200/80">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Collections</div>
+                    <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+                      {seoStatusData?.collectionCount ?? 4}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Category Hubs</div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-stone-50 border border-stone-200/80">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Brand Pages</div>
+                    <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+                      {seoStatusData?.brandCount ?? 4}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">Shiseido, Hada Labo...</div>
+                  </div>
+                  <div className="p-3.5 rounded-xl bg-stone-50 border border-stone-200/80">
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Editorial Guides</div>
+                    <div className="text-xl font-bold text-slate-900 tabular-nums mt-1">
+                      {seoStatusData?.guideCount ?? 3}
+                    </div>
+                    <div className="text-[11px] text-slate-500 mt-0.5">J-Beauty Authority</div>
+                  </div>
+                </div>
+
+                {/* IndexNow Submission Result Banner */}
+                {indexNowResult && (
+                  <div className={`p-4 rounded-xl border text-xs ${
+                    indexNowResult.success
+                      ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
+                      : 'bg-rose-50/90 border-rose-200 text-rose-900'
+                  }`}>
+                    <div className="flex items-center gap-2 font-bold">
+                      {indexNowResult.success ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                      )}
+                      <span>
+                        {indexNowResult.success
+                          ? indexNowResult.message || `Submitted ${indexNowResult.submittedCount} URLs to IndexNow!`
+                          : indexNowResult.error || 'Failed to submit URLs to IndexNow'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Copyable Feeds: Sitemap XML & Google Merchant Center XML */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 rounded-xl bg-stone-50 border border-stone-200 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-slate-900">1. Google Search Console Sitemap XML</div>
+                        <div className="text-[11px] text-slate-500">Auto-updates whenever you add or edit products</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopySeoText('sitemap', seoStatusData?.sitemapUrl || 'https://www.konichiwamart.com/sitemap.xml')}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
+                      >
+                        {copiedSeoItem === 'sitemap' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedSeoItem === 'sitemap' ? 'Copied' : 'Copy URL'}</span>
+                      </button>
+                    </div>
+                    <div className="bg-white border border-stone-200 rounded-lg p-2 font-mono text-[11px] text-slate-800 select-all break-all">
+                      {seoStatusData?.sitemapUrl || 'https://www.konichiwamart.com/sitemap.xml'}
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-200 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-bold text-emerald-950">2. Google Merchant Shopping Feed XML</div>
+                        <div className="text-[11px] text-emerald-800">Powers free Google Shopping product cards at top of Search</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopySeoText('merchant', seoStatusData?.merchantFeedUrl || 'https://www.konichiwamart.com/google-merchant-feed.xml')}
+                        className="px-2.5 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-semibold flex items-center gap-1.5 cursor-pointer shrink-0"
+                      >
+                        {copiedSeoItem === 'merchant' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedSeoItem === 'merchant' ? 'Copied' : 'Copy Feed URL'}</span>
+                      </button>
+                    </div>
+                    <div className="bg-white border border-emerald-200 rounded-lg p-2 font-mono text-[11px] text-slate-800 select-all break-all">
+                      {seoStatusData?.merchantFeedUrl || 'https://www.konichiwamart.com/google-merchant-feed.xml'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Canonical Product URL Inspector & Quick Copy for Google Search Console */}
+                <div className="border border-stone-200 rounded-xl overflow-hidden">
+                  <div className="bg-stone-50 px-4 py-3 border-b border-stone-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-slate-900">
+                        Pre-Rendered Product Canonical URLs (Copy for Google Search Console &quot;Inspect URL&quot;)
+                      </div>
+                      <div className="text-[11px] text-slate-500">
+                        Every product has its own dedicated crawlable URL with INR price, stock status, India shipping &amp; 7-day return schema.
+                      </div>
+                    </div>
+                    <input
+                      type="text"
+                      value={seoUrlSearchQuery}
+                      onChange={(e) => setSeoUrlSearchQuery(e.target.value)}
+                      placeholder="Filter product URLs..."
+                      className="px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-xs text-slate-800 focus:outline-none focus:border-slate-900 w-full sm:w-56"
+                    />
+                  </div>
+                  <div className="max-h-56 overflow-y-auto divide-y divide-stone-100 bg-white">
+                    {(seoStatusData?.products || products.filter(p => !p.isComingSoon).map(p => ({
+                      id: p.id,
+                      title: p.title,
+                      slug: getProductCanonicalSlug(p),
+                      url: getProductCanonicalUrl(p),
+                      price: p.price,
+                      inStock: p.stock === undefined || p.stock > 0,
+                      category: p.category
+                    })))
+                      .filter(item =>
+                        !seoUrlSearchQuery.trim() ||
+                        item.title.toLowerCase().includes(seoUrlSearchQuery.toLowerCase()) ||
+                        item.category.toLowerCase().includes(seoUrlSearchQuery.toLowerCase())
+                      )
+                      .map((item) => (
+                        <div key={item.id} className="px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-stone-50/80 text-xs">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 truncate">{item.title}</div>
+                            <div className="font-mono text-[11px] text-slate-500 truncate select-all">{item.url}</div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[11px] font-semibold text-slate-700 tabular-nums">₹{item.price}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopySeoText(`prod-${item.id}`, item.url)}
+                              className="px-2.5 py-1 rounded-md border border-stone-200 hover:border-slate-400 bg-white text-slate-700 text-[11px] font-medium flex items-center gap-1 cursor-pointer"
+                            >
+                              {copiedSeoItem === `prod-${item.id}` ? (
+                                <>
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                  <span className="text-emerald-700">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy URL</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+
+                {/* Exact Playbook for Dominating Google Search for Konichiwa Mart & Every Product */}
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
+                  <div className="font-bold text-slate-900 flex items-center gap-1.5 uppercase tracking-wider text-[11px]">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>3-Step Action Checklist After Deploying to Vercel:</span>
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1.5 text-slate-700 leading-relaxed text-[11px]">
+                    <li>
+                      <strong>Force Immediate Homepage &amp; Top Product Crawl in Google Search Console</strong>: Open <a href="https://search.google.com/search-console" target="_blank" rel="noreferrer" className="text-pink-600 underline font-semibold">Google Search Console</a>, paste <code className="bg-stone-200 px-1 py-0.5 rounded font-mono text-slate-900">https://www.konichiwamart.com/</code> into the top <strong>Inspect any URL</strong> bar, and click <strong>Request Indexing</strong>. Repeat for your top 5 best-selling product URLs from the list above.
+                    </li>
+                    <li>
+                      <strong>Connect Google Merchant Center (Free Product Listings)</strong>: Go to <a href="https://merchants.google.com" target="_blank" rel="noreferrer" className="text-pink-600 underline font-semibold">merchants.google.com</a> (use the same Google account as Search Console so domain verification is automatic) &rarr; <em>Products &gt; Feeds &gt; Add primary feed</em> &rarr; Choose <strong>Scheduled fetch</strong> and paste <code className="bg-stone-200 px-1 py-0.5 rounded font-mono text-slate-900">https://www.konichiwamart.com/google-merchant-feed.xml</code>. This puts your products with photos &amp; ₹ prices into Google&apos;s Shopping tab and top-of-page product carousels for free.
+                    </li>
+                    <li>
+                      <strong>Click &quot;Push All URLs to Search Engines (IndexNow)&quot; above</strong> whenever you add new products or update prices so IndexNow-enabled search engines (Bing, Yahoo, DuckDuckGo, Yandex) index changes within minutes.
+                    </li>
+                  </ol>
+                </div>
+              </div>
+
             </div>
           )}
 
@@ -5770,14 +6054,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <span>1-Click Customer Outreach & Direct Support</span>
                   </div>
                   <span className="text-[11px] font-bold text-slate-600 bg-white/90 px-2.5 py-0.5 rounded-full border border-pink-200">
-                    Store Support: <strong className="text-pink-700">+91 8879258004</strong>
+                    Store Support: <strong className="text-pink-700">+91 91523 53737</strong>
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   {/* Connect via WhatsApp */}
                   <a
-                    href={`https://wa.me/91${(inspectingOrder.customerPhone || '8879258004').replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(
+                    href={`https://wa.me/91${(inspectingOrder.customerPhone || '9152353737').replace(/\D/g, '').slice(-10)}?text=${encodeURIComponent(
                       `Hi ${inspectingOrder.customerName || 'Valued Customer'}, greeting from Konichiwa Mart! Regarding your Order #${inspectingOrder.orderNumber} (Amount: ${formatINR(inspectingOrder.totalAmount)}) - how can we assist you today?`
                     )}`}
                     target="_blank"

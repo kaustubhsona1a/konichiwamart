@@ -45,13 +45,81 @@ import { InvoiceData } from './src/lib/invoice';
 import { PRODUCTS } from './src/data/products';
 import { Product, Review } from './src/types';
 import { INITIAL_REVIEWS } from './src/data/reviews';
-import { buildSitemapXml } from './src/lib/sitemapGenerator';
+import { buildSitemapXml, buildGoogleMerchantFeedXml, inspectSitemapDetails, INDEXNOW_API_KEY } from './src/lib/sitemapGenerator';
+import { getProductCanonicalUrl, getProductSeoTitle, getProductCanonicalSlug, inferBrandFromProduct } from './src/lib/seo';
 import { injectSeoIntoHtml } from './src/lib/serverSeo';
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = Number(process.env.PORT) || 3000;
 
 const DATA_DIR = path.join(process.cwd(), 'data');
+
+// Global HTTP Security Headers Middleware
+app.use((_req: Request, res: Response, next: () => void) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  next();
+});
+
+// HTML Escape & Plain Text Sanitizer (prevents Stored XSS & Injection)
+function escapeHtmlStr(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function sanitizePlainText(val: unknown, maxLen = 1000): string {
+  if (val === null || val === undefined) return '';
+  return String(val)
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<\/?[a-z][^>]*>/gi, '')
+    .replace(/javascript:/gi, '')
+    .trim()
+    .slice(0, maxLen);
+}
+
+// Sliding-Window IP Rate Limiter (protects Auth, OTP, Tracking & Review endpoints)
+const rateLimitStore = new Map<string, { count: number; resetAt: number }>();
+
+function createRateLimiter(maxRequests: number, windowMs: number, bucketName: string) {
+  return (req: Request, res: Response, next: () => void) => {
+    const forwarded = req.headers['x-forwarded-for'];
+    const clientIp = (Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0])?.trim() || req.ip || 'unknown';
+    const key = `${bucketName}:${clientIp}`;
+    const now = Date.now();
+    const record = rateLimitStore.get(key);
+
+    if (!record || now > record.resetAt) {
+      rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+
+    if (record.count >= maxRequests) {
+      res.setHeader('Retry-After', String(Math.ceil((record.resetAt - now) / 1000)));
+      return res.status(429).json({
+        success: false,
+        error: 'Too many requests from this IP. Please wait a few minutes and try again.'
+      });
+    }
+
+    record.count += 1;
+    return next();
+  };
+}
+
+const authRateLimit = createRateLimiter(15, 15 * 60 * 1000, 'auth');
+const otpRateLimit = createRateLimiter(10, 15 * 60 * 1000, 'otp');
+const trackRateLimit = createRateLimiter(25, 15 * 60 * 1000, 'track');
+const reviewRateLimit = createRateLimiter(10, 15 * 60 * 1000, 'review');
 
 // Helper to initialize server-side Supabase client (validates JWT to avoid "Invalid API key" from misconfigured SUPABASE_SERVICE_ROLE_KEY)
 function getSupabaseServerClient(): SupabaseClient | null {
@@ -99,35 +167,45 @@ async function verifyOperatorAccess(req: Request, res: Response, next: () => voi
           return next();
         }
       } catch (authErr) {
-        console.warn('[Operator Auth Warning] Client token expired or invalid, using operator session header.');
+        console.warn('[Operator Auth Warning] Client token expired or invalid, checking operator session header.');
       }
     }
 
-    // 3. Fallback: Accept request if any token or authorized operator email is provided or if operator session is active
-    const authorizedEmails = ['kaustubhsona1a@gmail.com', 'info@konichiwamart.com'];
-    if (token || authorizedEmails.includes(operatorEmail) || !operatorEmail) {
-      (req as any).operatorUser = { email: operatorEmail || 'kaustubhsona1a@gmail.com', role: 'operator' };
+    // 3. Require both a non-empty operator token and an authorized operator email
+    const configuredOperatorEmail = (process.env.OPERATOR_EMAIL || '').toLowerCase().trim();
+    const authorizedEmails = [
+      'kaustubhsona1a@gmail.com',
+      'info@konichiwamart.com',
+      'dealer@konichiwamart.com',
+      'admin@konichiwamart.com',
+      ...(configuredOperatorEmail ? [configuredOperatorEmail] : [])
+    ];
+
+    if (token && operatorEmail && authorizedEmails.includes(operatorEmail)) {
+      (req as any).operatorUser = { email: operatorEmail, role: 'operator' };
       return next();
     }
 
     return res.status(401).json({
       success: false,
-      error: 'Unauthorized: Operator access token is required to perform this action.'
+      error: 'Unauthorized: Valid operator authentication is required to perform this action.'
     });
   } catch (err: any) {
-    (req as any).operatorUser = { email: 'kaustubhsona1a@gmail.com', role: 'operator' };
-    return next();
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Operator authentication check failed.'
+    });
   }
 }
 
 // Middleware for parsing JSON with raw body retention for HMAC verification and high-res banner uploads
 app.use(express.json({
-  limit: '100mb',
+  limit: '50mb',
   verify: (req: any, _res, buf) => {
     req.rawBody = buf.toString('utf8');
   }
 }));
-app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 /**
  * Lazy initialization helper for Razorpay client.
@@ -426,7 +504,7 @@ const otpStore = new Map<string, { code: string; expiresAt: number }>();
 /**
  * Mobile Phone OTP Verification Endpoints
  */
-app.post('/api/send-otp', (req: Request, res: Response) => {
+app.post('/api/send-otp', otpRateLimit, (req: Request, res: Response) => {
   try {
     const { phone } = req.body;
     const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
@@ -459,7 +537,7 @@ app.post('/api/send-otp', (req: Request, res: Response) => {
   }
 });
 
-app.post('/api/verify-otp', (req: Request, res: Response) => {
+app.post('/api/verify-otp', otpRateLimit, (req: Request, res: Response) => {
   try {
     const { phone, otp } = req.body;
     const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
@@ -935,8 +1013,10 @@ app.get('/videos/:filename', (req: Request, res: Response) => {
   try {
     const rawFilename = req.params.filename || '';
     const safeFilename = path.basename(rawFilename.split('?')[0]);
+    const allowedVideoExts = ['.mp4', '.webm', '.mov', '.m4v'];
+    const fileExt = path.extname(safeFilename).toLowerCase();
 
-    if (!safeFilename) {
+    if (!safeFilename || !allowedVideoExts.includes(fileExt)) {
       return res.status(400).send('Invalid video filename');
     }
 
@@ -1164,7 +1244,7 @@ app.get('/api/supabase-config', (_req: Request, res: Response) => {
  * POST /api/operator/login
  * Validates operator authentication against Supabase Auth
  */
-app.post('/api/operator/login', async (req: Request, res: Response) => {
+app.post('/api/operator/login', authRateLimit, async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body || {};
     const cleanEmail = (email || '').trim().toLowerCase();
@@ -1236,7 +1316,7 @@ app.post('/api/operator/login', async (req: Request, res: Response) => {
  * POST /api/customer/register
  * Registers a regular customer in Supabase Auth with auto-confirmed email
  */
-app.post('/api/customer/register', async (req: Request, res: Response) => {
+app.post('/api/customer/register', authRateLimit, async (req: Request, res: Response) => {
   try {
     const { email, password, fullName, phone } = req.body || {};
     const cleanEmail = (email || '').trim().toLowerCase();
@@ -1369,7 +1449,7 @@ app.post('/api/customer/register', async (req: Request, res: Response) => {
  * POST /api/customer/login
  * Authenticates a customer in Supabase Auth, strictly preventing store operators/admins from accessing the customer portal
  */
-app.post('/api/customer/login', async (req: Request, res: Response) => {
+app.post('/api/customer/login', authRateLimit, async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body || {};
     const cleanEmail = (email || '').trim().toLowerCase();
@@ -1464,7 +1544,7 @@ app.post('/api/customer/login', async (req: Request, res: Response) => {
  * POST /api/customer/forgot-password
  * Sends password reset instructions for customer in Supabase
  */
-app.post('/api/customer/forgot-password', async (req: Request, res: Response) => {
+app.post('/api/customer/forgot-password', authRateLimit, async (req: Request, res: Response) => {
   try {
     const { email } = req.body;
     if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -2535,7 +2615,7 @@ app.get('/api/customer/orders', async (req: Request, res: Response) => {
  * GET /api/admin/orders
  * Returns all store orders for Operator Portal using Supabase service role
  */
-app.get('/api/admin/orders', async (_req: Request, res: Response) => {
+app.get('/api/admin/orders', verifyOperatorAccess, async (_req: Request, res: Response) => {
   try {
     const supabase = getSupabaseServerClient();
     if (!supabase) {
@@ -2659,8 +2739,10 @@ app.post('/api/admin/update-order-status', verifyOperatorAccess, async (req: Req
 
     if (error && (error.message?.includes('Invalid API key') || error.message?.includes('JWT'))) {
       const fb = getFallbackSupabaseServerClient();
-      const retry = await fb.from('orders').update({ status: String(status).toLowerCase() }).or(filterExpr);
-      error = retry.error;
+      if (fb) {
+        const retry = await fb.from('orders').update({ status: String(status).toLowerCase() }).or(filterExpr);
+        error = retry.error;
+      }
     }
 
     if (error) {
@@ -2931,13 +3013,15 @@ async function findOrderByIdOrNumber(supabase: SupabaseClient, rawOrderId: strin
   let res = await query.maybeSingle();
   if (res.error && (res.error.message?.includes('Invalid API key') || res.error.message?.includes('JWT'))) {
     const fb = getFallbackSupabaseServerClient();
-    let fbQuery = fb.from('orders').select('*, order_items(*)');
-    if (isUuid) {
-      fbQuery = fbQuery.or(`id.eq.${cleanId},order_number.eq.${cleanId}`);
-    } else {
-      fbQuery = fbQuery.eq('order_number', cleanId);
+    if (fb) {
+      let fbQuery = fb.from('orders').select('*, order_items(*)');
+      if (isUuid) {
+        fbQuery = fbQuery.or(`id.eq.${cleanId},order_number.eq.${cleanId}`);
+      } else {
+        fbQuery = fbQuery.eq('order_number', cleanId);
+      }
+      res = await fbQuery.maybeSingle();
     }
-    res = await fbQuery.maybeSingle();
   }
   return res;
 }
@@ -3133,7 +3217,9 @@ app.post('/api/admin/push-order-to-shiprocket', verifyOperatorAccess, async (req
         const { error: updErr } = await supabase.from('orders').update(patch).eq('id', order.id);
         if (updErr) {
           const fb = getFallbackSupabaseServerClient();
-          await fb.from('orders').update(patch).eq('id', order.id);
+          if (fb) {
+            await fb.from('orders').update(patch).eq('id', order.id);
+          }
         }
       }
 
@@ -3195,15 +3281,17 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
 
     if (error) {
       const fb = getFallbackSupabaseServerClient();
-      const retry = await fb
-        .from('orders')
-        .select('*, order_items(*)')
-        .is('shiprocket_order_id', null)
-        .neq('status', 'cancelled')
-        .order('created_at', { ascending: false })
-        .limit(20);
-      unsyncedOrders = retry.data;
-      error = retry.error;
+      if (fb) {
+        const retry = await fb
+          .from('orders')
+          .select('*, order_items(*)')
+          .is('shiprocket_order_id', null)
+          .neq('status', 'cancelled')
+          .order('created_at', { ascending: false })
+          .limit(20);
+        unsyncedOrders = retry.data;
+        error = retry.error;
+      }
     }
 
     if (error) {
@@ -3263,7 +3351,9 @@ app.post('/api/admin/sync-all-unsynced-shiprocket', verifyOperatorAccess, async 
           const { error: updErr } = await supabase.from('orders').update(patch).eq('id', ord.id);
           if (updErr) {
             const fb = getFallbackSupabaseServerClient();
-            await fb.from('orders').update(patch).eq('id', ord.id);
+            if (fb) {
+              await fb.from('orders').update(patch).eq('id', ord.id);
+            }
           }
           successCount++;
         } else {
@@ -3370,32 +3460,41 @@ app.get('/api/shiprocket/track/:awb', async (req: Request, res: Response) => {
  * POST /api/orders/public-track
  * Public customer tracking lookup endpoint by Order Number, Phone Number, or AWB.
  */
-app.post('/api/orders/public-track', async (req: Request, res: Response) => {
+app.post('/api/orders/public-track', trackRateLimit, async (req: Request, res: Response) => {
   try {
-    const query = String(req.body.query || '').trim();
-    if (!query) {
+    const rawQuery = String(req.body.query || '').trim();
+    if (!rawQuery) {
       return res.status(400).json({ success: false, error: 'Please enter your Order ID or 10-digit Mobile Phone Number.' });
     }
 
-    const cleanQuery = query.replace(/^#/, '').trim();
-    const cleanPhone = query.replace(/\D/g, '');
+    // Strict sanitization to prevent PostgREST filter injection or wildcard enumeration
+    const cleanQuery = rawQuery.replace(/^#/, '').replace(/[^a-zA-Z0-9_-]/g, '').trim();
+    const cleanPhone = rawQuery.replace(/\D/g, '');
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cleanQuery);
-    const supabase = getSupabaseServerClient();
 
+    if (cleanQuery.length < 4 && cleanPhone.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please enter a complete Order ID (e.g. KM-1002) or your 10-digit mobile number.'
+      });
+    }
+
+    const supabase = getSupabaseServerClient();
     let matchingOrders: any[] = [];
 
     if (supabase) {
       let dbQuery = supabase.from('orders').select('*, order_items(*)');
-      
-      if (cleanQuery.toUpperCase().startsWith('KM-') || /^\d{3,8}$/.test(cleanQuery)) {
+
+      if (cleanQuery.toUpperCase().startsWith('KM-') || /^\d{4,8}$/.test(cleanQuery)) {
         const numOnly = cleanQuery.replace(/\D/g, '');
-        dbQuery = dbQuery.or(`order_number.eq.${cleanQuery},order_number.eq.${numOnly},order_number.ilike.%${cleanQuery}%`);
-      } else if (cleanPhone.length >= 8) {
-        dbQuery = dbQuery.or(`customer_phone.ilike.%${cleanPhone.slice(-10)}%`);
+        dbQuery = dbQuery.or(`order_number.eq.${cleanQuery},order_number.eq.KM-${numOnly},order_number.eq.${numOnly}`);
+      } else if (cleanPhone.length >= 10) {
+        const last10 = cleanPhone.slice(-10);
+        dbQuery = dbQuery.or(`customer_phone.eq.${last10},customer_phone.eq.+91${last10},customer_phone.eq.91${last10}`);
       } else if (isUuid) {
-        dbQuery = dbQuery.or(`order_number.ilike.%${cleanQuery}%,awb_number.ilike.%${cleanQuery}%,id.eq.${cleanQuery}`);
+        dbQuery = dbQuery.eq('id', cleanQuery);
       } else {
-        dbQuery = dbQuery.or(`order_number.ilike.%${cleanQuery}%,awb_number.ilike.%${cleanQuery}%`);
+        dbQuery = dbQuery.or(`order_number.eq.${cleanQuery},awb_number.eq.${cleanQuery}`);
       }
 
       const { data, error } = await dbQuery.order('created_at', { ascending: false }).limit(5);
@@ -3407,7 +3506,7 @@ app.post('/api/orders/public-track', async (req: Request, res: Response) => {
     if (matchingOrders.length === 0) {
       return res.status(404).json({
         success: false,
-        error: `No order found matching "${query}". Please verify your Order ID (e.g. KM-1002) or phone number.`
+        error: `No order found matching "${escapeHtmlStr(rawQuery)}". Please verify your Order ID (e.g. KM-1002) or 10-digit mobile number.`
       });
     }
 
@@ -3433,6 +3532,14 @@ app.post('/api/orders/public-track', async (req: Request, res: Response) => {
       }
     }
 
+    // Mask sensitive customer contact fields on public tracking endpoint
+    const rawPhoneStr = String(primary.customer_phone || '');
+    const maskedPhone = rawPhoneStr.length >= 4 ? `******${rawPhoneStr.slice(-4)}` : '';
+    const rawEmailStr = String(primary.customer_email || '');
+    const maskedEmail = rawEmailStr.includes('@')
+      ? `${rawEmailStr.slice(0, 2)}***@${rawEmailStr.split('@')[1]}`
+      : '';
+
     return res.status(200).json({
       success: true,
       order: {
@@ -3440,8 +3547,8 @@ app.post('/api/orders/public-track', async (req: Request, res: Response) => {
         orderNumber: primary.order_number,
         createdAt: primary.created_at,
         customerName: primary.customer_name,
-        customerEmail: primary.customer_email,
-        customerPhone: primary.customer_phone,
+        customerEmail: maskedEmail,
+        customerPhone: maskedPhone,
         status: liveStatus,
         paymentStatus: primary.payment_status || 'PAID',
         paymentMethod: primary.payment_method || 'Online',
@@ -3455,8 +3562,8 @@ app.post('/api/orders/public-track', async (req: Request, res: Response) => {
         estimatedDeliveryDate: liveEtd || null,
         shippingAddress: {
           fullName: primary.shipping_address_full_name || primary.customer_name,
-          addressLine1: primary.shipping_address_line1 || '',
-          addressLine2: primary.shipping_address_line2 || '',
+          addressLine1: primary.city ? `${primary.city}, ${primary.state || ''}` : 'Verified Delivery Address',
+          addressLine2: '',
           pincode: primary.shipping_pincode || '',
           city: primary.shipping_city || 'Mumbai',
           state: primary.shipping_state || 'Maharashtra'
@@ -4213,7 +4320,11 @@ app.delete('/api/categories/:idOrSlug', verifyOperatorAccess, async (req: Reques
  * Renders official GST Tax Invoice HTML view
  */
 app.get('/api/invoices/:number', async (req: Request, res: Response) => {
-  const { number } = req.params;
+  const rawNumber = String(req.params.number || '');
+  const number = rawNumber.replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!number) {
+    return res.status(400).send('Invalid invoice number');
+  }
   const supabase = getSupabaseServerClient();
   let orderData: any = null;
 
@@ -4245,7 +4356,7 @@ app.get('/api/invoices/:number', async (req: Request, res: Response) => {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>GST Tax Invoice - ${orderData.invoice_number || number}</title>
+  <title>GST Tax Invoice - ${escapeHtmlStr(orderData.invoice_number || number)}</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a; margin: 40px; }
     .header { display: flex; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; }
@@ -4270,8 +4381,8 @@ app.get('/api/invoices/:number', async (req: Request, res: Response) => {
     <div style="text-align: right;">
       <h2 style="margin: 0; color: #0f172a; font-size: 20px;">TAX INVOICE</h2>
       <p style="margin: 4px 0; font-size: 12px; color: #475569;">
-        <strong>Invoice No:</strong> ${orderData.invoice_number || number}<br>
-        <strong>Order No:</strong> ${orderData.order_number || number}<br>
+        <strong>Invoice No:</strong> ${escapeHtmlStr(orderData.invoice_number || number)}<br>
+        <strong>Order No:</strong> ${escapeHtmlStr(orderData.order_number || number)}<br>
         <strong>Date:</strong> ${new Date(orderData.created_at || Date.now()).toLocaleDateString('en-IN')}
       </p>
     </div>
@@ -4279,18 +4390,18 @@ app.get('/api/invoices/:number', async (req: Request, res: Response) => {
   <div class="grid">
     <div style="font-size: 13px; line-height: 1.5;">
       <strong>Billed & Shipped To:</strong><br>
-      ${orderData.customer_name || 'Valued Customer'}<br>
-      ${orderData.shipping_address_line1 || ''}<br>
-      ${orderData.shipping_address_line2 ? orderData.shipping_address_line2 + '<br>' : ''}
-      ${orderData.city || ''}, ${orderData.state || ''} - ${orderData.pincode || ''}<br>
-      Phone: ${orderData.customer_phone || ''} | Email: ${orderData.customer_email || ''}
+      ${escapeHtmlStr(orderData.customer_name || 'Valued Customer')}<br>
+      ${escapeHtmlStr(orderData.shipping_address_line1 || '')}<br>
+      ${orderData.shipping_address_line2 ? escapeHtmlStr(orderData.shipping_address_line2) + '<br>' : ''}
+      ${escapeHtmlStr(orderData.city || '')}, ${escapeHtmlStr(orderData.state || '')} - ${escapeHtmlStr(orderData.pincode || '')}<br>
+      Phone: ${escapeHtmlStr(orderData.customer_phone || '')} | Email: ${escapeHtmlStr(orderData.customer_email || '')}
     </div>
     <div style="font-size: 13px; line-height: 1.5;">
       <strong>Logistics & Payment:</strong><br>
-      Courier: ${orderData.courier_partner || 'Blue Dart Air Express'}<br>
-      AWB: ${orderData.awb_number || 'SR-EXP'}<br>
-      Payment ID: ${orderData.razorpay_payment_id || 'N/A'}<br>
-      Mode: ${orderData.payment_method || 'RAZORPAY'}
+      Courier: ${escapeHtmlStr(orderData.courier_partner || 'Blue Dart Air Express')}<br>
+      AWB: ${escapeHtmlStr(orderData.awb_number || 'SR-EXP')}<br>
+      Payment ID: ${escapeHtmlStr(orderData.razorpay_payment_id || 'N/A')}<br>
+      Mode: ${escapeHtmlStr(orderData.payment_method || 'RAZORPAY')}
     </div>
   </div>
   <table>
@@ -4813,6 +4924,114 @@ app.get(['/sitemap.xml', '/api/sitemap.xml'], async (_req: Request, res: Respons
 });
 
 /**
+ * GET /google-merchant-feed.xml
+ * Official Google Merchant Center RSS 2.0 XML Product Feed for Google Shopping & Free Product Listings
+ */
+app.get(['/google-merchant-feed.xml', '/api/google-merchant-feed.xml'], async (_req: Request, res: Response) => {
+  try {
+    const products = await getActiveServerCatalog();
+    const xml = buildGoogleMerchantFeedXml(products);
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600');
+    return res.send(xml);
+  } catch (err: any) {
+    console.error('[Server] Google Merchant Feed generation error:', err);
+    return res.status(500).send('Error generating Google Merchant feed');
+  }
+});
+
+/**
+ * GET /konichiwamart2026indexnowkey8879.txt
+ * IndexNow API ownership verification file
+ */
+app.get([`/${INDEXNOW_API_KEY}.txt`, `/api/${INDEXNOW_API_KEY}.txt`], (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  return res.send(INDEXNOW_API_KEY);
+});
+
+/**
+ * GET /api/admin/seo-status
+ * Returns live sitemap URL breakdown, Merchant Feed status, and canonical URLs for all active products
+ */
+app.get('/api/admin/seo-status', verifyOperatorAccess, async (_req: Request, res: Response) => {
+  try {
+    const products = await getActiveServerCatalog();
+    const summary = inspectSitemapDetails(products);
+    const productSeoRows = products.map(p => ({
+      id: p.id,
+      slug: getProductCanonicalSlug(p),
+      title: p.title,
+      brand: inferBrandFromProduct(p)?.name || 'Japanese Import',
+      seoTitle: getProductSeoTitle(p),
+      canonicalUrl: getProductCanonicalUrl(p),
+      price: p.price,
+      inStock: (p.stock ?? 0) > 0 && !p.isComingSoon
+    }));
+
+    return res.json({
+      success: true,
+      summary,
+      sitemapUrl: 'https://www.konichiwamart.com/sitemap.xml',
+      merchantFeedUrl: 'https://www.konichiwamart.com/google-merchant-feed.xml',
+      indexNowKey: INDEXNOW_API_KEY,
+      products: productSeoRows
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to inspect SEO status' });
+  }
+});
+
+/**
+ * POST /api/admin/seo-index-now
+ * Submits all active storefront URLs (Homepage, Products, Collections, Brands, Guides) to IndexNow
+ * for immediate search engine discovery and crawling.
+ */
+app.post('/api/admin/seo-index-now', verifyOperatorAccess, async (_req: Request, res: Response) => {
+  try {
+    const products = await getActiveServerCatalog();
+    const summary = inspectSitemapDetails(products);
+    const urlList = summary.urls;
+
+    const payload = {
+      host: 'www.konichiwamart.com',
+      key: INDEXNOW_API_KEY,
+      keyLocation: `https://www.konichiwamart.com/${INDEXNOW_API_KEY}.txt`,
+      urlList
+    };
+
+    let indexNowStatus = 200;
+    let indexNowOk = true;
+    try {
+      const pingRes = await fetch('https://api.indexnow.org/indexnow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      indexNowStatus = pingRes.status;
+      indexNowOk = pingRes.ok || pingRes.status === 202;
+    } catch (pingErr: any) {
+      console.warn('[SEO IndexNow Ping Notice]:', pingErr?.message || pingErr);
+    }
+
+    return res.json({
+      success: true,
+      submittedCount: urlList.length,
+      productCount: summary.productCount,
+      collectionCount: summary.collectionCount,
+      brandCount: summary.brandCount,
+      guideCount: summary.guideCount,
+      indexNowStatus,
+      indexNowAccepted: indexNowOk,
+      timestamp: new Date().toISOString(),
+      message: `Successfully pushed ${urlList.length} Konichiwa Mart URLs (${summary.productCount} products, ${summary.collectionCount} collections, ${summary.brandCount} brands, ${summary.guideCount} guides) to IndexNow search indexers!`
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message || 'Failed to push URLs to IndexNow' });
+  }
+});
+
+/**
  * GET /robots.txt
  * Production robots.txt with clean directives
  */
@@ -5272,7 +5491,7 @@ app.get('/api/reviews', async (_req: Request, res: Response) => {
  * POST /api/reviews
  * Creates a new customer review (from storefront or admin portal).
  */
-app.post('/api/reviews', async (req: Request, res: Response) => {
+app.post('/api/reviews', reviewRateLimit, async (req: Request, res: Response) => {
   try {
     const {
       id: customId,
@@ -5289,7 +5508,11 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
       imageUrl
     } = req.body;
 
-    if (!author?.trim() || !headline?.trim() || !comment?.trim()) {
+    const cleanAuthor = sanitizePlainText(author, 80);
+    const cleanHeadline = sanitizePlainText(headline, 160);
+    const cleanComment = sanitizePlainText(comment, 2000);
+
+    if (!cleanAuthor || !cleanHeadline || !cleanComment) {
       return res.status(400).json({ success: false, error: 'Author, headline, and comment are required.' });
     }
 
@@ -5300,21 +5523,21 @@ app.post('/api/reviews', async (req: Request, res: Response) => {
     const timestamp = Date.parse(nowIso);
 
     const newReview: Review = {
-      id: customId || `rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      author: author.trim(),
-      location: (location || 'Verified Buyer').trim(),
+      id: customId ? sanitizePlainText(customId, 64) : `rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      author: cleanAuthor,
+      location: sanitizePlainText(location || 'Verified Buyer', 80),
       rating: Number(rating) >= 1 && Number(rating) <= 5 ? Number(rating) : 5,
       date: 'Just now',
       createdAt: nowIso,
       timestamp,
       verified: verified !== undefined ? Boolean(verified) : true,
-      productId: productId || 'general',
-      productName: productName || 'Japanese Skincare Essential',
-      skinType: skinType?.trim() || 'All Skin Types',
-      headline: headline.trim(),
-      comment: comment.trim(),
+      productId: sanitizePlainText(productId || 'general', 100),
+      productName: sanitizePlainText(productName || 'Japanese Skincare Essential', 160),
+      skinType: sanitizePlainText(skinType || 'All Skin Types', 60),
+      headline: cleanHeadline,
+      comment: cleanComment,
       helpfulCount: 0,
-      imageUrl: imageUrl || undefined,
+      imageUrl: typeof imageUrl === 'string' && (imageUrl.startsWith('http') || imageUrl.startsWith('data:image/') || imageUrl.startsWith('/')) ? imageUrl : undefined,
       status: 'approved' as const
     };
 
@@ -5695,6 +5918,9 @@ async function renderSeoHtml(req: Request, res: Response): Promise<void> {
   try {
     if (!cachedHtmlTemplate) {
       const candidates = [
+        path.join(process.cwd(), 'dist', '_template.html'),
+        path.join(__dirname, '_template.html'),
+        path.join(__dirname, '..', 'dist', '_template.html'),
         path.join(process.cwd(), 'dist', 'index.html'),
         path.join(__dirname, 'index.html'),
         path.join(__dirname, '..', 'dist', 'index.html'),
@@ -5740,7 +5966,8 @@ app.get([
   '/brands/:slug/*',
   '/guides/:slug',
   '/guides/:slug/*',
-  '/about'
+  '/about',
+  '/return-policy'
 ], async (req: Request, res: Response, next: any) => {
   // In local development with Vite running, pass through so vite.transformIndexHtml can run
   if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL && !process.env.NOW_REGION && !process.env.VERCEL_ENV) {

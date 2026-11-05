@@ -52,7 +52,7 @@ export const SELLER_DETAILS = {
   pincode: '400093',
   country: 'India',
   supportEmail: 'info@konichiwamart.com',
-  supportPhone: '+91 8879258004'
+  supportPhone: '+91 91523 53737'
 };
 
 /**

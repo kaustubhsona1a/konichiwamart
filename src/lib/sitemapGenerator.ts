@@ -5,8 +5,10 @@ import {
   SEO_BRANDS, 
   SEO_GUIDES 
 } from '../data/seoContent';
-import { getProductCanonicalUrl } from './seo';
+import { getProductCanonicalUrl, getProductCanonicalSlug, inferBrandFromProduct } from './seo';
 import { Product } from '../types';
+
+export const INDEXNOW_API_KEY = 'konichiwamart2026indexnowkey8879';
 
 /**
  * Escapes characters for strict XML compliance
@@ -126,9 +128,10 @@ export function buildSitemapXml(liveProducts: Product[] = []): string {
     urlEntries.push(entry);
   };
 
-  // 1. Static Pages: Homepage and About
+  // 1. Static Pages: Homepage, About, Return Policy
   addUrl(`${CANONICAL_SITE_URL}/`);
   addUrl(`${CANONICAL_SITE_URL}/about`);
+  addUrl(`${CANONICAL_SITE_URL}/return-policy`);
 
   // 2. Collections (Categories)
   Object.values(SEO_CATEGORIES).forEach(cat => {
@@ -188,6 +191,86 @@ export function buildSitemapXml(liveProducts: Product[] = []): string {
 }
 
 /**
+ * Generates a standards-compliant Google Merchant Center RSS 2.0 XML Product Feed (/google-merchant-feed.xml)
+ * Enables Free Product Listings on the Google Shopping tab and top Google Search Product Carousel across India.
+ */
+export function buildGoogleMerchantFeedXml(liveProducts: Product[] = []): string {
+  const productMap = new Map<string, Product>();
+  PRODUCTS.forEach(p => productMap.set(p.id, p));
+  liveProducts.forEach(p => {
+    if (p.id) productMap.set(p.id, { ...productMap.get(p.id), ...p });
+  });
+
+  const activeProducts = Array.from(productMap.values()).filter(isProductIndexable);
+
+  const itemsXml = activeProducts.map(p => {
+    const slug = getProductCanonicalSlug(p) || p.id;
+    const productUrl = getProductCanonicalUrl(p);
+    const brand = inferBrandFromProduct(p);
+    const brandName = brand?.name || 'Konichiwa Mart Japan';
+    const isInStock = (p.stock ?? 0) > 0 && !p.isComingSoon;
+    const availability = isInStock ? 'in_stock' : 'out_of_stock';
+    const priceNum = typeof p.price === 'number' && !isNaN(p.price) ? p.price : 999;
+    const origPriceNum = typeof p.originalPrice === 'number' && !isNaN(p.originalPrice) && p.originalPrice > priceNum
+      ? p.originalPrice
+      : priceNum;
+
+    const primaryImage = toAbsoluteImageUrl(p.image) || `${CANONICAL_SITE_URL}/products/keana-rice-mask.png`;
+    const additionalImages = (Array.isArray(p.images) ? p.images : [])
+      .map(toAbsoluteImageUrl)
+      .filter((u): u is string => Boolean(u && u !== primaryImage))
+      .slice(0, 4);
+
+    const cleanDesc = (p.description || p.subtitle || `Buy 100% authentic ${p.title} imported directly from Japan at Konichiwa Mart India.`)
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const shippingFee = priceNum >= 1500 ? '0.00 INR' : '79.00 INR';
+
+    let item = '    <item>\n';
+    item += `      <g:id>${escapeXml(slug)}</g:id>\n`;
+    item += `      <g:title>${escapeXml(`${p.title}${p.volume ? ` (${p.volume})` : ''} - Authentic Japanese Import`)}</g:title>\n`;
+    item += `      <g:description>${escapeXml(cleanDesc)}</g:description>\n`;
+    item += `      <g:link>${escapeXml(productUrl)}</g:link>\n`;
+    item += `      <g:image_link>${escapeXml(primaryImage)}</g:image_link>\n`;
+    additionalImages.forEach(addImg => {
+      item += `      <g:additional_image_link>${escapeXml(addImg)}</g:additional_image_link>\n`;
+    });
+    item += `      <g:condition>new</g:condition>\n`;
+    item += `      <g:availability>${availability}</g:availability>\n`;
+    if (origPriceNum > priceNum) {
+      item += `      <g:price>${origPriceNum.toFixed(2)} INR</g:price>\n`;
+      item += `      <g:sale_price>${priceNum.toFixed(2)} INR</g:sale_price>\n`;
+    } else {
+      item += `      <g:price>${priceNum.toFixed(2)} INR</g:price>\n`;
+    }
+    item += `      <g:brand>${escapeXml(brandName)}</g:brand>\n`;
+    item += `      <g:product_type>${escapeXml(`Health & Beauty > Japanese Skincare > ${p.category || 'Skincare'}`)}</g:product_type>\n`;
+    item += `      <g:google_product_category>Health &amp; Beauty &gt; Personal Care &gt; Cosmetics &gt; Skin Care</g:google_product_category>\n`;
+    item += `      <g:identifier_exists>no</g:identifier_exists>\n`;
+    item += `      <g:shipping>\n`;
+    item += `        <g:country>IN</g:country>\n`;
+    item += `        <g:service>Standard Express India</g:service>\n`;
+    item += `        <g:price>${shippingFee}</g:price>\n`;
+    item += `      </g:shipping>\n`;
+    item += '    </item>';
+    return item;
+  });
+
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  xml += '<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">\n';
+  xml += '  <channel>\n';
+  xml += '    <title>Konichiwa Mart – Authentic Japanese Skincare &amp; Cosmetics India</title>\n';
+  xml += `    <link>${CANONICAL_SITE_URL}</link>\n`;
+  xml += '    <description>Official Google Merchant Center Product Feed for Konichiwa Mart India. 100% Authentic Direct Japanese Imports.</description>\n';
+  xml += itemsXml.join('\n');
+  xml += '\n  </channel>\n';
+  xml += '</rss>';
+
+  return xml;
+}
+
+/**
  * Returns breakdown of URLs in sitemap for telemetry/reporting
  */
 export function inspectSitemapDetails(liveProducts: Product[] = []): SitemapSummary {
@@ -197,7 +280,7 @@ export function inspectSitemapDetails(liveProducts: Product[] = []): SitemapSumm
 
   return {
     totalUrls: urls.length,
-    staticCount: urls.filter(u => u === `${CANONICAL_SITE_URL}/` || u === `${CANONICAL_SITE_URL}/about`).length,
+    staticCount: urls.filter(u => u === `${CANONICAL_SITE_URL}/` || u === `${CANONICAL_SITE_URL}/about` || u === `${CANONICAL_SITE_URL}/return-policy`).length,
     productCount: urls.filter(u => u.includes('/products/')).length,
     collectionCount: urls.filter(u => u.includes('/collections/')).length,
     brandCount: urls.filter(u => u.includes('/brands/')).length,

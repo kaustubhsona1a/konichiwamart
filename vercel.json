@@ -6,6 +6,19 @@
       "includeFiles": "dist/**"
     }
   },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=()" },
+        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+        { "key": "X-XSS-Protection", "value": "1; mode=block" }
+      ]
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/(.*)",
@@ -16,8 +29,16 @@
       "destination": "/api?path=sitemap.xml"
     },
     {
+      "source": "/google-merchant-feed.xml",
+      "destination": "/api?path=google-merchant-feed.xml"
+    },
+    {
       "source": "/robots.txt",
       "destination": "/api?path=robots.txt"
+    },
+    {
+      "source": "/konichiwamart2026indexnowkey8879.txt",
+      "destination": "/api?path=konichiwamart2026indexnowkey8879.txt"
     },
     {
       "source": "/products/(.*)",
@@ -38,6 +59,10 @@
     {
       "source": "/about",
       "destination": "/api?path=about"
+    },
+    {
+      "source": "/return-policy",
+      "destination": "/api?path=return-policy"
     },
     {
       "source": "/((?!api/).*)",

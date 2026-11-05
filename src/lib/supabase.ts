@@ -154,9 +154,13 @@ export const getOperatorAuthHeaders = (): Record<string, string> => {
     } catch {}
   }
 
+  if (!session && !token) {
+    return {};
+  }
+
   return {
     'Authorization': token ? `Bearer ${token}` : 'Bearer verified-operator-token',
-    'x-operator-email': session?.email || 'kaustubhsona1a@gmail.com',
+    'x-operator-email': session?.email || '',
     'x-operator-token': token || 'verified-operator-token'
   };
 };
@@ -872,10 +876,14 @@ export function mapSupabaseRowToOrder(row: any): Order {
 }
 
 export const fetchAllOrdersFromSupabase = async (): Promise<Order[]> => {
+  if (!isVerifiedOperator()) {
+    return [];
+  }
+
   // 1. First attempt: authoritative server-side endpoint
   try {
     const res = await fetch('/api/admin/orders', {
-      headers: { 'Accept': 'application/json' }
+      headers: { 'Accept': 'application/json', ...getOperatorAuthHeaders() }
     });
     if (res.ok) {
       const contentType = res.headers.get('content-type') || '';

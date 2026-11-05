@@ -147,7 +147,7 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="e.g. KM-1002, 1002, or 8879258004"
+                  placeholder="e.g. KM-1002, 1002, or 9152353737"
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm bg-white dark:bg-zinc-800 border border-stone-200 dark:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-pink-500 font-medium text-slate-900 dark:text-white placeholder:text-slate-400"
                 />
               </div>
@@ -181,7 +181,7 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({
               <div className="text-xs leading-relaxed">
                 <p className="font-semibold text-sm">{errorMsg}</p>
                 <p className="mt-1">
-                  If you recently placed your order, please allow a few minutes for the system to process or contact support at <strong>+91 8879258004</strong>.
+                  If you recently placed your order, please allow a few minutes for the system to process or contact support at <strong>+91 91523 53737</strong>.
                 </p>
               </div>
             </div>
@@ -376,12 +376,12 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({
                 <div>
                   <h4 className="text-xs font-bold text-pink-900 dark:text-pink-200">Need Help with this Order?</h4>
                   <p className="text-[11px] text-pink-700 dark:text-pink-300 mt-0.5">
-                    Connect directly with Konichiwa Mart Customer Support Hotline: <strong>+91 8879258004</strong>
+                    Connect directly with Konichiwa Mart Customer Support Hotline: <strong>+91 91523 53737</strong>
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <a
-                    href={`https://wa.me/918879258004?text=${encodeURIComponent(`Hi Konichiwa Mart, I am checking status for Order #${orderResult.orderNumber}`)}`}
+                    href={`https://wa.me/919152353737?text=${encodeURIComponent(`Hi Konichiwa Mart, I am checking status for Order #${orderResult.orderNumber}`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95"
@@ -390,7 +390,7 @@ export const TrackOrderModal: React.FC<TrackOrderModalProps> = ({
                     <span>WhatsApp</span>
                   </a>
                   <a
-                    href="tel:+918879258004"
+                    href="tel:+919152353737"
                     className="px-3.5 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-xs active:scale-95"
                   >
                     <Phone className="w-3.5 h-3.5" />

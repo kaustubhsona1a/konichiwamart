@@ -8,9 +8,6 @@ let lastShiprocketAuthError = '';
 let cachedPickupLocations: string[] = [];
 let pickupCacheExpiry = 0;
 
-export const FALLBACK_SUPABASE_URL = 'https://nhcgwxvfuupkflhixxmj.supabase.co';
-export const FALLBACK_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oY2d3eHZmdXVwa2ZsaGl4eG1qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg4ODAxNDUsImV4cCI6MjEwNDQ1NjE0NX0.ZQ-Y13BuS347Y1MJ-9YKbUm1r0J4UZ4Vs5NoNgIihmQ';
-
 function cleanEnvValue(val: string | undefined): string {
   if (!val || typeof val !== 'string') return '';
   return val.replace(/^["']|["']$/g, '').replace(/\\n/g, '').trim();
@@ -31,10 +28,12 @@ export function isValidSupabaseJwt(candidateKey: string | undefined, targetUrl?:
     const payload = JSON.parse(payloadJson);
     if (payload.iss !== 'supabase') return false;
 
-    const url = cleanEnvValue(targetUrl) || FALLBACK_SUPABASE_URL;
-    const refMatch = url.match(/https?:\/\/([a-z0-9]+)\.supabase\.co/i);
-    if (refMatch && refMatch[1] && payload.ref && payload.ref !== refMatch[1]) {
-      return false;
+    const url = cleanEnvValue(targetUrl);
+    if (url) {
+      const refMatch = url.match(/https?:\/\/([a-z0-9]+)\.supabase\.co/i);
+      if (refMatch && refMatch[1] && payload.ref && payload.ref !== refMatch[1]) {
+        return false;
+      }
     }
     return true;
   } catch {
@@ -42,26 +41,31 @@ export function isValidSupabaseJwt(candidateKey: string | undefined, targetUrl?:
   }
 }
 
-export function getValidSupabaseServerClient(): SupabaseClient {
+export function getValidSupabaseServerClient(): SupabaseClient | null {
   const rawUrl = cleanEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
-  const url = rawUrl && rawUrl.startsWith('http') ? rawUrl : FALLBACK_SUPABASE_URL;
+  if (!rawUrl || !rawUrl.startsWith('http')) {
+    return null;
+  }
 
   const candidates = [
     process.env.SUPABASE_SERVICE_ROLE_KEY,
     process.env.SUPABASE_ANON_KEY,
-    process.env.VITE_SUPABASE_ANON_KEY,
-    FALLBACK_SUPABASE_ANON_KEY
+    process.env.VITE_SUPABASE_ANON_KEY
   ];
 
-  let chosenKey = FALLBACK_SUPABASE_ANON_KEY;
+  let chosenKey = '';
   for (const cand of candidates) {
-    if (isValidSupabaseJwt(cand, url)) {
+    if (isValidSupabaseJwt(cand, rawUrl)) {
       chosenKey = cleanEnvValue(cand);
       break;
     }
   }
 
-  return createClient(url, chosenKey, {
+  if (!chosenKey) {
+    return null;
+  }
+
+  return createClient(rawUrl, chosenKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -70,35 +74,36 @@ export function getValidSupabaseServerClient(): SupabaseClient {
   });
 }
 
-export function getFallbackSupabaseServerClient(): SupabaseClient {
+export function getFallbackSupabaseServerClient(): SupabaseClient | null {
   const rawUrl = cleanEnvValue(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
-  const url = rawUrl && rawUrl.startsWith('http') ? rawUrl : FALLBACK_SUPABASE_URL;
+  if (!rawUrl || !rawUrl.startsWith('http')) {
+    return null;
+  }
 
   const anonCandidates = [
     process.env.VITE_SUPABASE_ANON_KEY,
-    process.env.SUPABASE_ANON_KEY,
-    FALLBACK_SUPABASE_ANON_KEY
+    process.env.SUPABASE_ANON_KEY
   ];
 
-  let chosenKey = FALLBACK_SUPABASE_ANON_KEY;
+  let chosenKey = '';
   for (const cand of anonCandidates) {
-    if (isValidSupabaseJwt(cand, url)) {
+    if (isValidSupabaseJwt(cand, rawUrl)) {
       chosenKey = cleanEnvValue(cand);
       break;
     }
   }
 
-  return createClient(url, chosenKey, {
+  if (!chosenKey) {
+    return null;
+  }
+
+  return createClient(rawUrl, chosenKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
       detectSessionInUrl: false
     }
   });
-}
-
-function getSupabase(): SupabaseClient {
-  return getValidSupabaseServerClient();
 }
 
 export function getLastShiprocketAuthError(): string {

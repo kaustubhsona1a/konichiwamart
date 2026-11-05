@@ -675,7 +675,7 @@ export async function sendTrackingUpdateEmail(data: TrackingEmailData): Promise<
               Need assistance with your delivery? Contact our customer care:
             </p>
             <p style="font-size: 12px; font-weight: 600; color: #334155; margin: 0;">
-              Email: <a href="mailto:info@konichiwamart.com" style="color: #7c3aed; text-decoration: none;">info@konichiwamart.com</a> • WhatsApp / Call: +91 8879258004
+              Email: <a href="mailto:info@konichiwamart.com" style="color: #7c3aed; text-decoration: none;">info@konichiwamart.com</a> • WhatsApp / Call: +91 91523 53737
             </p>
             <p style="font-size: 11px; color: #94a3b8; margin: 16px 0 0 0;">
               ${SELLER_DETAILS.tradeName} • Direct Importer of Authentic Japanese Skincare & Cosmetics

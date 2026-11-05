@@ -730,13 +730,20 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
     </main>
   `;
 
+  const homeCollectionJsonLd = generateCollectionPageJsonLd(
+    homeTitle,
+    homeDesc,
+    homeCanonical,
+    allProducts.filter(Boolean).slice(0, 24)
+  );
+
   return {
     title: homeTitle,
     description: homeDesc,
     canonicalUrl: homeCanonical,
     ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
     ogType: 'website',
-    jsonLd: [orgSchema, webSiteSchema],
+    jsonLd: [orgSchema, webSiteSchema, homeCollectionJsonLd],
     h1: 'Konichiwa Mart – Authentic Japanese Skincare & Cosmetics India',
     crawlerHtml: homeCrawlerHtml,
     status: 200
@@ -835,20 +842,22 @@ export function injectSeoIntoHtml(html: string, urlPath: string, liveProducts: P
     );
   }
 
-  // 7. Inject robots noindex, follow on 404 pages
-  if (seo.status === 404) {
-    if (/<meta\s+name=["']robots["']/i.test(modified)) {
-      modified = modified.replace(/<meta\s+name=["']robots["'].*?\/?>/is, '<meta name="robots" content="noindex, follow" />');
-    } else {
-      modified = modified.replace('</head>', '    <meta name="robots" content="noindex, follow" />\n  </head>');
-    }
+  // 7. Inject explicit robots directive (noindex, follow on 404; index, follow, max-image-preview:large on 200)
+  const robotsContent = seo.status === 404
+    ? 'noindex, follow'
+    : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
+
+  if (/<meta\s+name=["']robots["']/i.test(modified)) {
+    modified = modified.replace(/<meta\s+name=["']robots["'].*?\/?>/is, `<meta name="robots" content="${robotsContent}" />`);
+  } else {
+    modified = modified.replace('</head>', `    <meta name="robots" content="${robotsContent}" />\n  </head>`);
   }
 
   // 8. Inject crawler-accessible HTML inside <div id="root">
   if (seo.crawlerHtml) {
     modified = modified.replace(
-      /<div id=["']root["']>\s*<\/div>/is,
-      `<div id="root">${seo.crawlerHtml}</div>`
+      /<div id=["']root["']>[\s\S]*?<\/div>\s*(?=<script\s+type=["']module["'])/i,
+      `<div id="root">${seo.crawlerHtml}</div>\n    `
     );
   }
 
