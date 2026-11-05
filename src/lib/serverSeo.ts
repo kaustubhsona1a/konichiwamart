@@ -20,7 +20,10 @@ import {
   generateBreadcrumbJsonLd,
   generateCollectionPageJsonLd,
   generateGuideJsonLd,
-  inferBrandFromProduct
+  inferBrandFromProduct,
+  findProductBySlug,
+  mergeCatalogProducts,
+  safeDecodeSlug
 } from './seo';
 import { Product } from '../types';
 
@@ -87,18 +90,12 @@ function build404Payload(urlPath: string, entityType: string, slug: string): Seo
  * Resolves SEO metadata payload for any given URL path
  */
 export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = []): SeoMetadataPayload {
-  // Clean path
-  const path = urlPath.split('?')[0].replace(/\/+$/, '') || '/';
+  // Clean & decode path (handles %C3%A9 etc.)
+  const rawPath = urlPath.split('?')[0].replace(/\/+$/, '') || '/';
+  const path = safeDecodeSlug(rawPath) || '/';
 
   // Combine products without duplicates
-  const allProductsMap = new Map<string, Product>();
-  PRODUCTS.forEach(p => {
-    if (p && p.id) allProductsMap.set(p.id, p);
-  });
-  (liveProducts || []).forEach(p => {
-    if (p && p.id) allProductsMap.set(p.id, { ...allProductsMap.get(p.id), ...p });
-  });
-  const allProducts = Array.from(allProductsMap.values()).filter(Boolean);
+  const allProducts = mergeCatalogProducts(PRODUCTS, liveProducts);
 
   const orgSchema = generateOrganizationJsonLd();
   const webSiteSchema = generateWebSiteJsonLd();
@@ -106,26 +103,7 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
   // 1. PRODUCT DETAIL PAGE: /products/:slug
   if (path.startsWith('/products/')) {
     const slug = path.replace('/products/', '').toLowerCase().trim();
-    const normalizedReqSlug = slug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const strippedReqSlug = normalizedReqSlug.replace(/^(rohto|shiseido|kose|kao)-/, '');
-    const product = slug ? allProducts.find(p => {
-      const pSlug = getProductCanonicalSlug(p).toLowerCase();
-      const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const rawSlug = (p.slug || '').toLowerCase();
-      const normRawSlug = rawSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const id = p.id.toLowerCase();
-      return pSlug === slug || 
-             rawSlug === slug || 
-             id === slug || 
-             normPSlug === normalizedReqSlug || 
-             normRawSlug === normalizedReqSlug ||
-             normPSlug === strippedReqSlug ||
-             normRawSlug === strippedReqSlug;
-    }) || PRODUCTS.find(p => {
-      const pSlug = getProductCanonicalSlug(p).toLowerCase();
-      const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      return pSlug === slug || p.id.toLowerCase() === slug || normPSlug === normalizedReqSlug || normPSlug === strippedReqSlug;
-    }) : undefined;
+    const product = slug ? (findProductBySlug(slug, allProducts) || findProductBySlug(slug, PRODUCTS)) : undefined;
 
     if (product) {
       const title = getProductSeoTitle(product);
@@ -854,11 +832,19 @@ export function injectSeoIntoHtml(html: string, urlPath: string, liveProducts: P
   }
 
   // 8. Inject crawler-accessible HTML inside <div id="root">
+  // Works whether Vite places <script type="module"> in <head> (production build) or after #root (dev)
   if (seo.crawlerHtml) {
-    modified = modified.replace(
-      /<div id=["']root["']>[\s\S]*?<\/div>\s*(?=<script\s+type=["']module["'])/i,
-      `<div id="root">${seo.crawlerHtml}</div>\n    `
-    );
+    if (/<div id=["']root["']>\s*<\/div>/i.test(modified)) {
+      modified = modified.replace(
+        /<div id=["']root["']>\s*<\/div>/i,
+        `<div id="root">${seo.crawlerHtml}</div>`
+      );
+    } else {
+      modified = modified.replace(
+        /<div id=["']root["']>[\s\S]*?<\/div>\s*(?=<script\s+type=["']module["']|<\/body>)/i,
+        `<div id="root">${seo.crawlerHtml}</div>\n  `
+      );
+    }
   }
 
   return { html: modified, status: seo.status };

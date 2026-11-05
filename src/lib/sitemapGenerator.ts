@@ -5,7 +5,7 @@ import {
   SEO_BRANDS, 
   SEO_GUIDES 
 } from '../data/seoContent';
-import { getProductCanonicalUrl, getProductCanonicalSlug, inferBrandFromProduct } from './seo';
+import { getProductCanonicalUrl, getProductCanonicalSlug, inferBrandFromProduct, mergeCatalogProducts } from './seo';
 import { Product } from '../types';
 
 export const INDEXNOW_API_KEY = 'konichiwamart2026indexnowkey8879';
@@ -156,13 +156,7 @@ export function buildSitemapXml(liveProducts: Product[] = []): string {
   });
 
   // 5. Active Products
-  const productMap = new Map<string, Product>();
-  PRODUCTS.forEach(p => productMap.set(p.id, p));
-  liveProducts.forEach(p => {
-    if (p.id) productMap.set(p.id, { ...productMap.get(p.id), ...p });
-  });
-
-  const activeProducts = Array.from(productMap.values()).filter(isProductIndexable);
+  const activeProducts = mergeCatalogProducts(PRODUCTS, liveProducts).filter(isProductIndexable);
 
   activeProducts.forEach(p => {
     const productUrl = getProductCanonicalUrl(p);
@@ -195,13 +189,7 @@ export function buildSitemapXml(liveProducts: Product[] = []): string {
  * Enables Free Product Listings on the Google Shopping tab and top Google Search Product Carousel across India.
  */
 export function buildGoogleMerchantFeedXml(liveProducts: Product[] = []): string {
-  const productMap = new Map<string, Product>();
-  PRODUCTS.forEach(p => productMap.set(p.id, p));
-  liveProducts.forEach(p => {
-    if (p.id) productMap.set(p.id, { ...productMap.get(p.id), ...p });
-  });
-
-  const activeProducts = Array.from(productMap.values()).filter(isProductIndexable);
+  const activeProducts = mergeCatalogProducts(PRODUCTS, liveProducts).filter(isProductIndexable);
 
   const itemsXml = activeProducts.map(p => {
     const slug = getProductCanonicalSlug(p) || p.id;

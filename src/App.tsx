@@ -80,7 +80,10 @@ import {
   generateWebSiteJsonLd,
   generateBreadcrumbJsonLd,
   inferBrandFromProduct,
-  updateClientSeoMetadata 
+  updateClientSeoMetadata,
+  findProductBySlug,
+  mergeCatalogProducts,
+  safeDecodeSlug
 } from './lib/seo';
 import { 
   saveOrderToSupabase, 
@@ -157,7 +160,6 @@ const LEGACY_MOCK_IDS = new Set([
   'dhc-lip-cream',
   'lululun-precious-moist',
   'lululun-precious-balance',
-  'senka-perfect-whip-collagen',
   'biore-uv-aqua-rich',
   'rohto-melano-cc-toner',
   'derma-laser-retinol'
@@ -169,13 +171,14 @@ export default function App() {
     try {
       const deletedJson = localStorage.getItem('km_deleted_product_ids');
       const deletedIds = new Set<string>(deletedJson ? JSON.parse(deletedJson) : []);
+      const baseCatalog = PRODUCTS.filter((p) => !deletedIds.has(p.id));
       const saved = localStorage.getItem('km_custom_products');
       if (saved) {
         const parsed: Product[] = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
           const cleaned = parsed.filter((p) => !deletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
           if (cleaned.length > 0) {
-            return applyProductOrderClient(cleaned);
+            return applyProductOrderClient(mergeCatalogProducts(baseCatalog, cleaned));
           }
         }
       }
@@ -185,12 +188,12 @@ export default function App() {
         if (Array.isArray(parsedCatalog) && parsedCatalog.length > 0) {
           const cleanedCatalog = parsedCatalog.filter((p) => !deletedIds.has(p.id) && !LEGACY_MOCK_IDS.has(p.id));
           if (cleanedCatalog.length > 0) {
-            return applyProductOrderClient(cleanedCatalog);
+            return applyProductOrderClient(mergeCatalogProducts(baseCatalog, cleanedCatalog));
           }
         }
       }
       if (deletedIds.size > 0) {
-        return applyProductOrderClient(PRODUCTS.filter((p) => !deletedIds.has(p.id)));
+        return applyProductOrderClient(baseCatalog);
       }
     } catch {}
     return applyProductOrderClient(PRODUCTS);
@@ -309,8 +312,13 @@ export default function App() {
     } catch {}
   }, [cart]);
 
-  // Modals Visibility
-  const [inspectProduct, setInspectProduct] = useState<Product | null>(null);
+  // Modals Visibility (synchronously resolve /products/:slug on frame 0 for Googlebot WRS)
+  const [inspectProduct, setInspectProduct] = useState<Product | null>(() => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/products/')) {
+      return findProductBySlug(window.location.pathname, productsList) || findProductBySlug(window.location.pathname, PRODUCTS) || null;
+    }
+    return null;
+  });
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
@@ -767,35 +775,35 @@ export default function App() {
   // Synchronize client-side routing, views & SEO metadata from URL path
   const syncRouteFromUrl = (pathname: string, prods: Product[] = productsList) => {
     if (typeof window === 'undefined') return;
-    const cleanPath = pathname.split('?')[0].replace(/\/+$/, '') || '/';
+    const rawPath = pathname.split('?')[0].replace(/\/+$/, '') || '/';
+    const cleanPath = safeDecodeSlug(rawPath) || '/';
     trackPageView(undefined, cleanPath);
 
     // 1. /products/:slug
     if (cleanPath.startsWith('/products/')) {
       const slug = cleanPath.replace('/products/', '').toLowerCase().trim();
-      const normReqSlug = slug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      const matched = prods.find(p => {
-        if (!p) return false;
-        const pSlug = getProductCanonicalSlug(p).toLowerCase();
-        const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const rawSlug = (p.slug || '').toLowerCase();
-        const normRawSlug = rawSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const id = (p.id || '').toLowerCase();
-        return pSlug === slug || rawSlug === slug || id === slug || normPSlug === normReqSlug || normRawSlug === normReqSlug;
-      }) || PRODUCTS.find(p => {
-        if (!p) return false;
-        const pSlug = getProductCanonicalSlug(p).toLowerCase();
-        const normPSlug = pSlug.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        return pSlug === slug || (p.id || '').toLowerCase() === slug || normPSlug === normReqSlug;
-      });
+      const matched = findProductBySlug(slug, prods) || findProductBySlug(slug, PRODUCTS);
 
       if (matched) {
         setInspectProduct(matched);
+        updateClientSeoMetadata({
+          title: getProductSeoTitle(matched),
+          description: getProductSeoDescription(matched),
+          canonicalUrl: getProductCanonicalUrl(matched),
+          ogImage: matched.image?.startsWith('http') ? matched.image : `${CANONICAL_SITE_URL}${matched.image?.startsWith('/') ? matched.image : `/${matched.image || 'products/keana-rice-mask.png'}`}`,
+          ogType: 'product',
+          jsonLd: [
+            generateOrganizationJsonLd(),
+            generateWebSiteJsonLd(),
+            generateProductJsonLd(matched, appReviews)
+          ]
+        });
       } else {
         updateClientSeoMetadata({
           title: 'Page Not Found (404) | Konichiwa Mart',
           description: 'The requested Japanese skincare product could not be found.',
-          canonicalUrl: ''
+          canonicalUrl: '',
+          noindex: true
         });
       }
       return;
@@ -2428,6 +2436,9 @@ export default function App() {
             {/* Collection Section Header with Product Order / Sort Option */}
             <div className="mb-4 sm:mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left">
               <div>
+                {!activeCategorySlug && !inspectProduct && (
+                  <h1 className="sr-only">Konichiwa Mart – Authentic Japanese Skincare &amp; Cosmetics India</h1>
+                )}
                 <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
                   Our Collection
                 </h2>

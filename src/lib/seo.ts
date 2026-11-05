@@ -29,17 +29,182 @@ export function slugify(text: string): string {
 }
 
 /**
- * Normalizes product slug for public canonical URLs
+ * Legacy & alternate URL slug aliases mapped to canonical product IDs or slugs.
+ * Guarantees 200 OK resolution for all previously submitted sitemap URLs and short slugs.
+ */
+export const PRODUCT_SLUG_ALIASES: Record<string, string> = {
+  'senka-perfect-whip': 'senka-perfect-whip-face-wash',
+  'senka-perfect-whip-face-wash': 'senka-perfect-whip',
+  'fino-premium-touch-mask': 'fino-premium-touch-hair-mask',
+  'fino-premium-touch-hair-mask': 'fino-premium-touch-mask',
+  'melano-cc-brightening-toner': 'rohto-melano-cc-vitamin-c-toner',
+  'melano-cc-vitamin-c-toner': 'melano-cc-brightening-toner',
+  'rohto-melano-cc-vitamin-c-toner': 'melano-cc-brightening-toner',
+  'biore-uv-aqua-rich-sunscreen': 'biore-uv-aqua-rich-watery-essence-spf-50',
+  'biore-uv-aqua-rich-watery-essence-spf-50': 'biore-uv-aqua-rich-sunscreen',
+  'capsule-serum-vitamin-c': 'premium-capsule-serum-vitamin-c',
+  'premium-capsule-serum-vitamin-c': 'capsule-serum-vitamin-c',
+  'derma-laser-glutathione': 'quality-1st-derma-laser-super-glutathione-100',
+  'quality-1st-derma-laser-super-glutathione-100': 'derma-laser-glutathione',
+  'quality-1st-derma-laser-super-glutathione-100-mask': 'derma-laser-glutathione',
+  'keana-rice-mask': 'keana-nadeshiko-rice-mask-10th-anniversary',
+  'keana-nadeshiko-rice-mask-10th-anniversary': 'keana-rice-mask',
+  'lululun-precious-clear': 'lululun-precious-clear-white',
+  'lululun-precious-clear-white': 'lululun-precious-clear',
+  'honey-melty-hair-pack': 'honey-melty-moist-repair-hair-pack-step-15',
+  'honey-melty-moist-repair-hair-pack-step-15': 'honey-melty-hair-pack',
+  'senka-perfect-whip-pink-collagen': 'senka-perfect-whip-collagen',
+  'km-1789596639792': 'senka-perfect-whip-collagen',
+  'senka-perfect-whip-green-acne': 'senka-perfect-whip-medicated-for-acne',
+  'biore-kids-sunscreen': 'biore-kids-sunscreen-spf-50'
+};
+
+/**
+ * Safely decodes URI components (e.g. %C3%A9 -> é) before slug normalization
+ */
+export function safeDecodeSlug(raw: string): string {
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+/**
+ * Normalizes product slug for public canonical URLs.
+ * Uses slugify(product.title) as the primary authoritative SEO slug so build-time pre-rendering,
+ * server runtime, sitemaps, and client routing are 100% identical regardless of database ID format.
  */
 export function getProductCanonicalSlug(product: { id: string; slug?: string; title?: string } | null | undefined): string {
   if (!product) return '';
+  if (product.title && product.title.trim()) {
+    const titleSlug = slugify(product.title);
+    if (titleSlug === 'senka-perfect-whip-pink-collagen') {
+      return 'senka-perfect-whip-collagen';
+    }
+    if (titleSlug === 'melano-cc-vitamin-c-toner') {
+      return 'rohto-melano-cc-vitamin-c-toner';
+    }
+    if (titleSlug === 'quality-1st-derma-laser-super-glutathione-100-mask') {
+      return 'quality-1st-derma-laser-super-glutathione-100';
+    }
+    return titleSlug;
+  }
   if (product.slug && !product.slug.startsWith('km-1')) {
     return slugify(product.slug);
   }
-  if (product.title) {
-    return slugify(product.title);
-  }
   return slugify(product.slug || product.id || '');
+}
+
+/**
+ * Returns all valid URL slugs (canonical slug + ID slug + legacy sitemap aliases) for a product
+ */
+export function getProductAllSlugs(product: { id: string; slug?: string; title?: string } | null | undefined): string[] {
+  if (!product) return [];
+  const slugs = new Set<string>();
+  const canonical = getProductCanonicalSlug(product);
+  if (canonical) slugs.add(canonical);
+  if (product.id && !product.id.startsWith('km-1')) slugs.add(slugify(product.id));
+  if (product.slug && !product.slug.startsWith('km-1')) slugs.add(slugify(product.slug));
+  if (product.title) slugs.add(slugify(product.title));
+
+  for (const [alias, target] of Object.entries(PRODUCT_SLUG_ALIASES)) {
+    if (slugs.has(target) || slugs.has(alias)) {
+      if (!alias.startsWith('km-1')) slugs.add(alias);
+      if (!target.startsWith('km-1')) slugs.add(target);
+    }
+  }
+  return Array.from(slugs).filter(Boolean);
+}
+
+/**
+ * Finds a product from a list by matching any canonical slug, ID, title slug, or legacy sitemap alias
+ */
+export function findProductBySlug(rawSlugOrPath: string, products: Product[]): Product | undefined {
+  if (!rawSlugOrPath || !Array.isArray(products) || products.length === 0) return undefined;
+  const decoded = safeDecodeSlug(rawSlugOrPath.replace(/^\/?products\//i, '')).trim().toLowerCase();
+  if (!decoded) return undefined;
+
+  const reqSlug = slugify(decoded);
+  const aliasTarget = PRODUCT_SLUG_ALIASES[reqSlug] || PRODUCT_SLUG_ALIASES[decoded];
+  const strippedReqSlug = reqSlug.replace(/^(rohto|shiseido|kose|kao)-/, '');
+
+  return products.find(p => {
+    if (!p) return false;
+    const idLower = (p.id || '').toLowerCase();
+    const rawPSlug = (p.slug || '').toLowerCase();
+    const canonSlug = getProductCanonicalSlug(p);
+    const titleSlug = slugify(p.title || '');
+    const idSlug = slugify(p.id || '');
+
+    if (
+      idLower === decoded ||
+      rawPSlug === decoded ||
+      canonSlug === reqSlug ||
+      titleSlug === reqSlug ||
+      idSlug === reqSlug ||
+      canonSlug === strippedReqSlug ||
+      titleSlug === strippedReqSlug
+    ) {
+      return true;
+    }
+
+    if (aliasTarget && (
+      idLower === aliasTarget ||
+      rawPSlug === aliasTarget ||
+      canonSlug === aliasTarget ||
+      titleSlug === aliasTarget ||
+      idSlug === aliasTarget
+    )) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
+/**
+ * Merges static catalog products and live Supabase products without duplicates
+ */
+export function mergeCatalogProducts(baseProducts: Product[], liveProducts: Product[] = []): Product[] {
+  const byCanonicalSlug = new Map<string, Product>();
+
+  for (const p of baseProducts) {
+    if (!p || !p.id) continue;
+    const canon = getProductCanonicalSlug(p) || p.id;
+    byCanonicalSlug.set(canon, p);
+  }
+
+  for (const p of liveProducts || []) {
+    if (!p || !p.id) continue;
+    if (p.id === 'km-1789596639792' || slugify(p.title || '') === 'senka-perfect-whip-pink-collagen') {
+      const existingCollagen = byCanonicalSlug.get('senka-perfect-whip-collagen');
+      if (existingCollagen) continue;
+    }
+    const canon = getProductCanonicalSlug(p) || p.id;
+    const existing = byCanonicalSlug.get(canon);
+    if (existing) {
+      byCanonicalSlug.set(canon, {
+        ...existing,
+        ...p,
+        // Preserve rich description/benefits if database row only had generic placeholder
+        description: (p.description && p.description !== 'Official direct imported Japanese skincare formulation.')
+          ? p.description
+          : (existing.description || p.description),
+        subtitle: (p.subtitle && !p.subtitle.includes('Authentic Japan Skincare'))
+          ? p.subtitle
+          : (existing.subtitle || p.subtitle),
+        benefits: (Array.isArray(p.benefits) && p.benefits.length > 0 && p.benefits[0] !== 'Deep hydration')
+          ? p.benefits
+          : (existing.benefits || p.benefits)
+      });
+    } else {
+      byCanonicalSlug.set(canon, p);
+    }
+  }
+
+  return Array.from(byCanonicalSlug.values());
 }
 
 /**
