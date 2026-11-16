@@ -399,7 +399,7 @@ export const createValidatedCheckoutOrder = async (payload: {
   if (payload.discountCode === '18MONKEYS') {
     grandTotal = 1;
   } else {
-    const shippingFee = subtotal >= 1500 ? 0 : 99;
+    const shippingFee = subtotal >= 1500 ? 0 : 150;
     grandTotal = subtotal + shippingFee;
     // Add real PROMO_CODES parsing if needed, skipping for fallback simplicity
   }

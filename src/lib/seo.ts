@@ -435,7 +435,7 @@ export function generateProductJsonLd(product: Product, reviews?: Review[]): Rec
       '@type': 'OfferShippingDetails',
       'shippingRate': {
         '@type': 'MonetaryAmount',
-        'value': numericPrice >= 1500 ? 0 : 79,
+        'value': numericPrice >= 1500 ? 0 : 150,
         'currency': 'INR'
       },
       'shippingDestination': {

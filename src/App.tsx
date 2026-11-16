@@ -2252,15 +2252,15 @@ export default function App() {
 
   const totalCartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
   const cartSubtotal = cart.reduce((sum, i) => sum + (i.product.price * i.quantity), 0);
-  const shippingFee = cartSubtotal >= 1500 || cartSubtotal === 0 ? 0 : 99;
+  const shippingFee = cartSubtotal >= 1500 || cartSubtotal === 0 ? 0 : 150;
   const defaultAddress: UserAddress = userProfile.addresses.find(a => a.isDefault) || userProfile.addresses[0];
 
   return (
-    <div className="min-h-screen bg-[#FAF0F2] dark:bg-[#09090b] text-[#1E293B] dark:text-[#f4f4f5] font-sans selection:bg-pink-200 dark:selection:bg-pink-900/50 dark:selection:text-pink-100 relative transition-colors duration-300">
+    <div className="min-h-screen isolate bg-[#FAF0F2] dark:bg-[#09090b] text-[#1E293B] dark:text-[#f4f4f5] font-sans selection:bg-pink-200 dark:selection:bg-pink-900/50 dark:selection:text-pink-100 relative transition-colors duration-300">
       
       {/* PERSISTENT AMBIENT BACKGROUND LAYER (Visible as an artistic hint upon scrolling across the store) */}
       <div 
-        className="fixed inset-0 pointer-events-none z-0 overflow-hidden"
+        className="fixed inset-0 pointer-events-none -z-10 overflow-hidden"
         aria-hidden="true"
       >
         {/* Fixed background image with smooth parallax hint - visible & atmospheric in both light and dark mode */}

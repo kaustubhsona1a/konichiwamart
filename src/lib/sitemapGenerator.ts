@@ -213,7 +213,7 @@ export function buildGoogleMerchantFeedXml(liveProducts: Product[] = []): string
       .replace(/\s+/g, ' ')
       .trim();
 
-    const shippingFee = priceNum >= 1500 ? '0.00 INR' : '79.00 INR';
+    const shippingFee = priceNum >= 1500 ? '0.00 INR' : '150.00 INR';
 
     let item = '    <item>\n';
     item += `      <g:id>${escapeXml(slug)}</g:id>\n`;

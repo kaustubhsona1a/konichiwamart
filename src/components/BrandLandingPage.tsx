@@ -38,7 +38,7 @@ export const BrandLandingPage: React.FC<BrandLandingPageProps> = ({
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left space-y-8 animate-in fade-in duration-300">
+    <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left space-y-8 animate-in fade-in duration-300">
       {/* Brand Header Banner */}
       <div className="rounded-3xl p-6 sm:p-10 bg-gradient-to-br from-pink-500/10 via-rose-500/5 to-transparent border border-pink-200/70 dark:border-pink-500/20 backdrop-blur-md relative overflow-hidden shadow-xs">
         <div className="absolute -top-16 -right-16 w-56 h-56 bg-pink-400/15 dark:bg-pink-600/10 rounded-full blur-3xl pointer-events-none" />

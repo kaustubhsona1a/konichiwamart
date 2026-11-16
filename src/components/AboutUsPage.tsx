@@ -55,7 +55,7 @@ export const AboutUsPage: React.FC<AboutUsPageProps> = ({
   ];
 
   return (
-    <div className="relative min-h-screen pt-20 sm:pt-24 pb-20 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-slate-800 dark:text-zinc-200">
+    <div className="relative z-10 min-h-screen pt-20 sm:pt-24 pb-20 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto text-slate-800 dark:text-zinc-200">
       
       {/* 1. EDITORIAL HEADER & FOUNDER STORY HERO */}
       <section className="relative rounded-3xl overflow-hidden bg-gradient-to-b from-white via-pink-50/40 to-white dark:from-[#141724] dark:via-[#1A1E2E] dark:to-[#141724] border border-pink-200/80 dark:border-zinc-800 p-6 sm:p-10 md:p-14 shadow-sm mb-12 sm:mb-16 text-left">

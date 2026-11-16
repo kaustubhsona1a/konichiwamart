@@ -58,7 +58,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const taxableSubtotal = subtotal - discountAmount;
   const cgst = Math.round((taxableSubtotal * 0.09));
   const sgst = Math.round((taxableSubtotal * 0.09));
-  const shippingFee = (subtotal >= freeShippingThreshold || subtotal === 0 || appliedPromo === '18MONKEYS') ? 0 : 99;
+  const shippingFee = (subtotal >= freeShippingThreshold || subtotal === 0 || appliedPromo === '18MONKEYS') ? 0 : 150;
   const finalTotal = Math.max(0, taxableSubtotal + shippingFee);
 
   const handleApplyPromo = (e: React.FormEvent) => {

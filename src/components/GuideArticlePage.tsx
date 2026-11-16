@@ -67,7 +67,7 @@ export const GuideArticlePage: React.FC<GuideArticlePageProps> = ({
   };
 
   return (
-    <article className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left space-y-8 animate-in fade-in duration-300">
+    <article className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 text-left space-y-8 animate-in fade-in duration-300">
       {/* Breadcrumb linking Home > Category > Guide */}
       <Breadcrumbs
         items={[
