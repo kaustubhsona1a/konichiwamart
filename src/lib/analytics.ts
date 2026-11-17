@@ -225,9 +225,14 @@ export function trackViewItemList(products: Product[], listName = 'Storefront Ca
     content_category: listName,
     content_list_id: listId || listName.toLowerCase().replace(/\s+/g, '_'),
     content_ids: previewItems.map(p => getMetaCatalogProductId(p)),
+    contents: previewItems.map(p => ({
+      id: getMetaCatalogProductId(p),
+      quantity: 1,
+      item_price: Number(p.price) || 0,
+    })),
     content_type: 'product_group',
     num_items: products.length,
-    value: categoryPreviewValue,
+    value: categoryPreviewValue > 0 ? categoryPreviewValue : 1,
     currency: 'INR',
   });
 }
@@ -355,7 +360,7 @@ export function trackCartStateMetrics(items: CartItem[], action: 'add' | 'increm
   const subtotalValue = items.reduce((sum, i) => sum + i.product.price * i.quantity, 0);
   const shippingFee = subtotalValue >= 1500 || subtotalValue === 0 ? 0 : 150;
 
-  sendMetaPixelCustomEvent('CartUpdated', {
+  const payload: Record<string, any> = {
     cart_action: action,
     cart_count: totalCount,
     num_items: totalCount,
@@ -365,14 +370,19 @@ export function trackCartStateMetrics(items: CartItem[], action: 'add' | 'increm
     cart_total_value: subtotalValue + shippingFee,
     qualifies_for_free_shipping: subtotalValue >= 1500,
     currency: 'INR',
-    content_type: 'product',
-    content_ids: items.map(i => getMetaCatalogProductId(i.product)),
-    contents: items.map(i => ({
+  };
+
+  if (items.length > 0) {
+    payload.content_type = 'product';
+    payload.content_ids = items.map(i => getMetaCatalogProductId(i.product));
+    payload.contents = items.map(i => ({
       id: getMetaCatalogProductId(i.product),
       quantity: i.quantity,
       item_price: i.product.price,
-    })),
-  });
+    }));
+  }
+
+  sendMetaPixelCustomEvent('CartUpdated', payload);
 }
 
 /**
@@ -386,19 +396,24 @@ export function trackViewCart(items: CartItem[], totalAmount: number) {
   });
 
   const totalCount = items.reduce((sum, i) => sum + i.quantity, 0);
-  sendMetaPixelCustomEvent('ViewCart', {
-    content_ids: items.map(i => getMetaCatalogProductId(i.product)),
-    contents: items.map(i => ({
-      id: getMetaCatalogProductId(i.product),
-      quantity: i.quantity,
-      item_price: i.product.price,
-    })),
-    content_type: 'product',
+  const payload: Record<string, any> = {
     cart_count: totalCount,
     num_items: totalCount,
     value: totalAmount,
     currency: 'INR',
-  });
+  };
+
+  if (items.length > 0) {
+    payload.content_type = 'product';
+    payload.content_ids = items.map(i => getMetaCatalogProductId(i.product));
+    payload.contents = items.map(i => ({
+      id: getMetaCatalogProductId(i.product),
+      quantity: i.quantity,
+      item_price: i.product.price,
+    }));
+  }
+
+  sendMetaPixelCustomEvent('ViewCart', payload);
 }
 
 /**
@@ -657,7 +672,7 @@ export function trackReviewSubmission(productId: string, rating: number) {
   });
 
   sendMetaPixelCustomEvent('SubmitReview', {
-    content_ids: [productId],
+    product_id: productId,
     rating,
   });
 }
