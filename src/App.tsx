@@ -127,6 +127,7 @@ import {
   trackSelectItem,
   trackAddToWishlist,
   trackSelectContent,
+  trackCartStateMetrics,
   setGAUser
 } from './lib/analytics';
 
@@ -1918,7 +1919,7 @@ export default function App() {
       quantity = 1;
     }
 
-    // GA4 Add to Cart
+    // GA4 & Meta Pixel Add to Cart
     trackAddToCart(product, quantity, shade?.name);
 
     setCart((prev) => {
@@ -1926,26 +1927,42 @@ export default function App() {
         (item) => item.product.id === product.id && item.selectedShade?.id === shade?.id
       );
 
+      let nextCart: CartItem[];
       if (existingIdx >= 0) {
         const updated = [...prev];
-        updated[existingIdx].quantity += quantity;
-        return updated;
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          quantity: updated[existingIdx].quantity + quantity
+        };
+        nextCart = updated;
+      } else {
+        nextCart = [
+          ...prev,
+          {
+            product,
+            quantity,
+            selectedShade: shade || (product.shades ? product.shades[0] : undefined)
+          }
+        ];
       }
 
-      return [
-        ...prev,
-        {
-          product,
-          quantity,
-          selectedShade: shade || (product.shades ? product.shades[0] : undefined)
-        }
-      ];
+      trackCartStateMetrics(nextCart, 'add');
+      return nextCart;
     });
   };
 
   const handleUpdateQuantity = (productId: string, delta: number, shadeId?: string) => {
+    const targetItem = cart.find(i => i.product.id === productId && i.selectedShade?.id === shadeId);
+    if (targetItem) {
+      if (delta > 0) {
+        trackAddToCart(targetItem.product, delta, targetItem.selectedShade?.name);
+      } else if (delta < 0) {
+        trackRemoveFromCart(targetItem.product, Math.min(targetItem.quantity, Math.abs(delta)), targetItem.selectedShade?.name);
+      }
+    }
+
     setCart((prev) => {
-      return prev
+      const nextCart = prev
         .map((item) => {
           if (item.product.id === productId && item.selectedShade?.id === shadeId) {
             const newQty = item.quantity + delta;
@@ -1954,6 +1971,9 @@ export default function App() {
           return item;
         })
         .filter(Boolean) as CartItem[];
+
+      trackCartStateMetrics(nextCart, delta > 0 ? 'increment' : 'decrement');
+      return nextCart;
     });
   };
 
@@ -1962,7 +1982,11 @@ export default function App() {
     if (targetItem) {
       trackRemoveFromCart(targetItem.product, targetItem.quantity, targetItem.selectedShade?.name);
     }
-    setCart((prev) => prev.filter(i => !(i.product.id === productId && i.selectedShade?.id === shadeId)));
+    setCart((prev) => {
+      const nextCart = prev.filter(i => !(i.product.id === productId && i.selectedShade?.id === shadeId));
+      trackCartStateMetrics(nextCart, 'remove');
+      return nextCart;
+    });
   };
 
   // Wishlist toggle
@@ -1995,7 +2019,7 @@ export default function App() {
     setIsCartOpen(false);
     setIsRazorpayOpen(true);
     const subtotal = cart.reduce((acc, item) => acc + item.product.price * item.quantity, 0);
-    trackBeginCheckout(cart, Math.max(0, subtotal - discountAmount));
+    trackBeginCheckout(cart, Math.max(0, subtotal - discountAmount), appliedPromo);
   };
 
   // On Razorpay Payment Success

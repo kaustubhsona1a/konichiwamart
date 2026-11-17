@@ -58,7 +58,9 @@ const DATA_DIR = path.join(process.cwd(), 'data');
 // Global HTTP Security Headers Middleware
 app.use((_req: Request, res: Response, next: () => void) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  if (process.env.VERCEL || process.env.VERCEL_ENV) {
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  }
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
@@ -5980,6 +5982,11 @@ app.get([
  * Vite integration & SPA server
  */
 async function startServer() {
+  // Bind port 3000 immediately so the preview proxy connects without delay
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+  });
+
   // Ensure default operator credentials exist in Supabase Auth
   ensureOperatorUserProvisioned().catch(() => {});
 
@@ -6024,10 +6031,6 @@ async function startServer() {
       return renderSeoHtml(req, res);
     });
   }
-
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server running on http://0.0.0.0:${PORT}`);
-  });
 }
 
 if (!process.env.VERCEL && !process.env.NOW_REGION && !process.env.VERCEL_ENV && !process.env.AWS_LAMBDA_FUNCTION_NAME && process.env.NODE_ENV !== 'test') { startServer(); }

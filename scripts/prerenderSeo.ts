@@ -86,10 +86,14 @@ async function runPrerender() {
     return;
   }
 
-  // Always read from clean _template.html if already saved, or save clean index.html first
-  const templateHtml = fs.existsSync(templatePath)
-    ? fs.readFileSync(templatePath, 'utf-8')
-    : fs.readFileSync(indexHtmlPath, 'utf-8');
+  // If dist/index.html is a fresh Vite build (no pre-rendered seo-crawler-page), update _template.html
+  const currentIndexHtml = fs.existsSync(indexHtmlPath) ? fs.readFileSync(indexHtmlPath, 'utf-8') : '';
+  const templateHtml =
+    currentIndexHtml && !currentIndexHtml.includes('seo-crawler-page')
+      ? currentIndexHtml
+      : fs.existsSync(templatePath)
+      ? fs.readFileSync(templatePath, 'utf-8')
+      : currentIndexHtml;
   fs.writeFileSync(templatePath, templateHtml, 'utf-8');
 
   const liveProducts = await fetchLiveProductsWithTimeout();
