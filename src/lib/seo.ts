@@ -682,11 +682,12 @@ export interface SeoPageMetadata {
   ogType?: 'website' | 'product' | 'article';
   jsonLd?: Record<string, any> | Record<string, any>[];
   noindex?: boolean;
+  product?: Product;
 }
 
 /**
  * Safe, client-side metadata updater for Single-Page App navigation
- * Updates document.title, canonical link, and OpenGraph/Twitter meta tags
+ * Updates document.title, canonical link, OpenGraph/Twitter meta tags, and Meta Commerce Product Microdata
  */
 export function updateClientSeoMetadata(seo: SeoPageMetadata): void {
   if (typeof document === 'undefined') return;
@@ -743,11 +744,25 @@ export function updateClientSeoMetadata(seo: SeoPageMetadata): void {
     canonical.setAttribute('href', seo.canonicalUrl);
   }
 
-  // 6. Social Image
+  // 6. Social Image & Meta Commerce Product Microdata
   const imgUrl = seo.ogImage || `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`;
   setMeta('og:image', imgUrl, true);
   setMeta('twitter:image', imgUrl);
   setMeta('og:type', seo.ogType || 'website', true);
+
+  if (seo.product) {
+    const brand = inferBrandFromProduct(seo.product);
+    const isInStock = (seo.product.stock ?? 0) > 0 && !seo.product.isComingSoon;
+    setMeta('product:retailer_item_id', getProductCanonicalSlug(seo.product), true);
+    setMeta('product:brand', (brand && brand.name) || seo.product.brand || 'Konichiwa Mart', true);
+    setMeta('product:availability', isInStock ? 'in stock' : 'out of stock', true);
+    setMeta('product:condition', 'new', true);
+    setMeta('product:price:amount', String(seo.product.price || 0), true);
+    setMeta('product:price:currency', 'INR', true);
+    setMeta('product:category', seo.product.category || 'Japanese Skincare', true);
+  } else {
+    document.querySelectorAll('meta[property^="product:"]').forEach((el) => el.remove());
+  }
 
   // 7. Dynamic JSON-LD injection
   if (seo.jsonLd) {

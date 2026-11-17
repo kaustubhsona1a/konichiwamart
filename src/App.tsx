@@ -778,7 +778,6 @@ export default function App() {
     if (typeof window === 'undefined') return;
     const rawPath = pathname.split('?')[0].replace(/\/+$/, '') || '/';
     const cleanPath = safeDecodeSlug(rawPath) || '/';
-    trackPageView(undefined, cleanPath);
 
     // 1. /products/:slug
     if (cleanPath.startsWith('/products/')) {
@@ -787,18 +786,21 @@ export default function App() {
 
       if (matched) {
         setInspectProduct(matched);
+        const pageTitle = getProductSeoTitle(matched);
         updateClientSeoMetadata({
-          title: getProductSeoTitle(matched),
+          title: pageTitle,
           description: getProductSeoDescription(matched),
           canonicalUrl: getProductCanonicalUrl(matched),
           ogImage: matched.image?.startsWith('http') ? matched.image : `${CANONICAL_SITE_URL}${matched.image?.startsWith('/') ? matched.image : `/${matched.image || 'products/keana-rice-mask.png'}`}`,
           ogType: 'product',
+          product: matched,
           jsonLd: [
             generateOrganizationJsonLd(),
             generateWebSiteJsonLd(),
             generateProductJsonLd(matched, appReviews)
           ]
         });
+        trackPageView(pageTitle, cleanPath);
       } else {
         updateClientSeoMetadata({
           title: 'Page Not Found (404) | Konichiwa Mart',
@@ -806,6 +808,7 @@ export default function App() {
           canonicalUrl: '',
           noindex: true
         });
+        trackPageView('Page Not Found (404) | Konichiwa Mart', cleanPath);
       }
       return;
     }
@@ -836,6 +839,7 @@ export default function App() {
             ])
           ]
         });
+        trackPageView(catInfo.title, cleanPath);
         return;
       }
       updateClientSeoMetadata({
@@ -843,6 +847,7 @@ export default function App() {
         description: 'The requested Japanese skincare collection could not be found.',
         canonicalUrl: ''
       });
+      trackPageView('Page Not Found (404) | Konichiwa Mart', cleanPath);
       return;
     }
 
@@ -871,6 +876,7 @@ export default function App() {
             ])
           ]
         });
+        trackPageView(b.title, cleanPath);
         return;
       }
       updateClientSeoMetadata({
@@ -878,6 +884,7 @@ export default function App() {
         description: 'The requested Japanese skincare brand could not be found.',
         canonicalUrl: ''
       });
+      trackPageView('Page Not Found (404) | Konichiwa Mart', cleanPath);
       return;
     }
 
@@ -906,6 +913,7 @@ export default function App() {
             ])
           ]
         });
+        trackPageView(g.title, cleanPath);
         return;
       }
       updateClientSeoMetadata({
@@ -913,6 +921,7 @@ export default function App() {
         description: 'The requested Japanese skincare guide could not be found.',
         canonicalUrl: ''
       });
+      trackPageView('Page Not Found (404) | Konichiwa Mart', cleanPath);
       return;
     }
 
@@ -922,14 +931,16 @@ export default function App() {
       setActiveBrandSlug(null);
       setActiveGuideSlug(null);
       setActiveCategorySlug(null);
+      const aboutTitle = 'About Konichiwa Mart | Authentic Japanese Skincare Dispensary India';
       updateClientSeoMetadata({
-        title: 'About Konichiwa Mart | Authentic Japanese Skincare Dispensary India',
+        title: aboutTitle,
         description: 'Learn about Konichiwa Mart: Direct Japanese imports of authentic Japanese skincare, sunscreens, and cosmetics. Zero middlemen, genuine expiration batches & express India delivery.',
         canonicalUrl: `${CANONICAL_SITE_URL}/about`,
         ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
         ogType: 'website',
         jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
       });
+      trackPageView(aboutTitle, cleanPath);
       return;
     }
 
@@ -946,30 +957,34 @@ export default function App() {
       setActiveBrandSlug(null);
       setActiveGuideSlug(null);
       setActiveCategorySlug(null);
+      const policyTitle = 'Refund, Return & Cancellation Policy | Konichiwa Mart';
       updateClientSeoMetadata({
-        title: 'Refund, Return & Cancellation Policy | Konichiwa Mart',
+        title: policyTitle,
         description: 'Read Konichiwa Mart 100% transparent 7-day return policy, instant refund processing timeline, and order cancellation terms across India.',
         canonicalUrl: `${CANONICAL_SITE_URL}/return-policy`,
         ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
         ogType: 'website',
         jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
       });
+      trackPageView(policyTitle, cleanPath);
       return;
     }
 
-    // 6. Default Homepage / Storefront
+    // 7. Default Homepage / Storefront
     setCurrentPage('store');
     setActiveBrandSlug(null);
     setActiveGuideSlug(null);
     setActiveCategorySlug(null);
+    const homeTitle = 'Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India';
     updateClientSeoMetadata({
-      title: 'Konichiwa Mart | Authentic Japanese Skincare & Cosmetics India',
+      title: homeTitle,
       description: 'Shop 100% authentic Japanese skincare, sunscreens, serums & cosmetics in India. Direct Japanese imports: Hada Labo, Bioré, LuLuLun, Melano CC, Senka & Fino with fast shipping.',
       canonicalUrl: `${CANONICAL_SITE_URL}/`,
       ogImage: `${CANONICAL_SITE_URL}/konichiwalaptopbackground.png`,
       ogType: 'website',
       jsonLd: [generateOrganizationJsonLd(), generateWebSiteJsonLd()]
     });
+    trackPageView(homeTitle, cleanPath);
   };
 
   // Sync on initial mount & handle popstate for browser back/forward buttons

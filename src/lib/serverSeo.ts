@@ -37,6 +37,15 @@ export interface SeoMetadataPayload {
   h1: string;
   crawlerHtml: string;
   status: number;
+  productMeta?: {
+    retailerItemId: string;
+    brand: string;
+    availability: 'in stock' | 'out of stock';
+    condition: 'new';
+    priceAmount: string;
+    priceCurrency: 'INR';
+    category: string;
+  };
 }
 
 /**
@@ -269,7 +278,16 @@ export function resolveSeoPayload(urlPath: string, liveProducts: Product[] = [])
         jsonLd: [orgSchema, webSiteSchema, breadcrumbJsonLd, productJsonLd],
         h1: product.title,
         crawlerHtml,
-        status: 200
+        status: 200,
+        productMeta: {
+          retailerItemId: getProductCanonicalSlug(product),
+          brand: (brand && brand.name) || product.brand || 'Konichiwa Mart',
+          availability: isInStock ? 'in stock' : 'out of stock',
+          condition: 'new',
+          priceAmount: String(product.price || 0),
+          priceCurrency: 'INR',
+          category: product.category || categoryName || 'Japanese Skincare'
+        }
       };
     }
 
@@ -786,6 +804,24 @@ export function injectSeoIntoHtml(html: string, urlPath: string, liveProducts: P
     /<meta\s+property=["']og:type["']\s+content=["'].*?["']\s*\/?>/is,
     `<meta property="og:type" content="${escapeAttr(seo.ogType)}" />`
   );
+
+  // 4b. Inject Meta Commerce Manager OpenGraph Product Microdata tags when ogType === 'product'
+  modified = modified.replace(/\s*<meta\s+property=["']product:[^"']+["']\s+content=["'][^"']*["']\s*\/?>/gi, '');
+  if (seo.productMeta) {
+    const productOgTags = [
+      `    <meta property="product:retailer_item_id" content="${escapeAttr(seo.productMeta.retailerItemId)}" />`,
+      `    <meta property="product:brand" content="${escapeAttr(seo.productMeta.brand)}" />`,
+      `    <meta property="product:availability" content="${escapeAttr(seo.productMeta.availability)}" />`,
+      `    <meta property="product:condition" content="${escapeAttr(seo.productMeta.condition)}" />`,
+      `    <meta property="product:price:amount" content="${escapeAttr(seo.productMeta.priceAmount)}" />`,
+      `    <meta property="product:price:currency" content="${escapeAttr(seo.productMeta.priceCurrency)}" />`,
+      `    <meta property="product:category" content="${escapeAttr(seo.productMeta.category)}" />`
+    ].join('\n');
+    modified = modified.replace(
+      /(<meta\s+property=["']og:type["']\s+content=["'].*?["']\s*\/?>)/is,
+      `$1\n${productOgTags}`
+    );
+  }
 
   // 5. Replace Twitter Cards
   modified = modified.replace(
