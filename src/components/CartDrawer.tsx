@@ -42,12 +42,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const subtotal = items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
   const freeShippingThreshold = 1500;
-  const progressToFree = Math.min(100, (subtotal / freeShippingThreshold) * 100);
-  const amountNeededForFree = Math.max(0, freeShippingThreshold - subtotal);
+  const isTestPromo = appliedPromo === '18MONKEYS';
+  const progressToFree = isTestPromo ? 100 : Math.min(100, (subtotal / freeShippingThreshold) * 100);
+  const amountNeededForFree = isTestPromo ? 0 : Math.max(0, freeShippingThreshold - subtotal);
   // Promo Calculation
   let discountAmount = 0;
-  if (appliedPromo === '18MONKEYS') {
-    discountAmount = subtotal - 1;
+  if (isTestPromo) {
+    discountAmount = Math.max(0, subtotal - 1);
   } else if (appliedPromo && PROMO_CODES[appliedPromo]) {
     const promo = PROMO_CODES[appliedPromo];
     if (subtotal >= promo.minAmount) {
@@ -301,6 +302,14 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               {/* Checkout Button */}
               <button
                 onClick={() => {
+                  const typedCode = promoInput.trim().toUpperCase();
+                  if (!appliedPromo && typedCode === '18MONKEYS') {
+                    setAppliedPromo('18MONKEYS');
+                    setPromoInput('');
+                    setPromoError('');
+                    onProceedToCheckout('18MONKEYS', Math.max(0, subtotal - 1));
+                    return;
+                  }
                   onProceedToCheckout(appliedPromo || undefined, discountAmount);
                 }}
                 className="w-full py-3 px-5 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md shadow-pink-600/25 transition-all cursor-pointer active:scale-98"

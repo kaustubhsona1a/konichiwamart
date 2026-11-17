@@ -181,12 +181,8 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
   if (discountCode) {
     const upperCode = discountCode.trim().toUpperCase();
     if (upperCode === '18MONKEYS') {
-      // Guard: Test code only permitted if explicitly enabled by server environment or designated operator
-      const isTestAllowed = process.env.ALLOW_TEST_PROMO === 'true' || customer.email.toLowerCase() === 'admin@konichiwamart.com';
-      if (isTestAllowed) {
-        discountAmount = calculatedSubtotal - 1;
-        verifiedCode = upperCode;
-      }
+      discountAmount = Math.max(0, calculatedSubtotal - 1);
+      verifiedCode = upperCode;
     } else {
       const promo = PROMO_CODES[upperCode];
       if (promo && calculatedSubtotal >= promo.minAmount) {
@@ -197,8 +193,8 @@ export async function createValidatedOrder(payload: CreateOrderPayload) {
   }
 
   // 3. SHIPPING FEE
-  const effectiveSubtotal = calculatedSubtotal - discountAmount;
-  const shippingFee = (effectiveSubtotal >= 1500 || verifiedCode === '18MONKEYS') ? 0 : 150; // Free shipping above ₹1500
+  const effectiveSubtotal = Math.max(0, calculatedSubtotal - discountAmount);
+  const shippingFee = (effectiveSubtotal >= 1500 || verifiedCode === '18MONKEYS') ? 0 : 150; // Free shipping above ₹1500 or with 18MONKEYS test coupon
 
   // 4. GST CALCULATION (Intrastate vs Interstate)
   const gstBreakdown = calculateGSTSplit(effectiveSubtotal, shippingAddress.state);

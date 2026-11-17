@@ -55,16 +55,16 @@ const PORT = Number(process.env.PORT) || 3000;
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 
-// Global HTTP Security Headers Middleware
+// Global HTTP Security Headers Middleware (scoped to production so AI Studio preview iframe proxy is unaffected)
 app.use((_req: Request, res: Response, next: () => void) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
   if (process.env.VERCEL || process.env.VERCEL_ENV) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
   }
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
   next();
 });
 

@@ -37,6 +37,22 @@ export function sendGAEvent(eventName: string, eventParams: Record<string, any> 
 }
 
 /**
+ * Normalizes Meta Pixel event parameters so any event with `currency` always includes a valid numeric `value`
+ */
+function normalizeMetaEventParams(eventParams: Record<string, any> = {}): Record<string, any> {
+  const normalized: Record<string, any> = { ...eventParams };
+  if (normalized.currency !== undefined || normalized.value !== undefined) {
+    const rawVal =
+      normalized.value !== undefined && normalized.value !== null
+        ? Number(normalized.value)
+        : Number(normalized.cart_subtotal ?? normalized.cart_total_value ?? 0);
+    normalized.value = Number.isFinite(rawVal) ? Number(rawVal.toFixed(2)) : 0;
+    normalized.currency = normalized.currency || 'INR';
+  }
+  return normalized;
+}
+
+/**
  * Safe helper to trigger Standard Meta Pixel events: fbq('track', eventName, params, options)
  */
 export function sendMetaPixelEvent(
@@ -46,10 +62,11 @@ export function sendMetaPixelEvent(
 ) {
   try {
     if (typeof window !== 'undefined' && typeof window.fbq === 'function') {
+      const normalized = eventName === 'PageView' ? eventParams : normalizeMetaEventParams(eventParams);
       if (options && options.eventID) {
-        window.fbq('track', eventName, eventParams, options);
+        window.fbq('track', eventName, normalized, options);
       } else {
-        window.fbq('track', eventName, eventParams);
+        window.fbq('track', eventName, normalized);
       }
     }
   } catch (err) {
@@ -63,7 +80,8 @@ export function sendMetaPixelEvent(
 export function sendMetaPixelCustomEvent(eventName: string, eventParams: Record<string, any> = {}) {
   try {
     if (typeof window !== 'undefined' && typeof window.fbq === 'function') {
-      window.fbq('trackCustom', eventName, eventParams);
+      const normalized = normalizeMetaEventParams(eventParams);
+      window.fbq('trackCustom', eventName, normalized);
     }
   } catch (err) {
     console.debug('Meta Pixel Custom Event dispatch error:', err);
@@ -201,12 +219,15 @@ export function trackViewItemList(products: Product[], listName = 'Storefront Ca
     items,
   });
 
+  const previewItems = topProducts.slice(0, 10);
+  const categoryPreviewValue = previewItems.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
   sendMetaPixelCustomEvent('ViewCategory', {
     content_category: listName,
     content_list_id: listId || listName.toLowerCase().replace(/\s+/g, '_'),
-    content_ids: topProducts.slice(0, 10).map(p => getMetaCatalogProductId(p)),
+    content_ids: previewItems.map(p => getMetaCatalogProductId(p)),
     content_type: 'product_group',
     num_items: products.length,
+    value: categoryPreviewValue,
     currency: 'INR',
   });
 }
@@ -338,11 +359,13 @@ export function trackCartStateMetrics(items: CartItem[], action: 'add' | 'increm
     cart_action: action,
     cart_count: totalCount,
     num_items: totalCount,
+    value: subtotalValue,
     cart_subtotal: subtotalValue,
     shipping_fee: shippingFee,
     cart_total_value: subtotalValue + shippingFee,
     qualifies_for_free_shipping: subtotalValue >= 1500,
     currency: 'INR',
+    content_type: 'product',
     content_ids: items.map(i => getMetaCatalogProductId(i.product)),
     contents: items.map(i => ({
       id: getMetaCatalogProductId(i.product),

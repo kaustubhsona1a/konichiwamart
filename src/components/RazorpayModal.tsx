@@ -129,9 +129,12 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
     state?: string;
   } | null>(null);
 
-  // Price calculations
-  const taxableAmount = subtotal - discountAmount;
-  const grandTotal = Math.max(0, taxableAmount + shippingFee);
+  // Price calculations (18MONKEYS test coupon waives shipping to 0 and sets payable to ₹1)
+  const isTestPromo = (discountCode || '').trim().toUpperCase() === '18MONKEYS';
+  const effectiveShippingFee = isTestPromo ? 0 : shippingFee;
+  const effectiveDiscountAmount = isTestPromo ? Math.max(0, subtotal - 1) : discountAmount;
+  const taxableAmount = Math.max(0, subtotal - effectiveDiscountAmount);
+  const grandTotal = Math.max(0, taxableAmount + effectiveShippingFee);
   const amountInPaise = Math.round(grandTotal * 100);
   const cgst = Math.round(taxableAmount * 0.09);
   const sgst = Math.round(taxableAmount * 0.09);
@@ -607,8 +610,8 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
       subtotal,
       cgst,
       sgst,
-      shippingFee,
-      discountAmount,
+      shippingFee: effectiveShippingFee,
+      discountAmount: effectiveDiscountAmount,
       discountCode,
       totalAmount: grandTotal,
       paymentMethod: method,
@@ -1317,10 +1320,10 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                 <span>{formatINR(subtotal)}</span>
               </div>
 
-              {discountAmount > 0 && (
+              {effectiveDiscountAmount > 0 && (
                 <div className="flex justify-between text-emerald-700 dark:text-emerald-400 font-medium">
                   <span>Coupon Savings ({discountCode})</span>
-                  <span>-{formatINR(discountAmount)}</span>
+                  <span>-{formatINR(effectiveDiscountAmount)}</span>
                 </div>
               )}
 
@@ -1334,7 +1337,7 @@ export const RazorpayModal: React.FC<RazorpayModalProps> = ({
                   <span>Delivery details would be sent through email</span>
                   <span className="block text-[10px] text-slate-500 dark:text-zinc-400">5-7 business days for delivery</span>
                 </div>
-                <span>{shippingFee === 0 ? <strong className="text-emerald-700 dark:text-emerald-400">FREE</strong> : formatINR(shippingFee)}</span>
+                <span>{effectiveShippingFee === 0 ? <strong className="text-emerald-700 dark:text-emerald-400">FREE</strong> : formatINR(effectiveShippingFee)}</span>
               </div>
 
               <div className="flex justify-between font-bold text-sm text-slate-900 dark:text-zinc-100 pt-2 border-t border-slate-200 dark:border-zinc-700">
